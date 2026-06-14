@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDEAQR Digital Gateway — Operations Console</title>
+    <style>
+        :root {
+            --bg: #07090F;
+            --panel: #0D111C;
+            --panel-2: #111726;
+            --border: #1E2740;
+            --cyan: #00C8E0;
+            --green: #00D474;
+            --red: #FF4040;
+            --amber: #FFB020;
+            --text: #C8D4E8;
+            --text-dim: #6B7894;
+            --text-faint: #3E4860;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: "SF Mono", "Roboto Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+            background-image:
+                radial-gradient(circle at 20% 0%, rgba(0, 200, 224, 0.04), transparent 40%),
+                radial-gradient(circle at 80% 100%, rgba(0, 212, 116, 0.03), transparent 40%);
+        }
+
+        .wrap {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 24px 20px 60px;
+        }
+
+        /* ---------- Header ---------- */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand .glyph {
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--cyan);
+            display: grid;
+            place-items: center;
+            color: var(--cyan);
+            font-size: 18px;
+            box-shadow: 0 0 14px rgba(0, 200, 224, 0.25);
+            position: relative;
+        }
+
+        .brand .glyph::after {
+            content: "";
+            position: absolute;
+            inset: 4px;
+            border: 1px solid rgba(0, 200, 224, 0.3);
+        }
+
+        .brand h1 {
+            font-size: 16px;
+            letter-spacing: 1px;
+            font-weight: 600;
+            color: #EAF2FF;
+        }
+
+        .brand .sub {
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--border);
+            padding: 8px 14px;
+            font-size: 12px;
+            background: var(--panel);
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-faint);
+            box-shadow: 0 0 0 0 rgba(0, 212, 116, 0.5);
+        }
+
+        .dot.live {
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        .dot.down {
+            background: var(--red);
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0.5); }
+            70% { box-shadow: 0 0 0 7px rgba(0, 212, 116, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0); }
+        }
+
+        /* ---------- Layout ---------- */
+        .grid {
+            display: grid;
+            grid-template-columns: 1.15fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 18px;
+        }
+
+        .panel h2 {
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--cyan);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel h2::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            background: var(--cyan);
+        }
+
+        /* ---------- Presets ---------- */
+        .preset-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .presets {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .preset {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px 14px;
+            text-align: left;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.15s;
+        }
+
+        .preset:hover {
+            border-color: var(--cyan);
+            background: #131a2c;
+        }
+
+        .preset .pt {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .preset .pd {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 0.5px;
+        }
+
+        .preset.doctor .pt { color: var(--green); }
+        .preset.engineer .pt { color: var(--cyan); }
+        .preset.citizen .pt { color: var(--amber); }
+        .preset.guest .pt { color: var(--text-dim); }
+
+        /* ---------- Form ---------- */
+        .field {
+            margin-bottom: 14px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+
+        .field input,
+        .field select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 12px;
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .field input:focus,
+        .field select:focus {
+            border-color: var(--cyan);
+        }
+
+        .field input::placeholder {
+            color: var(--text-faint);
+        }
+
+        .hint {
+            font-size: 10px;
+            color: var(--text-faint);
+            margin-top: 5px;
+        }
+
+        .submit {
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--cyan);
+            color: var(--cyan);
+            padding: 13px;
+            font-family: inherit;
+            font-size: 13px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 4px;
+        }
+
+        .submit:hover {
+            background: var(--cyan);
+            color: var(--bg);
+            box-shadow: 0 0 18px rgba(0, 200, 224, 0.4);
+        }
+
+        .submit:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ---------- Result verdict ---------- */
+        .verdict {
+            border: 1px solid var(--border);
+            padding: 16px;
+            margin-bottom: 18px;
+            min-height: 86px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            background: var(--panel-2);
+        }
+
+        .verdict.idle {
+            color: var(--text-faint);
+            align-items: center;
+            text-align: center;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .verdict .vtop {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .badge {
+            padding: 5px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border: 1px solid;
+        }
+
+        .badge.APPROVED { color: var(--green); border-color: var(--green); }
+        .badge.REJECTED { color: var(--red); border-color: var(--red); }
+        .badge.REVIEW { color: var(--amber); border-color: var(--amber); }
+
+        .verdict .reason {
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        .verdict .vmeta {
+            margin-top: 10px;
+            font-size: 10px;
+            color: var(--text-faint);
+            word-break: break-all;
+            line-height: 1.6;
+        }
+
+        .verdict .vmeta b {
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        /* ---------- Pipeline chain ---------- */
+        .chain-label {
+            font-size: 10px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+        }
+
+        .chain {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+            flex-wrap: wrap;
+        }
+
+        .node {
+            flex: 1;
+            min-width: 80px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            padding: 12px 6px;
+            text-align: center;
+            position: relative;
+            opacity: 0.25;
+            transition: all 0.3s;
+        }
+
+        .node .nt {
+            font-size: 9px;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .node .nv {
+            font-size: 11px;
+            margin-top: 4px;
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .node.lit {
+            opacity: 1;
+            border-color: var(--cyan);
+            box-shadow: 0 0 12px rgba(0, 200, 224, 0.25);
+        }
+
+        .node.lit.ok { border-color: var(--green); box-shadow: 0 0 12px rgba(0, 212, 116, 0.3); }
+        .node.lit.ok .nv { color: var(--green); }
+        .node.lit.bad { border-color: var(--red); box-shadow: 0 0 12px rgba(255, 64, 64, 0.3); }
+        .node.lit.bad .nv { color: var(--red); }
+
+        .arrow {
+            display: flex;
+            align-items: center;
+            color: var(--text-faint);
+            padding: 0 4px;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .arrow.lit { color: var(--cyan); }
+
+        @media (max-width: 520px) {
+            .chain { flex-direction: column; }
+            .arrow { transform: rotate(90deg); padding: 4px 0; justify-content: center; }
+            .node { min-width: 0; }
+        }
+
+        /* ---------- Audit table ---------- */
+        .audit-panel {
+            margin-top: 20px;
+        }
+
+        .audit-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .refresh {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 7px 14px;
+            font-family: inherit;
+            font-size: 11px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        .refresh:hover { border-color: var(--cyan); color: var(--cyan); }
+
+        .table-scroll {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        thead th {
+            background: var(--panel-2);
+            color: var(--text-dim);
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 10px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 9px 12px;
+            border-bottom: 1px solid rgba(30, 39, 64, 0.5);
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        tbody tr:hover { background: rgba(0, 200, 224, 0.04); }
+
+        .uuid {
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+
+        .evt {
+            color: var(--cyan);
+            font-size: 11px;
+        }
+
+        .tag {
+            font-size: 10px;
+            padding: 2px 8px;
+            border: 1px solid;
+            letter-spacing: 0.5px;
+        }
+
+        .tag.GRANTED, .tag.APPROVED { color: var(--green); border-color: var(--green); }
+        .tag.DENIED, .tag.REJECTED { color: var(--red); border-color: var(--red); }
+        .tag.REVIEW { color: var(--amber); border-color: var(--amber); }
+        .tag.INFO { color: var(--text-dim); border-color: var(--border); }
+
+        .empty {
+            text-align: center;
+            color: var(--text-faint);
+            padding: 30px;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .ts { color: var(--text-faint); font-size: 11px; }
+
+        /* ---------- Toast / loading ---------- */
+        .loading-bar {
+            height: 2px;
+            background: var(--border);
+            margin-bottom: 18px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .loading-bar.on { display: block; }
+
+        .loading-bar i {
+            display: block;
+            height: 100%;
+            width: 30%;
+            background: var(--cyan);
+            animation: slide 1s infinite linear;
+        }
+
+        @keyframes slide {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        footer {
+            margin-top: 36px;
+            text-align: center;
+            color: var(--text-faint);
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+
+        footer a { color: var(--text-dim); text-decoration: none; }
+        footer a:hover { color: var(--cyan); }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <!-- ============ HEADER ============ -->
+    <header>
+        <div class="brand">
+            <div class="glyph">◈</div>
+            <div>
+                <h1>IDEAQR · DIGITAL GATEWAY</h1>
+                <div class="sub">Operations Console — Stage 2</div>
+            </div>
+        </div>
+        <div class="status-pill">
+            <span id="healthDot" class="dot"></span>
+            <span id="healthText">CONNECTING…</span>
+        </div>
+    </header>
+
+    <div class="loading-bar" id="loadingBar"><i></i></div>
+
+    <!-- ============ MAIN GRID ============ -->
+    <div class="grid">
+
+        <!-- LEFT: control panel -->
+        <section class="panel">
+            <h2>Access Request Console</h2>
+
+            <div class="preset-label">QUICK SCENARIOS — SCAN AS IDENTITY</div>
+            <div class="presets">
+                <button class="preset engineer" onclick="applyPreset('engineer')">
+                    <span class="pt">⚙ ENGINEER</span>
+                    <span class="pd">INFRA_ access · 08:00–18:00</span>
+                </button>
+                <button class="preset doctor" onclick="applyPreset('doctor')">
+                    <span class="pt">✚ DOCTOR</span>
+                    <span class="pd">MED_ medical access</span>
+                </button>
+                <button class="preset citizen" onclick="applyPreset('citizen')">
+                    <span class="pt">◎ CITIZEN</span>
+                    <span class="pd">CIV_ civil services</span>
+                </button>
+                <button class="preset guest" onclick="applyPreset('guest')">
+                    <span class="pt">? GUEST</span>
+                    <span class="pd">unregistered · auto-provision</span>
+                </button>
+            </div>
+
+            <div class="field">
+                <label>Identity UID</label>
+                <input type="text" id="identityUid" placeholder="leave empty for GUEST scan">
+                <div class="hint" id="identityHint">Empty → backend creates a GUEST identity on the fly.</div>
+            </div>
+
+            <div class="field">
+                <label>Object UID (target)</label>
+                <input type="text" id="objectUid" placeholder="INFRA_WAREHOUSE_7">
+                <div class="hint">Prefix maps to a sector: MED_ · INFRA_ · FIN_ · CIV_ · ADM_</div>
+            </div>
+
+            <div class="field">
+                <label>Request Type</label>
+                <select id="requestType">
+                    <option value="OBJECT_ACCESS">OBJECT_ACCESS</option>
+                    <option value="INFRASTRUCTURE_ACCESS">INFRASTRUCTURE_ACCESS</option>
+                    <option value="MEDICAL_ACCESS">MEDICAL_ACCESS</option>
+                    <option value="FINANCE_ACCESS">FINANCE_ACCESS</option>
+                    <option value="QR_CREATION">QR_CREATION</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label>Interaction Type</label>
+                <input type="text" id="interactionType" placeholder="PHYSICAL_GATE" value="PHYSICAL_GATE">
+            </div>
+
+            <button class="submit" id="scanBtn" onclick="submitScan()">▶ Execute Scan</button>
+        </section>
+
+        <!-- RIGHT: verdict + pipeline -->
+        <section class="panel">
+            <h2>Gateway Decision</h2>
+
+            <div class="verdict idle" id="verdict">
+                AWAITING REQUEST — RUN A SCAN OR PICK A SCENARIO
+            </div>
+
+            <div class="chain-label">PROCESSING PIPELINE</div>
+            <div class="chain" id="chain">
+                <div class="node" data-node="identity">
+                    <div class="nt">Identity</div>
+                    <div class="nv">—</div>
+                </div>
+                <div class="arrow">──▶</div>
+                <div class="node" data-node="request">
+                    <div class="nt">Request</div>
+                    <div class="nv">—</div>
+                </div>
+                <div class="arrow">──▶</div>
+                <div class="node" data-node="decision">
+                    <div class="nt">Decision</div>
+                    <div class="nv">—</div>
+                </div>
+                <div class="arrow">──▶</div>
+                <div class="node" data-node="access">
+                    <div class="nt">QR / Access</div>
+                    <div class="nv">—</div>
+                </div>
+                <div class="arrow">──▶</div>
+                <div class="node" data-node="history">
+                    <div class="nt">History</div>
+                    <div class="nv">—</div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ============ AUDIT JOURNAL ============ -->
+    <section class="panel audit-panel">
+        <div class="audit-head">
+            <h2 style="margin-bottom:0;">Immutable History Journal</h2>
+            <button class="refresh" onclick="loadAudit()">↻ Refresh</button>
+        </div>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>History UID</th>
+                        <th>Event Type</th>
+                        <th>Status</th>
+                        <th>Interaction UID</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="auditBody">
+                    <tr><td colspan="5" class="empty">No events loaded yet.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <footer>
+        IDEAQR Digital Gateway · Stage 2 · Identity → Request → Decision → QR → Assignment → Interaction → History<br>
+        <a href="/api/v2/health" target="_blank">/api/v2/health</a> ·
+        <a href="/api/v2/identities" target="_blank">/api/v2/identities</a> ·
+        <a href="/api/v2/audit" target="_blank">/api/v2/audit</a>
+    </footer>
+
+</div>
+
+<script>
+    "use strict";
+
+    // Same-origin API base. The page is served by Spring from /static, so "" works.
+    const API = "/api/v2";
+
+    // Seeded identities (from DataSeeder on the backend).
+    const SEED = {
+        engineer: "11111111-1111-1111-1111-111111111111", // ENGINEER + CITIZEN
+        doctor:   "22222222-2222-2222-2222-222222222222"  // DOCTOR + CITIZEN
+    };
+
+    // A CITIZEN identity is created at runtime (no seed for citizen-only).
+    let citizenUid = null;
+
+    const $ = (id) => document.getElementById(id);
+
+    // ---------- Health check ----------
+    async function checkHealth() {
+        try {
+            const r = await fetch(API + "/health");
+            const j = await r.json();
+            if (j.status === "UP") {
+                $("healthDot").className = "dot live";
+                $("healthText").textContent = "GATEWAY ONLINE";
+            } else {
+                throw new Error("not up");
+            }
+        } catch (e) {
+            $("healthDot").className = "dot down";
+            $("healthText").textContent = "GATEWAY OFFLINE";
+        }
+    }
+
+    // ---------- Ensure a CITIZEN identity exists ----------
+    async function ensureCitizen() {
+        if (citizenUid) return citizenUid;
+        try {
+            const r = await fetch(API + "/identities", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roles: ["CITIZEN"] })
+            });
+            if (!r.ok) throw new Error("register failed");
+            const j = await r.json();
+            citizenUid = j.identityUid;
+            return citizenUid;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ---------- Presets ----------
+    async function applyPreset(kind) {
+        if (kind === "engineer") {
+            $("identityUid").value = SEED.engineer;
+            $("objectUid").value = "INFRA_WAREHOUSE_7";
+            $("requestType").value = "INFRASTRUCTURE_ACCESS";
+            $("interactionType").value = "PHYSICAL_GATE";
+        } else if (kind === "doctor") {
+            $("identityUid").value = SEED.doctor;
+            $("objectUid").value = "MED_WARD_3";
+            $("requestType").value = "MEDICAL_ACCESS";
+            $("interactionType").value = "WARD_TERMINAL";
+        } else if (kind === "citizen") {
+            const uid = await ensureCitizen();
+            $("identityUid").value = uid || "";
+            $("objectUid").value = "CIV_PORTAL_1";
+            $("requestType").value = "OBJECT_ACCESS";
+            $("interactionType").value = "CITIZEN_PORTAL";
+        } else if (kind === "guest") {
+            $("identityUid").value = "";
+            $("objectUid").value = "CIV_PORTAL_1";
+            $("requestType").value = "OBJECT_ACCESS";
+            $("interactionType").value = "ANON_SCAN";
+        }
+        updateHint();
+    }
+
+    function updateHint() {
+        const v = $("identityUid").value.trim();
+        $("identityHint").textContent = v
+            ? "Registered identity — roles checked by the rules engine."
+            : "Empty → backend creates a GUEST identity on the fly.";
+    }
+    $("identityUid").addEventListener("input", updateHint);
+
+    // ---------- Submit a scan ----------
+    async function submitScan() {
+        const objectUid = $("objectUid").value.trim();
+        if (!objectUid) {
+            flashVerdict("REJECTED", "objectUid is required before executing a scan.");
+            return;
+        }
+
+        const payload = {
+            objectUid: objectUid,
+            requestType: $("requestType").value,
+            interactionType: $("interactionType").value.trim() || "SCAN"
+        };
+        const idv = $("identityUid").value.trim();
+        if (idv) payload.identityUid = idv;
+
+        setLoading(true);
+        resetChain();
+        $("scanBtn").disabled = true;
+
+        try {
+            const r = await fetch(API + "/scan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const j = await r.json();
+
+            if (!r.ok) {
+                // Backend returned an ApiError shape (status/error/message).
+                const msg = j.message || j.error || ("HTTP " + r.status);
+                flashVerdict("REJECTED", msg);
+                setLoading(false);
+                $("scanBtn").disabled = false;
+                return;
+            }
+
+            renderVerdict(j);
+            await animateChain(j);
+            await loadAudit();
+        } catch (e) {
+            flashVerdict("REJECTED", "Network error: " + e.message);
+        } finally {
+            setLoading(false);
+            $("scanBtn").disabled = false;
+        }
+    }
+
+    // ---------- Render verdict block ----------
+    function renderVerdict(j) {
+        const result = j.result || "REVIEW";
+        const v = $("verdict");
+        v.className = "verdict";
+        v.innerHTML =
+            '<div class="vtop">' +
+                '<span class="badge ' + result + '">' + result + '</span>' +
+                '<span style="color:var(--text-dim);font-size:12px;">' + escapeHtml(j.objectUid || "") + '</span>' +
+            '</div>' +
+            '<div class="reason">' + escapeHtml(j.reason || "") + '</div>' +
+            '<div class="vmeta">' +
+                '<b>identity</b> ' + shortUuid(j.identityUid) + '  ·  ' +
+                '<b>request</b> ' + shortUuid(j.requestUid) + '<br>' +
+                '<b>decision</b> ' + shortUuid(j.decisionUid) + '  ·  ' +
+                '<b>interaction</b> ' + shortUuid(j.interactionUid) +
+            '</div>';
+    }
+
+    function flashVerdict(result, reason) {
+        const v = $("verdict");
+        v.className = "verdict";
+        v.innerHTML =
+            '<div class="vtop"><span class="badge ' + result + '">' + result + '</span></div>' +
+            '<div class="reason">' + escapeHtml(reason) + '</div>';
+    }
+
+    // ---------- Animated pipeline ----------
+    function resetChain() {
+        document.querySelectorAll("#chain .node").forEach(n => {
+            n.className = "node";
+            n.querySelector(".nv").textContent = "—";
+        });
+        document.querySelectorAll("#chain .arrow").forEach(a => a.className = "arrow");
+    }
+
+    function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+    async function animateChain(j) {
+        const approved = j.result === "APPROVED";
+        const nodes = document.querySelectorAll("#chain .node");
+        const arrows = document.querySelectorAll("#chain .arrow");
+
+        const values = {
+            identity: j.identityUid ? j.identityUid.slice(0, 8) : "GUEST",
+            request: (j.requestUid ? j.requestUid.slice(0, 8) : "—"),
+            decision: j.result || "—",
+            access: approved ? "GRANTED" : "BLOCKED",
+            history: "LOGGED"
+        };
+
+        const order = ["identity", "request", "decision", "access", "history"];
+
+        for (let i = 0; i < order.length; i++) {
+            const node = nodes[i];
+            const key = order[i];
+            node.querySelector(".nv").textContent = values[key];
+
+            // The decision and access nodes carry the colour of the verdict.
+            if (key === "decision" || key === "access") {
+                node.classList.add("lit", approved ? "ok" : "bad");
+            } else {
+                node.classList.add("lit");
+            }
+
+            if (i < arrows.length) arrows[i].classList.add("lit");
+            await delay(260);
+
+            // If rejected, stop lighting the "access" path with green — and halt the QR/access node visually.
+            if (!approved && key === "decision") {
+                // Still show the remaining nodes but as blocked, no early exit so HISTORY always lights.
+            }
+        }
+    }
+
+    // ---------- Audit journal ----------
+    async function loadAudit() {
+        try {
+            const r = await fetch(API + "/audit");
+            const list = await r.json();
+            const body = $("auditBody");
+
+            if (!Array.isArray(list) || list.length === 0) {
+                body.innerHTML = '<tr><td colspan="5" class="empty">No events recorded yet.</td></tr>';
+                return;
+            }
+
+            body.innerHTML = list.map(rowToHtml).join("");
+        } catch (e) {
+            $("auditBody").innerHTML =
+                '<tr><td colspan="5" class="empty">Failed to load audit: ' + escapeHtml(e.message) + '</td></tr>';
+        }
+    }
+
+    function rowToHtml(h) {
+        const evt = h.eventType || "EVENT";
+        return '<tr>' +
+            '<td class="uuid">' + shortUuid(h.historyUid) + '</td>' +
+            '<td class="evt">' + escapeHtml(evt) + '</td>' +
+            '<td>' + statusTag(evt) + '</td>' +
+            '<td class="uuid">' + (h.interactionUid ? shortUuid(h.interactionUid) : '<span style="color:var(--text-faint)">—</span>') + '</td>' +
+            '<td class="ts">' + formatTs(h.createdAt) + '</td>' +
+        '</tr>';
+    }
+
+    // Map an event type string to a coloured status tag.
+    function statusTag(evt) {
+        const e = (evt || "").toUpperCase();
+        if (e.includes("GRANTED")) return '<span class="tag GRANTED">GRANTED</span>';
+        if (e.includes("DENIED") || e.includes("REJECTED")) return '<span class="tag DENIED">DENIED</span>';
+        if (e.includes("REVIEW")) return '<span class="tag REVIEW">REVIEW</span>';
+        return '<span class="tag INFO">INFO</span>';
+    }
+
+    // ---------- Helpers ----------
+    function shortUuid(u) {
+        if (!u) return '<span style="color:var(--text-faint)">—</span>';
+        const s = String(u);
+        return s.length > 13 ? s.slice(0, 8) + "…" + s.slice(-4) : s;
+    }
+
+    function formatTs(ts) {
+        if (!ts) return "—";
+        try {
+            const d = new Date(ts);
+            if (isNaN(d.getTime())) return String(ts).slice(0, 19).replace("T", " ");
+            return d.toISOString().slice(0, 19).replace("T", " ");
+        } catch (e) {
+            return String(ts).slice(0, 19).replace("T", " ");
+        }
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    function setLoading(on) {
+        $("loadingBar").className = on ? "loading-bar on" : "loading-bar";
+    }
+
+    // ---------- Init ----------
+    checkHealth();
+    loadAudit();
+    setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
