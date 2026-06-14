@@ -111,8 +111,47 @@
         .scan-btn.stop { border-color: var(--red); color: var(--red); }
         .scan-btn.stop:hover { background: var(--red); color: var(--bg); box-shadow: 0 0 18px rgba(255,64,64,0.4); }
 
-        #reader { margin-top: 16px; border: 1px solid var(--border); overflow: hidden; }
-        #reader:empty { display: none; }
+        /* === ИСПРАВЛЕННЫЙ КОД ДЛЯ КАМЕРЫ === */
+        #reader {
+            width: 100%;
+            max-width: 500px;
+            min-height: 350px;
+            margin: 15px auto;
+            background-color: #111622;
+            border: 1px dashed #00C8E0;
+            border-radius: 8px;
+            overflow: hidden;
+            display: block !important;
+        }
+
+        #reader video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+        }
+
+        #reader button {
+            background-color: #00C8E0 !important;
+            color: #07090F !important;
+            border: none !important;
+            padding: 8px 16px !important;
+            font-family: monospace !important;
+            font-weight: bold !important;
+            cursor: pointer !important;
+            margin: 10px !important;
+            border-radius: 4px !important;
+            text-transform: uppercase;
+        }
+
+        #reader select {
+            background: #161b26 !important;
+            color: #00C8E0 !important;
+            border: 1px solid #00C8E0 !important;
+            padding: 6px !important;
+            font-family: monospace !important;
+            border-radius: 4px !important;
+        }
+        /* ===================================== */
 
         .manual-row { display: flex; gap: 8px; margin-top: 12px; }
         .manual-row input { flex: 1; }
@@ -197,7 +236,6 @@
         </div>
     </header>
 
-    <!-- Переключатель режимов -->
     <div class="tabs">
         <button class="tab active" id="tabGen" onclick="switchView('gen')">
             🏷 МЕТКА / ТОЧКА СКАНИРОВАНИЯ
@@ -209,7 +247,6 @@
         </button>
     </div>
 
-    <!-- ============ ЭКРАН А: ГЕНЕРАТОР QR ============ -->
     <div class="view active" id="viewGen">
         <section class="panel">
             <h2>Что сгенерировать?</h2>
@@ -236,7 +273,6 @@
         </section>
     </div>
 
-    <!-- ============ ЭКРАН Б: ТЕРМИНАЛ ============ -->
     <div class="view" id="viewScan">
         <section class="panel">
             <h2>Кто проверяет?</h2>
@@ -276,7 +312,6 @@
         </div>
     </div>
 
-    <!-- ============ ЖУРНАЛ ============ -->
     <section class="panel">
         <div class="audit-head">
             <h2 style="margin-bottom:0;">Неизменяемый журнал истории</h2>
