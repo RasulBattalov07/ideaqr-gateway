@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IDEAQR Digital Gateway — Operations Console</title>
+    <title>IDEAQR Digital Gateway — Операционная консоль</title>
     <style>
         :root {
             --bg: #07090F;
@@ -19,11 +19,7 @@
             --text-faint: #3E4860;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             background: var(--bg);
@@ -37,498 +33,156 @@
                 radial-gradient(circle at 80% 100%, rgba(0, 212, 116, 0.03), transparent 40%);
         }
 
-        .wrap {
-            max-width: 1180px;
-            margin: 0 auto;
-            padding: 24px 20px 60px;
-        }
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
 
-        /* ---------- Header ---------- */
+        /* ---------- Шапка ---------- */
         header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            display: flex; align-items: center; justify-content: space-between;
             border-bottom: 1px solid var(--border);
-            padding-bottom: 16px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-            gap: 12px;
+            padding-bottom: 16px; margin-bottom: 24px;
+            flex-wrap: wrap; gap: 12px;
         }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
+        .brand { display: flex; align-items: center; gap: 14px; }
         .brand .glyph {
-            width: 40px;
-            height: 40px;
-            border: 1px solid var(--cyan);
-            display: grid;
-            place-items: center;
-            color: var(--cyan);
-            font-size: 18px;
-            box-shadow: 0 0 14px rgba(0, 200, 224, 0.25);
-            position: relative;
+            width: 40px; height: 40px; border: 1px solid var(--cyan);
+            display: grid; place-items: center; color: var(--cyan); font-size: 18px;
+            box-shadow: 0 0 14px rgba(0, 200, 224, 0.25); position: relative;
         }
-
-        .brand .glyph::after {
-            content: "";
-            position: absolute;
-            inset: 4px;
-            border: 1px solid rgba(0, 200, 224, 0.3);
-        }
-
-        .brand h1 {
-            font-size: 16px;
-            letter-spacing: 1px;
-            font-weight: 600;
-            color: #EAF2FF;
-        }
-
-        .brand .sub {
-            font-size: 11px;
-            color: var(--text-dim);
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
+        .brand .glyph::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(0, 200, 224, 0.3); }
+        .brand h1 { font-size: 16px; letter-spacing: 1px; font-weight: 600; color: #EAF2FF; }
+        .brand .sub { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
 
         .status-pill {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid var(--border);
-            padding: 8px 14px;
-            font-size: 12px;
-            background: var(--panel);
+            display: flex; align-items: center; gap: 8px;
+            border: 1px solid var(--border); padding: 8px 14px; font-size: 12px; background: var(--panel);
         }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--text-faint);
-            box-shadow: 0 0 0 0 rgba(0, 212, 116, 0.5);
-        }
-
-        .dot.live {
-            background: var(--green);
-            animation: pulse 2s infinite;
-        }
-
-        .dot.down {
-            background: var(--red);
-        }
-
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+        .dot.live { background: var(--green); animation: pulse 2s infinite; }
+        .dot.down { background: var(--red); }
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0.5); }
             70% { box-shadow: 0 0 0 7px rgba(0, 212, 116, 0); }
             100% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0); }
         }
 
-        /* ---------- Layout ---------- */
-        .grid {
-            display: grid;
-            grid-template-columns: 1.15fr 1fr;
-            gap: 20px;
-        }
+        /* ---------- Сетка ---------- */
+        .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 
-        @media (max-width: 900px) {
-            .grid { grid-template-columns: 1fr; }
-        }
-
-        .panel {
-            background: var(--panel);
-            border: 1px solid var(--border);
-            padding: 18px;
-        }
-
+        .panel { background: var(--panel); border: 1px solid var(--border); padding: 18px; }
         .panel h2 {
-            font-size: 11px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: var(--cyan);
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+            color: var(--cyan); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
         }
+        .panel h2::before { content: ""; width: 6px; height: 6px; background: var(--cyan); }
 
-        .panel h2::before {
-            content: "";
-            width: 6px;
-            height: 6px;
-            background: var(--cyan);
-        }
-
-        /* ---------- Presets ---------- */
-        .preset-label {
-            font-size: 11px;
-            color: var(--text-dim);
-            margin-bottom: 10px;
-            letter-spacing: 1px;
-        }
-
-        .presets {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
+        /* ---------- Пресеты ---------- */
+        .preset-label { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; letter-spacing: 1px; }
+        .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
         .preset {
-            background: var(--panel-2);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 12px 14px;
-            text-align: left;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 13px;
-            transition: all 0.15s;
+            background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+            padding: 12px 14px; text-align: left; cursor: pointer; font-family: inherit; font-size: 13px; transition: all 0.15s;
         }
-
-        .preset:hover {
-            border-color: var(--cyan);
-            background: #131a2c;
-        }
-
-        .preset .pt {
-            font-weight: 600;
-            display: block;
-            margin-bottom: 3px;
-        }
-
-        .preset .pd {
-            font-size: 10px;
-            color: var(--text-dim);
-            letter-spacing: 0.5px;
-        }
-
+        .preset:hover { border-color: var(--cyan); background: #131a2c; }
+        .preset .pt { font-weight: 600; display: block; margin-bottom: 3px; }
+        .preset .pd { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
         .preset.doctor .pt { color: var(--green); }
         .preset.engineer .pt { color: var(--cyan); }
         .preset.citizen .pt { color: var(--amber); }
         .preset.guest .pt { color: var(--text-dim); }
 
-        /* ---------- Form ---------- */
-        .field {
-            margin-bottom: 14px;
-        }
-
+        /* ---------- Форма ---------- */
+        .field { margin-bottom: 14px; }
         .field label {
-            display: block;
-            font-size: 10px;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            color: var(--text-dim);
-            margin-bottom: 6px;
+            display: block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+            color: var(--text-dim); margin-bottom: 6px;
         }
-
-        .field input,
-        .field select {
-            width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 10px 12px;
-            font-family: inherit;
-            font-size: 13px;
-            outline: none;
+        .field input, .field select {
+            width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 10px 12px; font-family: inherit; font-size: 13px; outline: none;
         }
-
-        .field input:focus,
-        .field select:focus {
-            border-color: var(--cyan);
-        }
-
-        .field input::placeholder {
-            color: var(--text-faint);
-        }
-
-        .hint {
-            font-size: 10px;
-            color: var(--text-faint);
-            margin-top: 5px;
-        }
+        .field input:focus, .field select:focus { border-color: var(--cyan); }
+        .field input::placeholder { color: var(--text-faint); }
+        .hint { font-size: 10px; color: var(--text-faint); margin-top: 5px; }
 
         .submit {
-            width: 100%;
-            background: transparent;
-            border: 1px solid var(--cyan);
-            color: var(--cyan);
-            padding: 13px;
-            font-family: inherit;
-            font-size: 13px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.15s;
-            margin-top: 4px;
+            width: 100%; background: transparent; border: 1px solid var(--cyan); color: var(--cyan);
+            padding: 13px; font-family: inherit; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+            cursor: pointer; transition: all 0.15s; margin-top: 4px;
         }
+        .submit:hover { background: var(--cyan); color: var(--bg); box-shadow: 0 0 18px rgba(0, 200, 224, 0.4); }
+        .submit:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        .submit:hover {
-            background: var(--cyan);
-            color: var(--bg);
-            box-shadow: 0 0 18px rgba(0, 200, 224, 0.4);
-        }
-
-        .submit:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        /* ---------- Result verdict ---------- */
+        /* ---------- Вердикт ---------- */
         .verdict {
-            border: 1px solid var(--border);
-            padding: 16px;
-            margin-bottom: 18px;
-            min-height: 86px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            background: var(--panel-2);
+            border: 1px solid var(--border); padding: 16px; margin-bottom: 18px; min-height: 86px;
+            display: flex; flex-direction: column; justify-content: center; background: var(--panel-2);
         }
-
-        .verdict.idle {
-            color: var(--text-faint);
-            align-items: center;
-            text-align: center;
-            font-size: 12px;
-            letter-spacing: 1px;
-        }
-
-        .verdict .vtop {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-
-        .badge {
-            padding: 5px 12px;
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            border: 1px solid;
-        }
-
+        .verdict.idle { color: var(--text-faint); align-items: center; text-align: center; font-size: 12px; letter-spacing: 1px; }
+        .verdict .vtop { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .badge { padding: 5px 12px; font-size: 13px; font-weight: 700; letter-spacing: 1px; border: 1px solid; }
         .badge.APPROVED { color: var(--green); border-color: var(--green); }
         .badge.REJECTED { color: var(--red); border-color: var(--red); }
         .badge.REVIEW { color: var(--amber); border-color: var(--amber); }
+        .verdict .reason { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+        .verdict .vmeta { margin-top: 10px; font-size: 10px; color: var(--text-faint); word-break: break-all; line-height: 1.6; }
+        .verdict .vmeta b { color: var(--text-dim); font-weight: 400; }
 
-        .verdict .reason {
-            font-size: 12px;
-            color: var(--text-dim);
-            line-height: 1.5;
-        }
-
-        .verdict .vmeta {
-            margin-top: 10px;
-            font-size: 10px;
-            color: var(--text-faint);
-            word-break: break-all;
-            line-height: 1.6;
-        }
-
-        .verdict .vmeta b {
-            color: var(--text-dim);
-            font-weight: 400;
-        }
-
-        /* ---------- Pipeline chain ---------- */
-        .chain-label {
-            font-size: 10px;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            color: var(--text-dim);
-            margin-bottom: 12px;
-        }
-
-        .chain {
-            display: flex;
-            align-items: stretch;
-            gap: 0;
-            flex-wrap: wrap;
-        }
-
+        /* ---------- Цепочка-пайплайн ---------- */
+        .chain-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+        .chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
         .node {
-            flex: 1;
-            min-width: 80px;
-            border: 1px solid var(--border);
-            background: var(--bg);
-            padding: 12px 6px;
-            text-align: center;
-            position: relative;
-            opacity: 0.25;
-            transition: all 0.3s;
+            flex: 1; min-width: 80px; border: 1px solid var(--border); background: var(--bg);
+            padding: 12px 6px; text-align: center; position: relative; opacity: 0.25; transition: all 0.3s;
         }
-
-        .node .nt {
-            font-size: 9px;
-            letter-spacing: 1px;
-            color: var(--text-dim);
-            text-transform: uppercase;
-        }
-
-        .node .nv {
-            font-size: 11px;
-            margin-top: 4px;
-            color: var(--text);
-            font-weight: 600;
-        }
-
-        .node.lit {
-            opacity: 1;
-            border-color: var(--cyan);
-            box-shadow: 0 0 12px rgba(0, 200, 224, 0.25);
-        }
-
+        .node .nt { font-size: 9px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; }
+        .node .nv { font-size: 11px; margin-top: 4px; color: var(--text); font-weight: 600; }
+        .node.lit { opacity: 1; border-color: var(--cyan); box-shadow: 0 0 12px rgba(0, 200, 224, 0.25); }
         .node.lit.ok { border-color: var(--green); box-shadow: 0 0 12px rgba(0, 212, 116, 0.3); }
         .node.lit.ok .nv { color: var(--green); }
         .node.lit.bad { border-color: var(--red); box-shadow: 0 0 12px rgba(255, 64, 64, 0.3); }
         .node.lit.bad .nv { color: var(--red); }
-
-        .arrow {
-            display: flex;
-            align-items: center;
-            color: var(--text-faint);
-            padding: 0 4px;
-            font-size: 14px;
-            transition: color 0.3s;
-        }
-
+        .arrow { display: flex; align-items: center; color: var(--text-faint); padding: 0 4px; font-size: 14px; transition: color 0.3s; }
         .arrow.lit { color: var(--cyan); }
-
         @media (max-width: 520px) {
             .chain { flex-direction: column; }
             .arrow { transform: rotate(90deg); padding: 4px 0; justify-content: center; }
             .node { min-width: 0; }
         }
 
-        /* ---------- Audit table ---------- */
-        .audit-panel {
-            margin-top: 20px;
-        }
-
-        .audit-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 14px;
-        }
-
+        /* ---------- Таблица журнала ---------- */
+        .audit-panel { margin-top: 20px; }
+        .audit-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
         .refresh {
-            background: var(--panel-2);
-            border: 1px solid var(--border);
-            color: var(--text-dim);
-            padding: 7px 14px;
-            font-family: inherit;
-            font-size: 11px;
-            letter-spacing: 1px;
-            cursor: pointer;
-            text-transform: uppercase;
+            background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+            padding: 7px 14px; font-family: inherit; font-size: 11px; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;
         }
-
         .refresh:hover { border-color: var(--cyan); color: var(--cyan); }
-
-        .table-scroll {
-            overflow-x: auto;
-            border: 1px solid var(--border);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-        }
-
+        .table-scroll { overflow-x: auto; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
         thead th {
-            background: var(--panel-2);
-            color: var(--text-dim);
-            text-align: left;
-            padding: 10px 12px;
-            font-size: 10px;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            font-weight: 600;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
+            background: var(--panel-2); color: var(--text-dim); text-align: left; padding: 10px 12px;
+            font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
+            border-bottom: 1px solid var(--border); white-space: nowrap;
         }
-
-        tbody td {
-            padding: 9px 12px;
-            border-bottom: 1px solid rgba(30, 39, 64, 0.5);
-            color: var(--text);
-            white-space: nowrap;
-        }
-
+        tbody td { padding: 9px 12px; border-bottom: 1px solid rgba(30, 39, 64, 0.5); color: var(--text); white-space: nowrap; }
         tbody tr:hover { background: rgba(0, 200, 224, 0.04); }
-
-        .uuid {
-            color: var(--text-dim);
-            font-size: 11px;
-        }
-
-        .evt {
-            color: var(--cyan);
-            font-size: 11px;
-        }
-
-        .tag {
-            font-size: 10px;
-            padding: 2px 8px;
-            border: 1px solid;
-            letter-spacing: 0.5px;
-        }
-
+        .uuid { color: var(--text-dim); font-size: 11px; }
+        .evt { color: var(--cyan); font-size: 11px; }
+        .tag { font-size: 10px; padding: 2px 8px; border: 1px solid; letter-spacing: 0.5px; }
         .tag.GRANTED, .tag.APPROVED { color: var(--green); border-color: var(--green); }
         .tag.DENIED, .tag.REJECTED { color: var(--red); border-color: var(--red); }
         .tag.REVIEW { color: var(--amber); border-color: var(--amber); }
         .tag.INFO { color: var(--text-dim); border-color: var(--border); }
-
-        .empty {
-            text-align: center;
-            color: var(--text-faint);
-            padding: 30px;
-            font-size: 12px;
-            letter-spacing: 1px;
-        }
-
+        .empty { text-align: center; color: var(--text-faint); padding: 30px; font-size: 12px; letter-spacing: 1px; }
         .ts { color: var(--text-faint); font-size: 11px; }
 
-        /* ---------- Toast / loading ---------- */
-        .loading-bar {
-            height: 2px;
-            background: var(--border);
-            margin-bottom: 18px;
-            overflow: hidden;
-            display: none;
-        }
-
+        .loading-bar { height: 2px; background: var(--border); margin-bottom: 18px; overflow: hidden; display: none; }
         .loading-bar.on { display: block; }
+        .loading-bar i { display: block; height: 100%; width: 30%; background: var(--cyan); animation: slide 1s infinite linear; }
+        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
 
-        .loading-bar i {
-            display: block;
-            height: 100%;
-            width: 30%;
-            background: var(--cyan);
-            animation: slide 1s infinite linear;
-        }
-
-        @keyframes slide {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(400%); }
-        }
-
-        footer {
-            margin-top: 36px;
-            text-align: center;
-            color: var(--text-faint);
-            font-size: 11px;
-            letter-spacing: 1px;
-        }
-
+        footer { margin-top: 36px; text-align: center; color: var(--text-faint); font-size: 11px; letter-spacing: 1px; }
         footer a { color: var(--text-dim); text-decoration: none; }
         footer a:hover { color: var(--cyan); }
     </style>
@@ -536,145 +190,145 @@
 <body>
 <div class="wrap">
 
-    <!-- ============ HEADER ============ -->
+    <!-- ============ ШАПКА ============ -->
     <header>
         <div class="brand">
             <div class="glyph">◈</div>
             <div>
-                <h1>IDEAQR · DIGITAL GATEWAY</h1>
-                <div class="sub">Operations Console — Stage 2</div>
+                <h1>IDEAQR · ЦИФРОВОЙ ШЛЮЗ</h1>
+                <div class="sub">Операционная консоль — Этап 2</div>
             </div>
         </div>
         <div class="status-pill">
             <span id="healthDot" class="dot"></span>
-            <span id="healthText">CONNECTING…</span>
+            <span id="healthText">ПОДКЛЮЧЕНИЕ…</span>
         </div>
     </header>
 
     <div class="loading-bar" id="loadingBar"><i></i></div>
 
-    <!-- ============ MAIN GRID ============ -->
+    <!-- ============ ОСНОВНАЯ СЕТКА ============ -->
     <div class="grid">
 
-        <!-- LEFT: control panel -->
+        <!-- ЛЕВО: панель управления -->
         <section class="panel">
-            <h2>Access Request Console</h2>
+            <h2>Консоль запроса доступа</h2>
 
-            <div class="preset-label">QUICK SCENARIOS — SCAN AS IDENTITY</div>
+            <div class="preset-label">БЫСТРЫЕ СЦЕНАРИИ — СКАН ОТ ЛИЦА ЛИЧНОСТИ</div>
             <div class="presets">
                 <button class="preset engineer" onclick="applyPreset('engineer')">
-                    <span class="pt">⚙ ENGINEER</span>
-                    <span class="pd">INFRA_ access · 08:00–18:00</span>
+                    <span class="pt">⚙ ИНЖЕНЕР</span>
+                    <span class="pd">доступ INFRA_ · 08:00–18:00</span>
                 </button>
                 <button class="preset doctor" onclick="applyPreset('doctor')">
-                    <span class="pt">✚ DOCTOR</span>
-                    <span class="pd">MED_ medical access</span>
+                    <span class="pt">✚ ВРАЧ</span>
+                    <span class="pd">медицинский доступ MED_</span>
                 </button>
                 <button class="preset citizen" onclick="applyPreset('citizen')">
-                    <span class="pt">◎ CITIZEN</span>
-                    <span class="pd">CIV_ civil services</span>
+                    <span class="pt">◎ ГРАЖДАНИН</span>
+                    <span class="pd">гос. услуги CIV_</span>
                 </button>
                 <button class="preset guest" onclick="applyPreset('guest')">
-                    <span class="pt">? GUEST</span>
-                    <span class="pd">unregistered · auto-provision</span>
+                    <span class="pt">? ГОСТЬ</span>
+                    <span class="pd">не зарегистрирован · авто-создание</span>
                 </button>
             </div>
 
             <div class="field">
-                <label>Identity UID</label>
-                <input type="text" id="identityUid" placeholder="leave empty for GUEST scan">
-                <div class="hint" id="identityHint">Empty → backend creates a GUEST identity on the fly.</div>
+                <label>Идентификатор личности (Identity UID)</label>
+                <input type="text" id="identityUid" placeholder="оставьте пустым для скана ГОСТЯ">
+                <div class="hint" id="identityHint">Пусто → бэкенд создаст личность-ГОСТЯ на лету.</div>
             </div>
 
             <div class="field">
-                <label>Object UID (target)</label>
+                <label>Идентификатор объекта (цель)</label>
                 <input type="text" id="objectUid" placeholder="INFRA_WAREHOUSE_7">
-                <div class="hint">Prefix maps to a sector: MED_ · INFRA_ · FIN_ · CIV_ · ADM_</div>
+                <div class="hint">Префикс задаёт сектор: MED_ · INFRA_ · FIN_ · CIV_ · ADM_</div>
             </div>
 
             <div class="field">
-                <label>Request Type</label>
+                <label>Тип запроса</label>
                 <select id="requestType">
-                    <option value="OBJECT_ACCESS">OBJECT_ACCESS</option>
-                    <option value="INFRASTRUCTURE_ACCESS">INFRASTRUCTURE_ACCESS</option>
-                    <option value="MEDICAL_ACCESS">MEDICAL_ACCESS</option>
-                    <option value="FINANCE_ACCESS">FINANCE_ACCESS</option>
-                    <option value="QR_CREATION">QR_CREATION</option>
+                    <option value="OBJECT_ACCESS">OBJECT_ACCESS — доступ к объекту</option>
+                    <option value="INFRASTRUCTURE_ACCESS">INFRASTRUCTURE_ACCESS — инфраструктура</option>
+                    <option value="MEDICAL_ACCESS">MEDICAL_ACCESS — медицина</option>
+                    <option value="FINANCE_ACCESS">FINANCE_ACCESS — финансы</option>
+                    <option value="QR_CREATION">QR_CREATION — создание QR</option>
                 </select>
             </div>
 
             <div class="field">
-                <label>Interaction Type</label>
+                <label>Тип взаимодействия</label>
                 <input type="text" id="interactionType" placeholder="PHYSICAL_GATE" value="PHYSICAL_GATE">
             </div>
 
-            <button class="submit" id="scanBtn" onclick="submitScan()">▶ Execute Scan</button>
+            <button class="submit" id="scanBtn" onclick="submitScan()">▶ Выполнить скан</button>
         </section>
 
-        <!-- RIGHT: verdict + pipeline -->
+        <!-- ПРАВО: вердикт + пайплайн -->
         <section class="panel">
-            <h2>Gateway Decision</h2>
+            <h2>Решение шлюза</h2>
 
             <div class="verdict idle" id="verdict">
-                AWAITING REQUEST — RUN A SCAN OR PICK A SCENARIO
+                ОЖИДАНИЕ ЗАПРОСА — ЗАПУСТИТЕ СКАН ИЛИ ВЫБЕРИТЕ СЦЕНАРИЙ
             </div>
 
-            <div class="chain-label">PROCESSING PIPELINE</div>
+            <div class="chain-label">КОНВЕЙЕР ОБРАБОТКИ</div>
             <div class="chain" id="chain">
                 <div class="node" data-node="identity">
-                    <div class="nt">Identity</div>
+                    <div class="nt">Личность</div>
                     <div class="nv">—</div>
                 </div>
                 <div class="arrow">──▶</div>
                 <div class="node" data-node="request">
-                    <div class="nt">Request</div>
+                    <div class="nt">Запрос</div>
                     <div class="nv">—</div>
                 </div>
                 <div class="arrow">──▶</div>
                 <div class="node" data-node="decision">
-                    <div class="nt">Decision</div>
+                    <div class="nt">Решение</div>
                     <div class="nv">—</div>
                 </div>
                 <div class="arrow">──▶</div>
                 <div class="node" data-node="access">
-                    <div class="nt">QR / Access</div>
+                    <div class="nt">QR / Доступ</div>
                     <div class="nv">—</div>
                 </div>
                 <div class="arrow">──▶</div>
                 <div class="node" data-node="history">
-                    <div class="nt">History</div>
+                    <div class="nt">История</div>
                     <div class="nv">—</div>
                 </div>
             </div>
         </section>
     </div>
 
-    <!-- ============ AUDIT JOURNAL ============ -->
+    <!-- ============ ЖУРНАЛ ИСТОРИИ ============ -->
     <section class="panel audit-panel">
         <div class="audit-head">
-            <h2 style="margin-bottom:0;">Immutable History Journal</h2>
-            <button class="refresh" onclick="loadAudit()">↻ Refresh</button>
+            <h2 style="margin-bottom:0;">Неизменяемый журнал истории</h2>
+            <button class="refresh" onclick="loadAudit()">↻ Обновить</button>
         </div>
         <div class="table-scroll">
             <table>
                 <thead>
                     <tr>
-                        <th>History UID</th>
-                        <th>Event Type</th>
-                        <th>Status</th>
-                        <th>Interaction UID</th>
-                        <th>Timestamp</th>
+                        <th>ID записи</th>
+                        <th>Событие</th>
+                        <th>Статус</th>
+                        <th>ID взаимодействия</th>
+                        <th>Время</th>
                     </tr>
                 </thead>
                 <tbody id="auditBody">
-                    <tr><td colspan="5" class="empty">No events loaded yet.</td></tr>
+                    <tr><td colspan="5" class="empty">События ещё не загружены.</td></tr>
                 </tbody>
             </table>
         </div>
     </section>
 
     <footer>
-        IDEAQR Digital Gateway · Stage 2 · Identity → Request → Decision → QR → Assignment → Interaction → History<br>
+        IDEAQR Цифровой шлюз · Этап 2 · Личность → Запрос → Решение → QR → Назначение → Взаимодействие → История<br>
         <a href="/api/v2/health" target="_blank">/api/v2/health</a> ·
         <a href="/api/v2/identities" target="_blank">/api/v2/identities</a> ·
         <a href="/api/v2/audit" target="_blank">/api/v2/audit</a>
@@ -685,38 +339,62 @@
 <script>
     "use strict";
 
-    // Same-origin API base. The page is served by Spring from /static, so "" works.
+    // База API. Страница отдаётся Spring из /static, поэтому "" работает.
     const API = "/api/v2";
 
-    // Seeded identities (from DataSeeder on the backend).
+    // Засеянные личности (из DataSeeder на бэкенде).
     const SEED = {
         engineer: "11111111-1111-1111-1111-111111111111", // ENGINEER + CITIZEN
         doctor:   "22222222-2222-2222-2222-222222222222"  // DOCTOR + CITIZEN
     };
 
-    // A CITIZEN identity is created at runtime (no seed for citizen-only).
+    // Личность-ГРАЖДАНИН создаётся в рантайме (сид только для инженера/врача).
     let citizenUid = null;
 
     const $ = (id) => document.getElementById(id);
 
-    // ---------- Health check ----------
+    // ---------- Словари перевода статусов (только для отображения!) ----------
+    // На бэкенд по-прежнему уходят английские значения; русское — только на экране.
+    const RESULT_RU = {
+        APPROVED: "ОДОБРЕНО",
+        REJECTED: "ОТКЛОНЕНО",
+        REVIEW:   "НА ПРОВЕРКЕ"
+    };
+
+    // Перевод названий типов событий из журнала истории.
+    const EVENT_RU = {
+        IDENTITY_REGISTERED: "Личность зарегистрирована",
+        GUEST_PROVISIONED:   "Гость создан",
+        IDENTITY_MERGED:     "Личность объединена",
+        REQUEST_CREATED:     "Запрос создан",
+        ACCESS_GRANTED:      "Доступ разрешён",
+        ACCESS_DENIED:       "Доступ запрещён",
+        ACCESS_REVIEW:       "Доступ на проверке",
+        QR_CREATED:          "QR создан",
+        ASSIGNMENT_CREATED:  "Назначение создано"
+    };
+
+    function resultRu(r) { return RESULT_RU[r] || r || "—"; }
+    function eventRu(e)   { return EVENT_RU[e] || e || "СОБЫТИЕ"; }
+
+    // ---------- Проверка состояния ----------
     async function checkHealth() {
         try {
             const r = await fetch(API + "/health");
             const j = await r.json();
             if (j.status === "UP") {
                 $("healthDot").className = "dot live";
-                $("healthText").textContent = "GATEWAY ONLINE";
+                $("healthText").textContent = "ШЛЮЗ В СЕТИ";
             } else {
                 throw new Error("not up");
             }
         } catch (e) {
             $("healthDot").className = "dot down";
-            $("healthText").textContent = "GATEWAY OFFLINE";
+            $("healthText").textContent = "ШЛЮЗ НЕ ОТВЕЧАЕТ";
         }
     }
 
-    // ---------- Ensure a CITIZEN identity exists ----------
+    // ---------- Гарантируем наличие личности-ГРАЖДАНИНА ----------
     async function ensureCitizen() {
         if (citizenUid) return citizenUid;
         try {
@@ -734,7 +412,7 @@
         }
     }
 
-    // ---------- Presets ----------
+    // ---------- Пресеты ----------
     async function applyPreset(kind) {
         if (kind === "engineer") {
             $("identityUid").value = SEED.engineer;
@@ -764,16 +442,16 @@
     function updateHint() {
         const v = $("identityUid").value.trim();
         $("identityHint").textContent = v
-            ? "Registered identity — roles checked by the rules engine."
-            : "Empty → backend creates a GUEST identity on the fly.";
+            ? "Зарегистрированная личность — роли проверит движок правил."
+            : "Пусто → бэкенд создаст личность-ГОСТЯ на лету.";
     }
     $("identityUid").addEventListener("input", updateHint);
 
-    // ---------- Submit a scan ----------
+    // ---------- Отправка скана ----------
     async function submitScan() {
         const objectUid = $("objectUid").value.trim();
         if (!objectUid) {
-            flashVerdict("REJECTED", "objectUid is required before executing a scan.");
+            flashVerdict("REJECTED", "Перед сканом нужно указать идентификатор объекта.");
             return;
         }
 
@@ -798,7 +476,6 @@
             const j = await r.json();
 
             if (!r.ok) {
-                // Backend returned an ApiError shape (status/error/message).
                 const msg = j.message || j.error || ("HTTP " + r.status);
                 flashVerdict("REJECTED", msg);
                 setLoading(false);
@@ -810,29 +487,29 @@
             await animateChain(j);
             await loadAudit();
         } catch (e) {
-            flashVerdict("REJECTED", "Network error: " + e.message);
+            flashVerdict("REJECTED", "Сетевая ошибка: " + e.message);
         } finally {
             setLoading(false);
             $("scanBtn").disabled = false;
         }
     }
 
-    // ---------- Render verdict block ----------
+    // ---------- Вердикт ----------
     function renderVerdict(j) {
         const result = j.result || "REVIEW";
         const v = $("verdict");
         v.className = "verdict";
         v.innerHTML =
             '<div class="vtop">' +
-                '<span class="badge ' + result + '">' + result + '</span>' +
+                '<span class="badge ' + result + '">' + resultRu(result) + '</span>' +
                 '<span style="color:var(--text-dim);font-size:12px;">' + escapeHtml(j.objectUid || "") + '</span>' +
             '</div>' +
             '<div class="reason">' + escapeHtml(j.reason || "") + '</div>' +
             '<div class="vmeta">' +
-                '<b>identity</b> ' + shortUuid(j.identityUid) + '  ·  ' +
-                '<b>request</b> ' + shortUuid(j.requestUid) + '<br>' +
-                '<b>decision</b> ' + shortUuid(j.decisionUid) + '  ·  ' +
-                '<b>interaction</b> ' + shortUuid(j.interactionUid) +
+                '<b>личность</b> ' + shortUuid(j.identityUid) + '  ·  ' +
+                '<b>запрос</b> ' + shortUuid(j.requestUid) + '<br>' +
+                '<b>решение</b> ' + shortUuid(j.decisionUid) + '  ·  ' +
+                '<b>взаимодействие</b> ' + shortUuid(j.interactionUid) +
             '</div>';
     }
 
@@ -840,11 +517,11 @@
         const v = $("verdict");
         v.className = "verdict";
         v.innerHTML =
-            '<div class="vtop"><span class="badge ' + result + '">' + result + '</span></div>' +
+            '<div class="vtop"><span class="badge ' + result + '">' + resultRu(result) + '</span></div>' +
             '<div class="reason">' + escapeHtml(reason) + '</div>';
     }
 
-    // ---------- Animated pipeline ----------
+    // ---------- Анимация конвейера ----------
     function resetChain() {
         document.querySelectorAll("#chain .node").forEach(n => {
             n.className = "node";
@@ -861,11 +538,11 @@
         const arrows = document.querySelectorAll("#chain .arrow");
 
         const values = {
-            identity: j.identityUid ? j.identityUid.slice(0, 8) : "GUEST",
+            identity: j.identityUid ? j.identityUid.slice(0, 8) : "ГОСТЬ",
             request: (j.requestUid ? j.requestUid.slice(0, 8) : "—"),
-            decision: j.result || "—",
-            access: approved ? "GRANTED" : "BLOCKED",
-            history: "LOGGED"
+            decision: resultRu(j.result),
+            access: approved ? "РАЗРЕШЁН" : "БЛОКИРОВАН",
+            history: "ЗАПИСАНО"
         };
 
         const order = ["identity", "request", "decision", "access", "history"];
@@ -875,7 +552,6 @@
             const key = order[i];
             node.querySelector(".nv").textContent = values[key];
 
-            // The decision and access nodes carry the colour of the verdict.
             if (key === "decision" || key === "access") {
                 node.classList.add("lit", approved ? "ok" : "bad");
             } else {
@@ -884,15 +560,10 @@
 
             if (i < arrows.length) arrows[i].classList.add("lit");
             await delay(260);
-
-            // If rejected, stop lighting the "access" path with green — and halt the QR/access node visually.
-            if (!approved && key === "decision") {
-                // Still show the remaining nodes but as blocked, no early exit so HISTORY always lights.
-            }
         }
     }
 
-    // ---------- Audit journal ----------
+    // ---------- Журнал истории ----------
     async function loadAudit() {
         try {
             const r = await fetch(API + "/audit");
@@ -900,14 +571,14 @@
             const body = $("auditBody");
 
             if (!Array.isArray(list) || list.length === 0) {
-                body.innerHTML = '<tr><td colspan="5" class="empty">No events recorded yet.</td></tr>';
+                body.innerHTML = '<tr><td colspan="5" class="empty">Событий пока нет.</td></tr>';
                 return;
             }
 
             body.innerHTML = list.map(rowToHtml).join("");
         } catch (e) {
             $("auditBody").innerHTML =
-                '<tr><td colspan="5" class="empty">Failed to load audit: ' + escapeHtml(e.message) + '</td></tr>';
+                '<tr><td colspan="5" class="empty">Не удалось загрузить журнал: ' + escapeHtml(e.message) + '</td></tr>';
         }
     }
 
@@ -915,23 +586,23 @@
         const evt = h.eventType || "EVENT";
         return '<tr>' +
             '<td class="uuid">' + shortUuid(h.historyUid) + '</td>' +
-            '<td class="evt">' + escapeHtml(evt) + '</td>' +
+            '<td class="evt">' + escapeHtml(eventRu(evt)) + '</td>' +
             '<td>' + statusTag(evt) + '</td>' +
             '<td class="uuid">' + (h.interactionUid ? shortUuid(h.interactionUid) : '<span style="color:var(--text-faint)">—</span>') + '</td>' +
             '<td class="ts">' + formatTs(h.createdAt) + '</td>' +
         '</tr>';
     }
 
-    // Map an event type string to a coloured status tag.
+    // Тип события → цветной русский ярлык статуса.
     function statusTag(evt) {
         const e = (evt || "").toUpperCase();
-        if (e.includes("GRANTED")) return '<span class="tag GRANTED">GRANTED</span>';
-        if (e.includes("DENIED") || e.includes("REJECTED")) return '<span class="tag DENIED">DENIED</span>';
-        if (e.includes("REVIEW")) return '<span class="tag REVIEW">REVIEW</span>';
-        return '<span class="tag INFO">INFO</span>';
+        if (e.includes("GRANTED")) return '<span class="tag GRANTED">РАЗРЕШЕНО</span>';
+        if (e.includes("DENIED") || e.includes("REJECTED")) return '<span class="tag DENIED">ЗАПРЕЩЕНО</span>';
+        if (e.includes("REVIEW")) return '<span class="tag REVIEW">ПРОВЕРКА</span>';
+        return '<span class="tag INFO">ИНФО</span>';
     }
 
-    // ---------- Helpers ----------
+    // ---------- Утилиты ----------
     function shortUuid(u) {
         if (!u) return '<span style="color:var(--text-faint)">—</span>';
         const s = String(u);
@@ -961,7 +632,7 @@
         $("loadingBar").className = on ? "loading-bar on" : "loading-bar";
     }
 
-    // ---------- Init ----------
+    // ---------- Инициализация ----------
     checkHealth();
     loadAudit();
     setInterval(checkHealth, 30000);
