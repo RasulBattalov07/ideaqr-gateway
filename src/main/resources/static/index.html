@@ -111,55 +111,54 @@
         .scan-btn.stop { border-color: var(--red); color: var(--red); }
         .scan-btn.stop:hover { background: var(--red); color: var(--bg); box-shadow: 0 0 18px rgba(255,64,64,0.4); }
 
-        /* === ИСПРАВЛЕННЫЙ КОД ДЛЯ КАМЕРЫ === */
+        /* Камера */
         #reader {
             width: 100%;
             max-width: 500px;
-            min-height: 350px;
-            margin: 15px auto;
-            background-color: #111622;
-            border: 1px dashed #00C8E0;
+            min-height: 300px;
+            margin: 16px auto;
+            border: 2px dashed var(--cyan);
             border-radius: 8px;
+            background: #0D111C;
             overflow: hidden;
             display: block !important;
+            position: relative;
         }
-
         #reader video {
             width: 100% !important;
             height: 100% !important;
             object-fit: cover;
         }
-
         #reader button {
-            background-color: #00C8E0 !important;
-            color: #07090F !important;
+            background: var(--cyan) !important;
+            color: var(--bg) !important;
             border: none !important;
-            padding: 8px 16px !important;
-            font-family: monospace !important;
+            padding: 10px 16px !important;
+            font-family: inherit !important;
             font-weight: bold !important;
             cursor: pointer !important;
             margin: 10px !important;
             border-radius: 4px !important;
-            text-transform: uppercase;
         }
-
         #reader select {
-            background: #161b26 !important;
-            color: #00C8E0 !important;
-            border: 1px solid #00C8E0 !important;
-            padding: 6px !important;
-            font-family: monospace !important;
-            border-radius: 4px !important;
+            background: var(--panel-2) !important;
+            color: var(--cyan) !important;
+            border: 1px solid var(--cyan) !important;
+            padding: 8px !important;
+            margin-bottom: 10px !important;
         }
-        /* ===================================== */
 
-        .manual-row { display: flex; gap: 8px; margin-top: 12px; }
-        .manual-row input { flex: 1; }
-        .manual-row button {
-            background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
-            padding: 0 16px; font-family: inherit; cursor: pointer; font-size: 12px; letter-spacing: 1px;
-        }
-        .manual-row button:hover { border-color: var(--cyan); color: var(--cyan); }
+        /* Ручной ввод (обновленный) */
+        .manual-fallback { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+        .manual-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+        .manual-row { display: flex; gap: 10px; }
+        .manual-row input { flex: 1; padding: 14px 16px; font-size: 16px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+        .manual-row input:focus { border-color: var(--cyan); outline: none; }
+        .manual-row button { background: var(--panel-2); border: 1px solid var(--cyan); color: var(--cyan); padding: 0 24px; font-weight: bold; cursor: pointer; transition: all 0.2s; border-radius: 4px; }
+        .manual-row button:hover { background: var(--cyan); color: var(--bg); }
+        .manual-hints { margin-top: 10px; font-size: 11px; color: var(--text-faint); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .manual-hints code { background: rgba(0,200,224,0.1); color: var(--cyan); padding: 4px 8px; border-radius: 4px; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
+        .manual-hints code:hover { background: var(--cyan); color: var(--bg); border-color: var(--cyan); }
 
         /* Карточки результата */
         #cardArea { margin-top: 4px; }
@@ -299,10 +298,20 @@
             <button class="scan-btn" id="scanBtn" onclick="toggleScan()">📷 Включить сканирование камерой</button>
             <div id="reader"></div>
 
-            <div class="manual-row">
-                <input type="text" id="manualObject" placeholder="…или ввести код вручную: PATIENT_7291">
-                <button onclick="manualScan()">Отправить</button>
+            <div class="manual-fallback">
+                <div class="manual-label">Нет возможности отсканировать? Введите ID объекта вручную:</div>
+                <div class="manual-row">
+                    <input type="text" id="manualObject" placeholder="Например: PATIENT_7291">
+                    <button onclick="manualScan()">ОТПРАВИТЬ ЗАПРОС</button>
+                </div>
+                <div class="manual-hints">
+                    <span>Быстрые примеры (кликните):</span>
+                    <code onclick="document.getElementById('manualObject').value='PATIENT_7291'">PATIENT_7291</code>
+                    <code onclick="document.getElementById('manualObject').value='INFRA_WAREHOUSE_7'">INFRA_WAREHOUSE_7</code>
+                    <code onclick="document.getElementById('manualObject').value='CIV_PORTAL_1'">CIV_PORTAL_1</code>
+                </div>
             </div>
+
         </section>
 
         <div class="loading-bar" id="loadingBar"><i></i></div>
@@ -376,20 +385,34 @@
     function startScan() {
         $("reader").innerHTML = "";
         html5Qr = new Html5Qrcode("reader");
-        const config = { fps: 10, qrbox: { width: 240, height: 240 } };
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        // Сначала пробуем заднюю камеру, если её нет - берем любую доступную
+        const cameraConfig = { facingMode: "environment" };
 
         html5Qr.start(
-            { facingMode: "environment" },
+            cameraConfig,
             config,
             onScanSuccess,
-            () => { /* промахи сканирования игнорируем */ }
+            () => { /* промахи игнорируем */ }
         ).then(() => {
             scanning = true;
-            $("scanBtn").textContent = "■ Остановить сканирование";
+            $("scanBtn").textContent = "■ ОСТАНОВИТЬ СКАНИРОВАНИЕ";
             $("scanBtn").classList.add("stop");
         }).catch((err) => {
-            renderError("Не удалось включить камеру: " + err +
-                ". Проверьте, что сайт открыт по HTTPS и вы разрешили доступ к камере.");
+            // Если задняя камера не найдена (например, на ноуте), пробуем просто любую камеру
+            html5Qr.start(
+                { facingMode: "user" }, // фронталка
+                config,
+                onScanSuccess,
+                () => {}
+            ).then(() => {
+                scanning = true;
+                $("scanBtn").textContent = "■ ОСТАНОВИТЬ СКАНИРОВАНИЕ";
+                $("scanBtn").classList.add("stop");
+            }).catch((fallbackErr) => {
+                renderError("Камера не найдена или нет доступа. Проверьте разрешения браузера.");
+            });
         });
     }
 
