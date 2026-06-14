@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ideaqr-gateway
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free                     # бесплатный тариф Render
+    healthCheckPath: /api/gateway/health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: JAVA_OPTS
+        value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0"
