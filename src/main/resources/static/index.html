@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IDEAQR Digital Gateway — Операционная консоль</title>
+    <title>IDEAQR Digital Gateway — Демонстрационный стенд</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
             --bg: #07090F;
@@ -18,185 +20,175 @@
             --text-dim: #6B7894;
             --text-faint: #3E4860;
         }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
-            background: var(--bg);
-            color: var(--text);
+            background: var(--bg); color: var(--text);
             font-family: "SF Mono", "Roboto Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-            font-size: 14px;
-            line-height: 1.5;
-            min-height: 100vh;
+            font-size: 14px; line-height: 1.5; min-height: 100vh;
             background-image:
-                radial-gradient(circle at 20% 0%, rgba(0, 200, 224, 0.04), transparent 40%),
+                radial-gradient(circle at 20% 0%, rgba(0, 200, 224, 0.05), transparent 40%),
                 radial-gradient(circle at 80% 100%, rgba(0, 212, 116, 0.03), transparent 40%);
         }
+        .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
 
-        .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
-
-        /* ---------- Шапка ---------- */
+        /* Шапка */
         header {
             display: flex; align-items: center; justify-content: space-between;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 16px; margin-bottom: 24px;
-            flex-wrap: wrap; gap: 12px;
+            border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 18px; gap: 12px;
         }
-        .brand { display: flex; align-items: center; gap: 14px; }
-        .brand .glyph {
-            width: 40px; height: 40px; border: 1px solid var(--cyan);
-            display: grid; place-items: center; color: var(--cyan); font-size: 18px;
-            box-shadow: 0 0 14px rgba(0, 200, 224, 0.25); position: relative;
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .glyph {
+            width: 38px; height: 38px; border: 1px solid var(--cyan); display: grid; place-items: center;
+            color: var(--cyan); font-size: 18px; box-shadow: 0 0 14px rgba(0,200,224,0.25); position: relative; flex-shrink: 0;
         }
-        .brand .glyph::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(0, 200, 224, 0.3); }
-        .brand h1 { font-size: 16px; letter-spacing: 1px; font-weight: 600; color: #EAF2FF; }
-        .brand .sub { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
-
-        .status-pill {
-            display: flex; align-items: center; gap: 8px;
-            border: 1px solid var(--border); padding: 8px 14px; font-size: 12px; background: var(--panel);
-        }
+        .glyph::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(0,200,224,0.3); }
+        .brand h1 { font-size: 15px; letter-spacing: 1px; color: #EAF2FF; }
+        .brand .sub { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
+        .status-pill { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); padding: 7px 12px; font-size: 11px; background: var(--panel); white-space: nowrap; }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
         .dot.live { background: var(--green); animation: pulse 2s infinite; }
         .dot.down { background: var(--red); }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0.5); }
-            70% { box-shadow: 0 0 0 7px rgba(0, 212, 116, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(0, 212, 116, 0); }
+        @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(0,212,116,.5);} 70%{box-shadow:0 0 0 7px rgba(0,212,116,0);} 100%{box-shadow:0 0 0 0 rgba(0,212,116,0);} }
+
+        /* Переключатель режимов */
+        .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+        .tab {
+            background: var(--panel); border: 1px solid var(--border); color: var(--text-dim);
+            padding: 16px 12px; cursor: pointer; font-family: inherit; font-size: 13px; text-align: center;
+            letter-spacing: 0.5px; transition: all 0.15s; line-height: 1.4;
         }
+        .tab:hover { border-color: var(--cyan); color: var(--text); }
+        .tab.active { border-color: var(--cyan); color: var(--cyan); background: #0f1726; box-shadow: 0 0 16px rgba(0,200,224,0.2); }
+        .tab .tlabel { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.5px; display: block; margin-top: 3px; }
+        .tab.active .tlabel { color: var(--text-dim); }
 
-        /* ---------- Сетка ---------- */
-        .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; }
-        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+        .view { display: none; }
+        .view.active { display: block; }
 
-        .panel { background: var(--panel); border: 1px solid var(--border); padding: 18px; }
+        .panel { background: var(--panel); border: 1px solid var(--border); padding: 18px; margin-bottom: 16px; }
         .panel h2 {
-            font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
-            color: var(--cyan); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+            font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--cyan);
+            margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
         }
         .panel h2::before { content: ""; width: 6px; height: 6px; background: var(--cyan); }
 
-        /* ---------- Пресеты ---------- */
-        .preset-label { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; letter-spacing: 1px; }
-        .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-        .preset {
+        /* Кнопки генерации QR */
+        .gen-btns { display: flex; flex-direction: column; gap: 10px; }
+        .gen-btn {
             background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-            padding: 12px 14px; text-align: left; cursor: pointer; font-family: inherit; font-size: 13px; transition: all 0.15s;
+            padding: 14px 16px; cursor: pointer; font-family: inherit; font-size: 14px; text-align: left;
+            transition: all 0.15s; display: flex; align-items: center; gap: 12px;
         }
-        .preset:hover { border-color: var(--cyan); background: #131a2c; }
-        .preset .pt { font-weight: 600; display: block; margin-bottom: 3px; }
-        .preset .pd { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
-        .preset.doctor .pt { color: var(--green); }
-        .preset.engineer .pt { color: var(--cyan); }
-        .preset.citizen .pt { color: var(--amber); }
-        .preset.guest .pt { color: var(--text-dim); }
+        .gen-btn:hover { border-color: var(--cyan); background: #131a2c; }
+        .gen-btn .ico { font-size: 20px; }
+        .gen-btn .gt { font-weight: 600; display: block; }
+        .gen-btn .gd { font-size: 11px; color: var(--text-dim); }
 
-        /* ---------- Форма ---------- */
+        #qrBox {
+            margin-top: 18px; display: none; flex-direction: column; align-items: center; gap: 12px;
+            padding: 24px; background: #fff; border: 1px solid var(--border);
+        }
+        #qrBox.on { display: flex; }
+        #qrcode { display: grid; place-items: center; }
+        #qrCaption { color: #07090F; font-weight: 700; letter-spacing: 1px; font-size: 15px; }
+        .qr-hint { text-align: center; color: var(--text-faint); font-size: 11px; margin-top: 10px; }
+
+        /* Поля терминала */
         .field { margin-bottom: 14px; }
-        .field label {
-            display: block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
-            color: var(--text-dim); margin-bottom: 6px;
-        }
-        .field input, .field select {
+        .field label { display: block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
+        .field select, .field input {
             width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
-            padding: 10px 12px; font-family: inherit; font-size: 13px; outline: none;
+            padding: 11px 12px; font-family: inherit; font-size: 13px; outline: none;
         }
-        .field input:focus, .field select:focus { border-color: var(--cyan); }
-        .field input::placeholder { color: var(--text-faint); }
-        .hint { font-size: 10px; color: var(--text-faint); margin-top: 5px; }
+        .field select:focus, .field input:focus { border-color: var(--cyan); }
 
-        .submit {
+        .scan-btn {
             width: 100%; background: transparent; border: 1px solid var(--cyan); color: var(--cyan);
-            padding: 13px; font-family: inherit; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+            padding: 16px; font-family: inherit; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase;
             cursor: pointer; transition: all 0.15s; margin-top: 4px;
         }
-        .submit:hover { background: var(--cyan); color: var(--bg); box-shadow: 0 0 18px rgba(0, 200, 224, 0.4); }
-        .submit:disabled { opacity: 0.4; cursor: not-allowed; }
+        .scan-btn:hover { background: var(--cyan); color: var(--bg); box-shadow: 0 0 18px rgba(0,200,224,0.4); }
+        .scan-btn.stop { border-color: var(--red); color: var(--red); }
+        .scan-btn.stop:hover { background: var(--red); color: var(--bg); box-shadow: 0 0 18px rgba(255,64,64,0.4); }
 
-        /* ---------- Вердикт ---------- */
-        .verdict {
-            border: 1px solid var(--border); padding: 16px; margin-bottom: 18px; min-height: 86px;
-            display: flex; flex-direction: column; justify-content: center; background: var(--panel-2);
-        }
-        .verdict.idle { color: var(--text-faint); align-items: center; text-align: center; font-size: 12px; letter-spacing: 1px; }
-        .verdict .vtop { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-        .badge { padding: 5px 12px; font-size: 13px; font-weight: 700; letter-spacing: 1px; border: 1px solid; }
-        .badge.APPROVED { color: var(--green); border-color: var(--green); }
-        .badge.REJECTED { color: var(--red); border-color: var(--red); }
-        .badge.REVIEW { color: var(--amber); border-color: var(--amber); }
-        .verdict .reason { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
-        .verdict .vmeta { margin-top: 10px; font-size: 10px; color: var(--text-faint); word-break: break-all; line-height: 1.6; }
-        .verdict .vmeta b { color: var(--text-dim); font-weight: 400; }
+        #reader { margin-top: 16px; border: 1px solid var(--border); overflow: hidden; }
+        #reader:empty { display: none; }
 
-        /* ---------- Цепочка-пайплайн ---------- */
-        .chain-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
-        .chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
-        .node {
-            flex: 1; min-width: 80px; border: 1px solid var(--border); background: var(--bg);
-            padding: 12px 6px; text-align: center; position: relative; opacity: 0.25; transition: all 0.3s;
-        }
-        .node .nt { font-size: 9px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; }
-        .node .nv { font-size: 11px; margin-top: 4px; color: var(--text); font-weight: 600; }
-        .node.lit { opacity: 1; border-color: var(--cyan); box-shadow: 0 0 12px rgba(0, 200, 224, 0.25); }
-        .node.lit.ok { border-color: var(--green); box-shadow: 0 0 12px rgba(0, 212, 116, 0.3); }
-        .node.lit.ok .nv { color: var(--green); }
-        .node.lit.bad { border-color: var(--red); box-shadow: 0 0 12px rgba(255, 64, 64, 0.3); }
-        .node.lit.bad .nv { color: var(--red); }
-        .arrow { display: flex; align-items: center; color: var(--text-faint); padding: 0 4px; font-size: 14px; transition: color 0.3s; }
-        .arrow.lit { color: var(--cyan); }
-        @media (max-width: 520px) {
-            .chain { flex-direction: column; }
-            .arrow { transform: rotate(90deg); padding: 4px 0; justify-content: center; }
-            .node { min-width: 0; }
-        }
-
-        /* ---------- Таблица журнала ---------- */
-        .audit-panel { margin-top: 20px; }
-        .audit-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-        .refresh {
+        .manual-row { display: flex; gap: 8px; margin-top: 12px; }
+        .manual-row input { flex: 1; }
+        .manual-row button {
             background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
-            padding: 7px 14px; font-family: inherit; font-size: 11px; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;
+            padding: 0 16px; font-family: inherit; cursor: pointer; font-size: 12px; letter-spacing: 1px;
         }
+        .manual-row button:hover { border-color: var(--cyan); color: var(--cyan); }
+
+        /* Карточки результата */
+        #cardArea { margin-top: 4px; }
+        .card { border: 1px solid; padding: 18px; margin-bottom: 16px; animation: slideIn 0.35s ease; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+        .card.ok { border-color: var(--green); background: rgba(0,212,116,0.05); }
+        .card.bad { border-color: var(--red); background: rgba(255,64,64,0.06); }
+        .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+        .card-head .ci { font-size: 22px; }
+        .card-head .ct { font-size: 14px; font-weight: 700; letter-spacing: 1px; }
+        .card.ok .ct { color: var(--green); }
+        .card.bad .ct { color: var(--red); }
+        .card-head .csub { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
+
+        .row { display: flex; padding: 7px 0; border-bottom: 1px solid rgba(30,39,64,0.5); font-size: 13px; }
+        .row:last-child { border-bottom: none; }
+        .row .k { width: 42%; color: var(--text-dim); font-size: 12px; }
+        .row .v { width: 58%; color: var(--text); font-weight: 600; }
+        .badge-blood { display: inline-block; background: var(--red); color: #fff; padding: 2px 10px; font-weight: 700; letter-spacing: 0.5px; }
+        .allergy { color: var(--red); font-weight: 700; }
+        .ai-note { margin-top: 14px; border: 1px solid var(--cyan); padding: 12px; font-size: 12px; color: var(--text); display: flex; gap: 10px; align-items: flex-start; background: rgba(0,200,224,0.05); }
+        .ai-note .ai-ico { color: var(--cyan); font-size: 16px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .chip { border: 1px solid var(--border); padding: 2px 9px; font-size: 11px; color: var(--text); }
+        .chip.warn { border-color: var(--red); color: var(--red); }
+
+        .reason-big { font-size: 13px; color: var(--text); line-height: 1.6; }
+        .reason-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+
+        .idle-hint { color: var(--text-faint); text-align: center; padding: 26px; font-size: 12px; letter-spacing: 1px; border: 1px dashed var(--border); }
+
+        /* Журнал */
+        .audit-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .refresh { background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim); padding: 7px 14px; font-family: inherit; font-size: 11px; letter-spacing: 1px; cursor: pointer; text-transform: uppercase; }
         .refresh:hover { border-color: var(--cyan); color: var(--cyan); }
         .table-scroll { overflow-x: auto; border: 1px solid var(--border); }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        thead th {
-            background: var(--panel-2); color: var(--text-dim); text-align: left; padding: 10px 12px;
-            font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
-            border-bottom: 1px solid var(--border); white-space: nowrap;
-        }
-        tbody td { padding: 9px 12px; border-bottom: 1px solid rgba(30, 39, 64, 0.5); color: var(--text); white-space: nowrap; }
-        tbody tr:hover { background: rgba(0, 200, 224, 0.04); }
-        .uuid { color: var(--text-dim); font-size: 11px; }
+        thead th { background: var(--panel-2); color: var(--text-dim); text-align: left; padding: 9px 10px; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(30,39,64,0.5); white-space: nowrap; }
+        tbody tr:hover { background: rgba(0,200,224,0.04); }
         .evt { color: var(--cyan); font-size: 11px; }
-        .tag { font-size: 10px; padding: 2px 8px; border: 1px solid; letter-spacing: 0.5px; }
-        .tag.GRANTED, .tag.APPROVED { color: var(--green); border-color: var(--green); }
-        .tag.DENIED, .tag.REJECTED { color: var(--red); border-color: var(--red); }
+        .uuid { color: var(--text-dim); font-size: 11px; }
+        .ts { color: var(--text-faint); font-size: 11px; }
+        .tag { font-size: 10px; padding: 2px 8px; border: 1px solid; }
+        .tag.GRANTED { color: var(--green); border-color: var(--green); }
+        .tag.DENIED { color: var(--red); border-color: var(--red); }
         .tag.REVIEW { color: var(--amber); border-color: var(--amber); }
         .tag.INFO { color: var(--text-dim); border-color: var(--border); }
-        .empty { text-align: center; color: var(--text-faint); padding: 30px; font-size: 12px; letter-spacing: 1px; }
-        .ts { color: var(--text-faint); font-size: 11px; }
+        .empty { text-align: center; color: var(--text-faint); padding: 26px; font-size: 12px; }
 
-        .loading-bar { height: 2px; background: var(--border); margin-bottom: 18px; overflow: hidden; display: none; }
+        .loading-bar { height: 2px; background: var(--border); margin: 8px 0 14px; overflow: hidden; display: none; }
         .loading-bar.on { display: block; }
         .loading-bar i { display: block; height: 100%; width: 30%; background: var(--cyan); animation: slide 1s infinite linear; }
-        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        @keyframes slide { 0%{transform:translateX(-100%);} 100%{transform:translateX(400%);} }
 
-        footer { margin-top: 36px; text-align: center; color: var(--text-faint); font-size: 11px; letter-spacing: 1px; }
-        footer a { color: var(--text-dim); text-decoration: none; }
-        footer a:hover { color: var(--cyan); }
+        footer { margin-top: 30px; text-align: center; color: var(--text-faint); font-size: 11px; letter-spacing: 1px; }
+        footer a { color: var(--text-dim); text-decoration: none; } footer a:hover { color: var(--cyan); }
     </style>
 </head>
 <body>
 <div class="wrap">
 
-    <!-- ============ ШАПКА ============ -->
     <header>
         <div class="brand">
             <div class="glyph">◈</div>
             <div>
                 <h1>IDEAQR · ЦИФРОВОЙ ШЛЮЗ</h1>
-                <div class="sub">Операционная консоль — Этап 2</div>
+                <div class="sub">Демонстрационный стенд</div>
             </div>
         </div>
         <div class="status-pill">
@@ -205,132 +197,102 @@
         </div>
     </header>
 
-    <div class="loading-bar" id="loadingBar"><i></i></div>
+    <!-- Переключатель режимов -->
+    <div class="tabs">
+        <button class="tab active" id="tabGen" onclick="switchView('gen')">
+            🏷 МЕТКА / ТОЧКА СКАНИРОВАНИЯ
+            <span class="tlabel">Экран А — генерация QR</span>
+        </button>
+        <button class="tab" id="tabScan" onclick="switchView('scan')">
+            📷 ТЕРМИНАЛ ПРОВЕРЯЮЩЕГО
+            <span class="tlabel">Экран Б — сканер</span>
+        </button>
+    </div>
 
-    <!-- ============ ОСНОВНАЯ СЕТКА ============ -->
-    <div class="grid">
-
-        <!-- ЛЕВО: панель управления -->
+    <!-- ============ ЭКРАН А: ГЕНЕРАТОР QR ============ -->
+    <div class="view active" id="viewGen">
         <section class="panel">
-            <h2>Консоль запроса доступа</h2>
-
-            <div class="preset-label">БЫСТРЫЕ СЦЕНАРИИ — СКАН ОТ ЛИЦА ЛИЧНОСТИ</div>
-            <div class="presets">
-                <button class="preset engineer" onclick="applyPreset('engineer')">
-                    <span class="pt">⚙ ИНЖЕНЕР</span>
-                    <span class="pd">доступ INFRA_ · 08:00–18:00</span>
+            <h2>Что сгенерировать?</h2>
+            <div class="gen-btns">
+                <button class="gen-btn" onclick="genQr('PATIENT_7291','QR ПАЦИЕНТА')">
+                    <span class="ico">🏥</span>
+                    <span><span class="gt">QR Пациента</span><span class="gd">PATIENT_7291 · медицинская карта</span></span>
                 </button>
-                <button class="preset doctor" onclick="applyPreset('doctor')">
-                    <span class="pt">✚ ВРАЧ</span>
-                    <span class="pd">медицинский доступ MED_</span>
+                <button class="gen-btn" onclick="genQr('INFRA_WAREHOUSE_7','QR СКЛАДА')">
+                    <span class="ico">🏗</span>
+                    <span><span class="gt">QR Склада</span><span class="gd">INFRA_WAREHOUSE_7 · объект инфраструктуры</span></span>
                 </button>
-                <button class="preset citizen" onclick="applyPreset('citizen')">
-                    <span class="pt">◎ ГРАЖДАНИН</span>
-                    <span class="pd">гос. услуги CIV_</span>
-                </button>
-                <button class="preset guest" onclick="applyPreset('guest')">
-                    <span class="pt">? ГОСТЬ</span>
-                    <span class="pd">не зарегистрирован · авто-создание</span>
+                <button class="gen-btn" onclick="genQr('FIN_PORTAL_1','QR ФИНАНСОВ')">
+                    <span class="ico">💳</span>
+                    <span><span class="gt">QR Финансов</span><span class="gd">FIN_PORTAL_1 · финансовый объект</span></span>
                 </button>
             </div>
 
-            <div class="field">
-                <label>Идентификатор личности (Identity UID)</label>
-                <input type="text" id="identityUid" placeholder="оставьте пустым для скана ГОСТЯ">
-                <div class="hint" id="identityHint">Пусто → бэкенд создаст личность-ГОСТЯ на лету.</div>
+            <div id="qrBox">
+                <div id="qrcode"></div>
+                <div id="qrCaption"></div>
             </div>
+            <div class="qr-hint">Покажите этот QR-код камере на втором телефоне (Экран Б)</div>
+        </section>
+    </div>
+
+    <!-- ============ ЭКРАН Б: ТЕРМИНАЛ ============ -->
+    <div class="view" id="viewScan">
+        <section class="panel">
+            <h2>Кто проверяет?</h2>
 
             <div class="field">
-                <label>Идентификатор объекта (цель)</label>
-                <input type="text" id="objectUid" placeholder="INFRA_WAREHOUSE_7">
-                <div class="hint">Префикс задаёт сектор: MED_ · INFRA_ · FIN_ · CIV_ · ADM_</div>
+                <label>Активная личность (кто сканирует)</label>
+                <select id="identitySelect">
+                    <option value="11111111-1111-1111-1111-111111111111">⚙ Инженер (ENGINEER + CITIZEN)</option>
+                    <option value="22222222-2222-2222-2222-222222222222">✚ Врач (DOCTOR + CITIZEN)</option>
+                    <option value="">? Гость (без регистрации)</option>
+                </select>
             </div>
 
             <div class="field">
                 <label>Тип запроса</label>
                 <select id="requestType">
-                    <option value="OBJECT_ACCESS">OBJECT_ACCESS — доступ к объекту</option>
+                    <option value="MEDICAL_ACCESS">MEDICAL_ACCESS — медицинский доступ</option>
                     <option value="INFRASTRUCTURE_ACCESS">INFRASTRUCTURE_ACCESS — инфраструктура</option>
-                    <option value="MEDICAL_ACCESS">MEDICAL_ACCESS — медицина</option>
                     <option value="FINANCE_ACCESS">FINANCE_ACCESS — финансы</option>
-                    <option value="QR_CREATION">QR_CREATION — создание QR</option>
+                    <option value="OBJECT_ACCESS">OBJECT_ACCESS — общий доступ</option>
                 </select>
             </div>
 
-            <div class="field">
-                <label>Тип взаимодействия</label>
-                <input type="text" id="interactionType" placeholder="PHYSICAL_GATE" value="PHYSICAL_GATE">
-            </div>
+            <button class="scan-btn" id="scanBtn" onclick="toggleScan()">📷 Включить сканирование камерой</button>
+            <div id="reader"></div>
 
-            <button class="submit" id="scanBtn" onclick="submitScan()">▶ Выполнить скан</button>
-        </section>
-
-        <!-- ПРАВО: вердикт + пайплайн -->
-        <section class="panel">
-            <h2>Решение шлюза</h2>
-
-            <div class="verdict idle" id="verdict">
-                ОЖИДАНИЕ ЗАПРОСА — ЗАПУСТИТЕ СКАН ИЛИ ВЫБЕРИТЕ СЦЕНАРИЙ
-            </div>
-
-            <div class="chain-label">КОНВЕЙЕР ОБРАБОТКИ</div>
-            <div class="chain" id="chain">
-                <div class="node" data-node="identity">
-                    <div class="nt">Личность</div>
-                    <div class="nv">—</div>
-                </div>
-                <div class="arrow">──▶</div>
-                <div class="node" data-node="request">
-                    <div class="nt">Запрос</div>
-                    <div class="nv">—</div>
-                </div>
-                <div class="arrow">──▶</div>
-                <div class="node" data-node="decision">
-                    <div class="nt">Решение</div>
-                    <div class="nv">—</div>
-                </div>
-                <div class="arrow">──▶</div>
-                <div class="node" data-node="access">
-                    <div class="nt">QR / Доступ</div>
-                    <div class="nv">—</div>
-                </div>
-                <div class="arrow">──▶</div>
-                <div class="node" data-node="history">
-                    <div class="nt">История</div>
-                    <div class="nv">—</div>
-                </div>
+            <div class="manual-row">
+                <input type="text" id="manualObject" placeholder="…или ввести код вручную: PATIENT_7291">
+                <button onclick="manualScan()">Отправить</button>
             </div>
         </section>
+
+        <div class="loading-bar" id="loadingBar"><i></i></div>
+
+        <div id="cardArea">
+            <div class="idle-hint">ОТСКАНИРУЙТЕ QR-КОД — ЗДЕСЬ ПОЯВИТСЯ КАРТОЧКА ДАННЫХ</div>
+        </div>
     </div>
 
-    <!-- ============ ЖУРНАЛ ИСТОРИИ ============ -->
-    <section class="panel audit-panel">
+    <!-- ============ ЖУРНАЛ ============ -->
+    <section class="panel">
         <div class="audit-head">
             <h2 style="margin-bottom:0;">Неизменяемый журнал истории</h2>
             <button class="refresh" onclick="loadAudit()">↻ Обновить</button>
         </div>
         <div class="table-scroll">
             <table>
-                <thead>
-                    <tr>
-                        <th>ID записи</th>
-                        <th>Событие</th>
-                        <th>Статус</th>
-                        <th>ID взаимодействия</th>
-                        <th>Время</th>
-                    </tr>
-                </thead>
-                <tbody id="auditBody">
-                    <tr><td colspan="5" class="empty">События ещё не загружены.</td></tr>
-                </tbody>
+                <thead><tr><th>Событие</th><th>Статус</th><th>ID записи</th><th>Время</th></tr></thead>
+                <tbody id="auditBody"><tr><td colspan="4" class="empty">События ещё не загружены.</td></tr></tbody>
             </table>
         </div>
     </section>
 
     <footer>
-        IDEAQR Цифровой шлюз · Этап 2 · Личность → Запрос → Решение → QR → Назначение → Взаимодействие → История<br>
+        IDEAQR Цифровой шлюз · Демо-стенд для живого сканирования с двух устройств<br>
         <a href="/api/v2/health" target="_blank">/api/v2/health</a> ·
-        <a href="/api/v2/identities" target="_blank">/api/v2/identities</a> ·
         <a href="/api/v2/audit" target="_blank">/api/v2/audit</a>
     </footer>
 
@@ -338,134 +300,101 @@
 
 <script>
     "use strict";
-
-    // База API. Страница отдаётся Spring из /static, поэтому "" работает.
     const API = "/api/v2";
-
-    // Засеянные личности (из DataSeeder на бэкенде).
-    const SEED = {
-        engineer: "11111111-1111-1111-1111-111111111111", // ENGINEER + CITIZEN
-        doctor:   "22222222-2222-2222-2222-222222222222"  // DOCTOR + CITIZEN
-    };
-
-    // Личность-ГРАЖДАНИН создаётся в рантайме (сид только для инженера/врача).
-    let citizenUid = null;
-
     const $ = (id) => document.getElementById(id);
 
-    // ---------- Словари перевода статусов (только для отображения!) ----------
-    // На бэкенд по-прежнему уходят английские значения; русское — только на экране.
-    const RESULT_RU = {
-        APPROVED: "ОДОБРЕНО",
-        REJECTED: "ОТКЛОНЕНО",
-        REVIEW:   "НА ПРОВЕРКЕ"
-    };
-
-    // Перевод названий типов событий из журнала истории.
-    const EVENT_RU = {
-        IDENTITY_REGISTERED: "Личность зарегистрирована",
-        GUEST_PROVISIONED:   "Гость создан",
-        IDENTITY_MERGED:     "Личность объединена",
-        REQUEST_CREATED:     "Запрос создан",
-        ACCESS_GRANTED:      "Доступ разрешён",
-        ACCESS_DENIED:       "Доступ запрещён",
-        ACCESS_REVIEW:       "Доступ на проверке",
-        QR_CREATED:          "QR создан",
-        ASSIGNMENT_CREATED:  "Назначение создано"
-    };
-
-    function resultRu(r) { return RESULT_RU[r] || r || "—"; }
-    function eventRu(e)   { return EVENT_RU[e] || e || "СОБЫТИЕ"; }
-
-    // ---------- Проверка состояния ----------
-    async function checkHealth() {
-        try {
-            const r = await fetch(API + "/health");
-            const j = await r.json();
-            if (j.status === "UP") {
-                $("healthDot").className = "dot live";
-                $("healthText").textContent = "ШЛЮЗ В СЕТИ";
-            } else {
-                throw new Error("not up");
-            }
-        } catch (e) {
-            $("healthDot").className = "dot down";
-            $("healthText").textContent = "ШЛЮЗ НЕ ОТВЕЧАЕТ";
-        }
+    // ---------- Переключение вкладок ----------
+    function switchView(which) {
+        const gen = which === "gen";
+        $("viewGen").classList.toggle("active", gen);
+        $("viewScan").classList.toggle("active", !gen);
+        $("tabGen").classList.toggle("active", gen);
+        $("tabScan").classList.toggle("active", !gen);
+        // При уходе с терминала — гасим камеру.
+        if (gen && scanning) stopScan();
     }
 
-    // ---------- Гарантируем наличие личности-ГРАЖДАНИНА ----------
-    async function ensureCitizen() {
-        if (citizenUid) return citizenUid;
-        try {
-            const r = await fetch(API + "/identities", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ roles: ["CITIZEN"] })
-            });
-            if (!r.ok) throw new Error("register failed");
-            const j = await r.json();
-            citizenUid = j.identityUid;
-            return citizenUid;
-        } catch (e) {
-            return null;
-        }
+    // ---------- Экран А: генерация QR ----------
+    let qrInstance = null;
+    function genQr(text, caption) {
+        $("qrcode").innerHTML = "";
+        qrInstance = new QRCode($("qrcode"), {
+            text: text,
+            width: 240,
+            height: 240,
+            colorDark: "#07090F",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+        $("qrCaption").textContent = caption + " — " + text;
+        $("qrBox").classList.add("on");
     }
 
-    // ---------- Пресеты ----------
-    async function applyPreset(kind) {
-        if (kind === "engineer") {
-            $("identityUid").value = SEED.engineer;
-            $("objectUid").value = "INFRA_WAREHOUSE_7";
-            $("requestType").value = "INFRASTRUCTURE_ACCESS";
-            $("interactionType").value = "PHYSICAL_GATE";
-        } else if (kind === "doctor") {
-            $("identityUid").value = SEED.doctor;
-            $("objectUid").value = "MED_WARD_3";
-            $("requestType").value = "MEDICAL_ACCESS";
-            $("interactionType").value = "WARD_TERMINAL";
-        } else if (kind === "citizen") {
-            const uid = await ensureCitizen();
-            $("identityUid").value = uid || "";
-            $("objectUid").value = "CIV_PORTAL_1";
-            $("requestType").value = "OBJECT_ACCESS";
-            $("interactionType").value = "CITIZEN_PORTAL";
-        } else if (kind === "guest") {
-            $("identityUid").value = "";
-            $("objectUid").value = "CIV_PORTAL_1";
-            $("requestType").value = "OBJECT_ACCESS";
-            $("interactionType").value = "ANON_SCAN";
-        }
-        updateHint();
+    // ---------- Экран Б: живой сканер ----------
+    let html5Qr = null;
+    let scanning = false;
+
+    function toggleScan() {
+        if (scanning) { stopScan(); } else { startScan(); }
     }
 
-    function updateHint() {
-        const v = $("identityUid").value.trim();
-        $("identityHint").textContent = v
-            ? "Зарегистрированная личность — роли проверит движок правил."
-            : "Пусто → бэкенд создаст личность-ГОСТЯ на лету.";
-    }
-    $("identityUid").addEventListener("input", updateHint);
+    function startScan() {
+        $("reader").innerHTML = "";
+        html5Qr = new Html5Qrcode("reader");
+        const config = { fps: 10, qrbox: { width: 240, height: 240 } };
 
-    // ---------- Отправка скана ----------
-    async function submitScan() {
-        const objectUid = $("objectUid").value.trim();
-        if (!objectUid) {
-            flashVerdict("REJECTED", "Перед сканом нужно указать идентификатор объекта.");
-            return;
+        html5Qr.start(
+            { facingMode: "environment" },
+            config,
+            onScanSuccess,
+            () => { /* промахи сканирования игнорируем */ }
+        ).then(() => {
+            scanning = true;
+            $("scanBtn").textContent = "■ Остановить сканирование";
+            $("scanBtn").classList.add("stop");
+        }).catch((err) => {
+            renderError("Не удалось включить камеру: " + err +
+                ". Проверьте, что сайт открыт по HTTPS и вы разрешили доступ к камере.");
+        });
+    }
+
+    function stopScan() {
+        if (html5Qr && scanning) {
+            html5Qr.stop().then(() => {
+                html5Qr.clear();
+                $("reader").innerHTML = "";
+            }).catch(() => {});
         }
+        scanning = false;
+        $("scanBtn").textContent = "📷 Включить сканирование камерой";
+        $("scanBtn").classList.remove("stop");
+    }
+
+    // Камера поймала QR.
+    function onScanSuccess(decodedText) {
+        // Сразу гасим камеру, чтобы не сканировать повторно и не жечь ресурсы.
+        stopScan();
+        sendScan(decodedText.trim());
+    }
+
+    // Ручной ввод (если камеры нет).
+    function manualScan() {
+        const v = $("manualObject").value.trim();
+        if (!v) return;
+        sendScan(v);
+    }
+
+    // ---------- Отправка на бэкенд ----------
+    async function sendScan(objectUid) {
+        setLoading(true);
 
         const payload = {
             objectUid: objectUid,
             requestType: $("requestType").value,
-            interactionType: $("interactionType").value.trim() || "SCAN"
+            interactionType: "LIVE_SCAN"
         };
-        const idv = $("identityUid").value.trim();
+        const idv = $("identitySelect").value;
         if (idv) payload.identityUid = idv;
-
-        setLoading(true);
-        resetChain();
-        $("scanBtn").disabled = true;
 
         try {
             const r = await fetch(API + "/scan", {
@@ -474,126 +403,177 @@
                 body: JSON.stringify(payload)
             });
             const j = await r.json();
-
-            if (!r.ok) {
-                const msg = j.message || j.error || ("HTTP " + r.status);
-                flashVerdict("REJECTED", msg);
-                setLoading(false);
-                $("scanBtn").disabled = false;
-                return;
+            if (!r.ok && !j.result) {
+                renderError(j.message || j.error || ("HTTP " + r.status));
+            } else if (j.result === "APPROVED") {
+                renderApproved(j);
+            } else {
+                renderRejected(j);
             }
-
-            renderVerdict(j);
-            await animateChain(j);
             await loadAudit();
         } catch (e) {
-            flashVerdict("REJECTED", "Сетевая ошибка: " + e.message);
+            renderError("Сетевая ошибка: " + e.message);
         } finally {
             setLoading(false);
-            $("scanBtn").disabled = false;
         }
     }
 
-    // ---------- Вердикт ----------
-    function renderVerdict(j) {
-        const result = j.result || "REVIEW";
-        const v = $("verdict");
-        v.className = "verdict";
-        v.innerHTML =
-            '<div class="vtop">' +
-                '<span class="badge ' + result + '">' + resultRu(result) + '</span>' +
-                '<span style="color:var(--text-dim);font-size:12px;">' + escapeHtml(j.objectUid || "") + '</span>' +
-            '</div>' +
-            '<div class="reason">' + escapeHtml(j.reason || "") + '</div>' +
-            '<div class="vmeta">' +
-                '<b>личность</b> ' + shortUuid(j.identityUid) + '  ·  ' +
-                '<b>запрос</b> ' + shortUuid(j.requestUid) + '<br>' +
-                '<b>решение</b> ' + shortUuid(j.decisionUid) + '  ·  ' +
-                '<b>взаимодействие</b> ' + shortUuid(j.interactionUid) +
+    // ---------- Карточки результата ----------
+    function renderApproved(j) {
+        const rec = (j.registryData && j.registryData.record) || {};
+        const cat = (j.registryData && j.registryData.category) || "GENERIC";
+        let inner = "";
+
+        if (cat === "MEDICAL") {
+            inner = medicalCard(rec);
+        } else if (cat === "INFRASTRUCTURE") {
+            inner = infraCard(rec);
+        } else if (cat === "FINANCE") {
+            inner = financeCard(rec);
+        } else {
+            inner = genericCard(rec);
+        }
+
+        $("cardArea").innerHTML =
+            '<div class="card ok">' +
+                cardHead(cat) +
+                inner +
+                '<div class="row"><span class="k">Объект</span><span class="v">' + esc(j.objectUid) + '</span></div>' +
             '</div>';
     }
 
-    function flashVerdict(result, reason) {
-        const v = $("verdict");
-        v.className = "verdict";
-        v.innerHTML =
-            '<div class="vtop"><span class="badge ' + result + '">' + resultRu(result) + '</span></div>' +
-            '<div class="reason">' + escapeHtml(reason) + '</div>';
-    }
-
-    // ---------- Анимация конвейера ----------
-    function resetChain() {
-        document.querySelectorAll("#chain .node").forEach(n => {
-            n.className = "node";
-            n.querySelector(".nv").textContent = "—";
-        });
-        document.querySelectorAll("#chain .arrow").forEach(a => a.className = "arrow");
-    }
-
-    function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
-
-    async function animateChain(j) {
-        const approved = j.result === "APPROVED";
-        const nodes = document.querySelectorAll("#chain .node");
-        const arrows = document.querySelectorAll("#chain .arrow");
-
-        const values = {
-            identity: j.identityUid ? j.identityUid.slice(0, 8) : "ГОСТЬ",
-            request: (j.requestUid ? j.requestUid.slice(0, 8) : "—"),
-            decision: resultRu(j.result),
-            access: approved ? "РАЗРЕШЁН" : "БЛОКИРОВАН",
-            history: "ЗАПИСАНО"
+    function cardHead(cat) {
+        const map = {
+            MEDICAL:        { ico: "🏥", t: "МЕДИЦИНСКАЯ КАРТА", s: "МедРеестр КЗ · доступ разрешён" },
+            INFRASTRUCTURE: { ico: "🏗", t: "ОБЪЕКТ ИНФРАСТРУКТУРЫ", s: "ИнфраСистема КЗ · доступ разрешён" },
+            FINANCE:        { ico: "💳", t: "ТОВАР / ФИНАНСЫ", s: "ТорговыйРеестр КЗ · доступ разрешён" },
+            GENERIC:        { ico: "📦", t: "ДАННЫЕ ОБЪЕКТА", s: "Реестр · доступ разрешён" }
         };
-
-        const order = ["identity", "request", "decision", "access", "history"];
-
-        for (let i = 0; i < order.length; i++) {
-            const node = nodes[i];
-            const key = order[i];
-            node.querySelector(".nv").textContent = values[key];
-
-            if (key === "decision" || key === "access") {
-                node.classList.add("lit", approved ? "ok" : "bad");
-            } else {
-                node.classList.add("lit");
-            }
-
-            if (i < arrows.length) arrows[i].classList.add("lit");
-            await delay(260);
-        }
+        const m = map[cat] || map.GENERIC;
+        return '<div class="card-head"><span class="ci">' + m.ico + '</span>' +
+               '<span><span class="ct">✓ ' + m.t + '</span><br><span class="csub">' + m.s + '</span></span></div>';
     }
 
-    // ---------- Журнал истории ----------
+    function medicalCard(r) {
+        let h = "";
+        h += rowKV("Пациент", esc(r.patientName));
+        h += rowKV("Возрастная группа", esc(r.ageGroup));
+        h += rowKV("Группа крови", '<span class="badge-blood">' + esc(r.bloodType) + '</span>');
+        if (Array.isArray(r.allergies)) {
+            h += '<div class="row"><span class="k">Аллергии</span><span class="v allergy">⚠ ' + r.allergies.map(esc).join(", ") + '</span></div>';
+        }
+        if (Array.isArray(r.chronicConditions)) {
+            h += '<div class="row"><span class="k">Хронические</span><span class="v"><div class="chips">' +
+                 r.chronicConditions.map(c => '<span class="chip warn">' + esc(c) + '</span>').join("") + '</div></span></div>';
+        }
+        h += rowKV("Согласие", esc(r.consentStatus));
+        h += rowKV("Последний визит", esc(r.lastVisit));
+        if (r.aiRecommendation) {
+            h += '<div class="ai-note"><span class="ai-ico">🤖</span><span><b>Заметка ИИ:</b> ' + esc(r.aiRecommendation) + '</span></div>';
+        }
+        return h;
+    }
+
+    function infraCard(r) {
+        let h = "";
+        h += rowKV("Объект", esc(r.objectCode));
+        h += rowKV("Уровень допуска", esc(r.clearanceLevel));
+        h += rowKV("Статус", '<span style="color:var(--green)">' + esc(r.operationalStatus) + '</span>');
+        h += rowKV("Последняя инспекция", esc(r.lastInspection));
+        h += rowKV("Рабочее окно", esc(r.maintenanceWindow));
+        h += rowKV("Безопасность", esc(r.securityAlerts));
+        return h;
+    }
+
+    function financeCard(r) {
+        let h = "";
+        h += rowKV("Товар", esc(r.productName));
+        h += rowKV("Производитель", esc(r.manufacturer));
+        h += rowKV("Годен до", esc(r.expiryDate));
+        h += rowKV("Сертификация", '<span style="color:var(--green)">' + esc(r.certification) + '</span>');
+        h += rowKV("Цена", '<span class="badge-blood" style="background:var(--green);color:#07090F">' + esc(r.price) + '</span>');
+        return h;
+    }
+
+    function genericCard(r) {
+        let h = "";
+        Object.keys(r).forEach(k => { h += rowKV(esc(k), esc(String(r[k]))); });
+        return h || '<div class="row"><span class="v">Данные получены.</span></div>';
+    }
+
+    function rowKV(k, v) {
+        return '<div class="row"><span class="k">' + k + '</span><span class="v">' + (v || "—") + '</span></div>';
+    }
+
+    function renderRejected(j) {
+        $("cardArea").innerHTML =
+            '<div class="card bad">' +
+                '<div class="card-head"><span class="ci">🚫</span>' +
+                '<span><span class="ct">✗ ДОСТУП ЗАПРЕЩЁН</span><br>' +
+                '<span class="csub">Движок правил ИИ · ' + (j.result === "REVIEW" ? "требуется ручная проверка" : "отказано") + '</span></span></div>' +
+                '<div class="reason-label">Причина отказа</div>' +
+                '<div class="reason-big">' + esc(translateReason(j.reason)) + '</div>' +
+                '<div class="row" style="margin-top:12px"><span class="k">Объект</span><span class="v">' + esc(j.objectUid) + '</span></div>' +
+            '</div>';
+    }
+
+    function renderError(msg) {
+        $("cardArea").innerHTML =
+            '<div class="card bad"><div class="card-head"><span class="ci">⚠</span>' +
+            '<span class="ct">ОШИБКА</span></div><div class="reason-big">' + esc(msg) + '</div></div>';
+    }
+
+    // Делаем английскую причину от движка чуть человечнее на русском.
+    function translateReason(reason) {
+        if (!reason) return "—";
+        let r = reason;
+        if (r.includes("lacks required role")) {
+            const role = (r.match(/role (\w+)/) || [])[1] || "";
+            return "У данной личности нет необходимой роли (" + role + ") для доступа к этому объекту.";
+        }
+        if (r.includes("outside the window") || r.includes("restricted to")) {
+            return "Доступ запрещён вне рабочего времени (08:00–18:00 по серверу). Текущее время вне разрешённого окна.";
+        }
+        if (r.includes("no governing role") || r.includes("Unknown object")) {
+            return "Неизвестный тип объекта — запрос направлен на ручную проверку (REVIEW).";
+        }
+        if (r.includes("Missing objectUid")) {
+            return "Не указан объект доступа.";
+        }
+        return r;
+    }
+
+    // ---------- Журнал ----------
+    const EVENT_RU = {
+        IDENTITY_REGISTERED: "Личность зарегистрирована", GUEST_PROVISIONED: "Гость создан",
+        IDENTITY_MERGED: "Личность объединена", REQUEST_CREATED: "Запрос создан",
+        ACCESS_GRANTED: "Доступ разрешён", ACCESS_DENIED: "Доступ запрещён",
+        ACCESS_REVIEW: "Доступ на проверке", QR_CREATED: "QR создан", ASSIGNMENT_CREATED: "Назначение создано"
+    };
+
     async function loadAudit() {
         try {
             const r = await fetch(API + "/audit");
             const list = await r.json();
             const body = $("auditBody");
-
             if (!Array.isArray(list) || list.length === 0) {
-                body.innerHTML = '<tr><td colspan="5" class="empty">Событий пока нет.</td></tr>';
+                body.innerHTML = '<tr><td colspan="4" class="empty">Событий пока нет.</td></tr>';
                 return;
             }
-
-            body.innerHTML = list.map(rowToHtml).join("");
+            body.innerHTML = list.map(h => {
+                const evt = h.eventType || "EVENT";
+                return '<tr>' +
+                    '<td class="evt">' + esc(EVENT_RU[evt] || evt) + '</td>' +
+                    '<td>' + statusTag(evt) + '</td>' +
+                    '<td class="uuid">' + shortUuid(h.historyUid) + '</td>' +
+                    '<td class="ts">' + fmtTs(h.createdAt) + '</td>' +
+                '</tr>';
+            }).join("");
         } catch (e) {
-            $("auditBody").innerHTML =
-                '<tr><td colspan="5" class="empty">Не удалось загрузить журнал: ' + escapeHtml(e.message) + '</td></tr>';
+            $("auditBody").innerHTML = '<tr><td colspan="4" class="empty">Не удалось загрузить журнал.</td></tr>';
         }
     }
 
-    function rowToHtml(h) {
-        const evt = h.eventType || "EVENT";
-        return '<tr>' +
-            '<td class="uuid">' + shortUuid(h.historyUid) + '</td>' +
-            '<td class="evt">' + escapeHtml(eventRu(evt)) + '</td>' +
-            '<td>' + statusTag(evt) + '</td>' +
-            '<td class="uuid">' + (h.interactionUid ? shortUuid(h.interactionUid) : '<span style="color:var(--text-faint)">—</span>') + '</td>' +
-            '<td class="ts">' + formatTs(h.createdAt) + '</td>' +
-        '</tr>';
-    }
-
-    // Тип события → цветной русский ярлык статуса.
     function statusTag(evt) {
         const e = (evt || "").toUpperCase();
         if (e.includes("GRANTED")) return '<span class="tag GRANTED">РАЗРЕШЕНО</span>';
@@ -603,36 +583,26 @@
     }
 
     // ---------- Утилиты ----------
-    function shortUuid(u) {
-        if (!u) return '<span style="color:var(--text-faint)">—</span>';
-        const s = String(u);
-        return s.length > 13 ? s.slice(0, 8) + "…" + s.slice(-4) : s;
-    }
-
-    function formatTs(ts) {
+    function shortUuid(u) { if (!u) return "—"; const s = String(u); return s.length > 13 ? s.slice(0,8) + "…" + s.slice(-4) : s; }
+    function fmtTs(ts) {
         if (!ts) return "—";
+        try { const d = new Date(ts); if (isNaN(d.getTime())) return String(ts).slice(0,19).replace("T"," "); return d.toISOString().slice(0,19).replace("T"," "); }
+        catch (e) { return String(ts).slice(0,19).replace("T"," "); }
+    }
+    function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+    function setLoading(on) { $("loadingBar").className = on ? "loading-bar on" : "loading-bar"; }
+
+    // ---------- Health ----------
+    async function checkHealth() {
         try {
-            const d = new Date(ts);
-            if (isNaN(d.getTime())) return String(ts).slice(0, 19).replace("T", " ");
-            return d.toISOString().slice(0, 19).replace("T", " ");
-        } catch (e) {
-            return String(ts).slice(0, 19).replace("T", " ");
-        }
+            const r = await fetch(API + "/health");
+            const j = await r.json();
+            if (j.status === "UP") { $("healthDot").className = "dot live"; $("healthText").textContent = "ШЛЮЗ В СЕТИ"; }
+            else throw new Error();
+        } catch (e) { $("healthDot").className = "dot down"; $("healthText").textContent = "ШЛЮЗ НЕ ОТВЕЧАЕТ"; }
     }
 
-    function escapeHtml(s) {
-        return String(s == null ? "" : s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
-    }
-
-    function setLoading(on) {
-        $("loadingBar").className = on ? "loading-bar on" : "loading-bar";
-    }
-
-    // ---------- Инициализация ----------
+    // ---------- Init ----------
     checkHealth();
     loadAudit();
     setInterval(checkHealth, 30000);
