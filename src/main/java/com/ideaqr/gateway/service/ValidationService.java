@@ -149,8 +149,18 @@ public class ValidationService {
     /**
      * Maps an object identifier's prefix to the role that governs it.
      * Returns null when no role matches the prefix.
+     *
+     * Besides the canonical prefix on each Role (MED_, INFRA_, ...), some sectors
+     * accept additional historical prefixes — notably medical objects, which may be
+     * tagged PATIENT_, CLINIC_ or RX_ and are all governed by the DOCTOR role.
      */
     private Role resolveRoleByObjectPrefix(String objectUid) {
+        // Medical synonyms map onto DOCTOR.
+        if (objectUid.startsWith("PATIENT_")
+                || objectUid.startsWith("CLINIC_")
+                || objectUid.startsWith("RX_")) {
+            return Role.DOCTOR;
+        }
         for (Role role : Role.values()) {
             if (objectUid.startsWith(role.getObjectPrefix())) {
                 return role;
