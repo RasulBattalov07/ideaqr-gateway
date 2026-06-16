@@ -1,5 +1,7 @@
 package com.ideaqr.gateway.web;
-
+import com.ideaqr.gateway.dto.ScanRequest;
+import com.ideaqr.gateway.dto.GatewayResponse;
+import com.ideaqr.gateway.service.GatewayService;
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.dto.GatewayResponse;
 import com.ideaqr.gateway.dto.ReportRequest;
