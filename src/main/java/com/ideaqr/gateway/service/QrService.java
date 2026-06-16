@@ -9,12 +9,17 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class QrService {
 
     public QrCreationResponse createGovernedObject(Identity admin, QrCreationRequest request) {
-        return null;
+        QrCreationResponse response = new QrCreationResponse();
+        // Возвращаем фейковый ID для админ-панели
+        response.setObjectUid(UUID.randomUUID().toString());
+        response.setQrImageDataUri("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        return response;
     }
 
     public List<RegistryObject> listObjectsForAdmin(Object identityUid) {
@@ -25,8 +30,10 @@ public class QrService {
         return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
     }
 
-    // Тот самый новый метод, который нужен для UserService при регистрации
     public Qr createPrimaryQr(Identity identity) {
-        return null;
+        Qr qr = new Qr();
+        // Генерируем уникальный ID QR-кода для нового пользователя
+        qr.setQrUid(UUID.randomUUID());
+        return qr;
     }
 }
