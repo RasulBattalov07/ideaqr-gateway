@@ -1,0 +1,2998 @@
+Index: src/main/java/com/ideaqr/gateway/repository/InteractionRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.Interaction;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.List;\nimport java.util.UUID;\n\n@Repository\npublic interface InteractionRepository extends JpaRepository<Interaction, UUID> {\n\n    List<Interaction> findByIdentityUidOrderByCreatedAtDesc(UUID identityUid);\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/InteractionRepository.java b/src/main/java/com/ideaqr/gateway/repository/InteractionRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/InteractionRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/InteractionRepository.java	(date 1781544967000)
+@@ -1,14 +1,9 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.Interaction;
++import com.ideaqr.gateway.domain.Interaction;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+-import java.util.List;
+ import java.util.UUID;
+ 
+-@Repository
+ public interface InteractionRepository extends JpaRepository<Interaction, UUID> {
+-
+-    List<Interaction> findByIdentityUidOrderByCreatedAtDesc(UUID identityUid);
+ }
+Index: src/main/java/com/ideaqr/gateway/dto/QrCreationRequest.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.dto;\n\nimport com.ideaqr.gateway.enums.QrType;\nimport jakarta.validation.constraints.NotNull;\nimport lombok.AllArgsConstructor;\nimport lombok.Builder;\nimport lombok.Data;\nimport lombok.NoArgsConstructor;\n\nimport java.util.UUID;\n\n/**\n * Payload to register a QR code for an identity.\n * Must reference a QR_CREATION request that already carries an APPROVED decision.\n */\n@Data\n@NoArgsConstructor\n@AllArgsConstructor\n@Builder\npublic class QrCreationRequest {\n\n    @NotNull(message = \"identityUid must not be null\")\n    private UUID identityUid;\n\n    @NotNull(message = \"requestUid must not be null\")\n    private UUID requestUid;\n\n    @NotNull(message = \"qrType must not be null\")\n    private QrType qrType;\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/dto/QrCreationRequest.java b/src/main/java/com/ideaqr/gateway/dto/QrCreationRequest.java
+--- a/src/main/java/com/ideaqr/gateway/dto/QrCreationRequest.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/dto/QrCreationRequest.java	(date 1781545014000)
+@@ -1,30 +1,56 @@
+ package com.ideaqr.gateway.dto;
+ 
+-import com.ideaqr.gateway.enums.QrType;
+-import jakarta.validation.constraints.NotNull;
+-import lombok.AllArgsConstructor;
+-import lombok.Builder;
++import jakarta.validation.constraints.NotBlank;
+ import lombok.Data;
+-import lombok.NoArgsConstructor;
+ 
+-import java.util.UUID;
++import java.util.List;
++import java.util.Map;
+ 
+ /**
+- * Payload to register a QR code for an identity.
+- * Must reference a QR_CREATION request that already carries an APPROVED decision.
++ * Admin panel payload describing the object to mint a governed QR for. Retail is
++ * the primary flow (the brief's "Adidas Black T-Shirt" example), but the same
++ * form serves medical, eco and general objects.
+  */
+ @Data
+-@NoArgsConstructor
+-@AllArgsConstructor
+-@Builder
+ public class QrCreationRequest {
+ 
+-    @NotNull(message = "identityUid must not be null")
+-    private UUID identityUid;
++    /** RETAIL, MEDICAL, ECO or GENERAL. */
++    @NotBlank(message = "Выберите тип объекта")
++    private String category;
++
++    @NotBlank(message = "Укажите наименование объекта")
++    private String displayName;
+ 
+-    @NotNull(message = "requestUid must not be null")
+-    private UUID requestUid;
++    private String description;
+ 
+-    @NotNull(message = "qrType must not be null")
+-    private QrType qrType;
++    // --- Retail-oriented fields -------------------------------------------
++    private String brand;
++    private Long price;
++    private String currency;
++    private List<SizeStock> sizes;
++    private String discountCode;
++    private String discountNote;
++    private List<Alternative> alternatives;
++
++    // --- Eco / infrastructure-oriented fields -----------------------------
++    private String location;
++
++    // --- Escape hatch for any extra structured attributes -----------------
++    private Map<String, Object> extra;
++
++    /** A clothing size and its live stock count. */
++    @Data
++    public static class SizeStock {
++        private String size;
++        private Integer stock;
++    }
++
++    /** An alternative place to buy the same item. */
++    @Data
++    public static class Alternative {
++        private String store;
++        private Long price;
++        private String url;
++        private String note;
++    }
+ }
+Index: README.md
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+># IDEAQR Digital Gateway — Stage 2\n\nIdentity-centric digital trust platform. Replaces the Stage-1 prefix-check prototype\nwith a full pipeline:\n\n```\nIdentity ──> Request ──> Decision ──> QR Creation ──> Assignment ──> Interaction ──> History\n```\n\n- **Spring Boot 3.2 / Java 17 / JPA (Hibernate) / H2 in-memory**\n- UUID primary keys on all new entities\n- Append-only `History` audit journal (JSON payloads)\n- Advanced rules engine (time-window + multi-role evaluation)\n- Dynamic GUEST provisioning + guest→primary migration\n- Dockerized, tuned for the Render free tier (512 MB)\n\n---\n\n## Build & run locally\n\n```bash\nmvn clean package\njava -jar target/ideaqr-gateway.jar\n# or\nmvn spring-boot:run\n```\n\nApp starts on `http://localhost:8080`. H2 console at `/h2-console`\n(JDBC URL `jdbc:h2:mem:ideaqr`, user `sa`, empty password).\n\nTwo demo identities are seeded on boot:\n\n| identityUid | roles |\n|---|---|\n| `11111111-1111-1111-1111-111111111111` | ENGINEER, CITIZEN |\n| `22222222-2222-2222-2222-222222222222` | DOCTOR, CITIZEN |\n\n---\n\n## API (base path `/api/v2`)\n\n| Method | Path | Purpose |\n|---|---|---|\n| POST | `/scan` | End-to-end scan pipeline |\n| POST | `/identities` | Register a PRIMARY identity |\n| GET | `/identities` | List identities |\n| GET | `/identities/{identityUid}` | Fetch one identity |\n| POST | `/identities/migrate` | Migrate GUEST → PRIMARY |\n| POST | `/qr` | Register a QR (requires APPROVED decision) |\n| POST | `/assignments` | Bind identity + QR to an object |\n| GET | `/audit` | Read append-only history journal |\n| GET | `/health` | Liveness probe |\n\n### Example: registered engineer accessing infrastructure\n\n```bash\ncurl -X POST http://localhost:8080/api/v2/scan \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"identityUid\": \"11111111-1111-1111-1111-111111111111\",\n        \"objectUid\": \"INFRA_WAREHOUSE_7\",\n        \"requestType\": \"INFRASTRUCTURE_ACCESS\",\n        \"interactionType\": \"PHYSICAL_GATE\"\n      }'\n```\n\nReturns `APPROVED` only between 08:00–18:00 (server local time); otherwise `REJECTED`\nwith a time-window reason. On approval the response carries mock KZ registry data.\n\n### Example: anonymous (guest) scan\n\n```bash\ncurl -X POST http://localhost:8080/api/v2/scan \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"objectUid\": \"CIV_PORTAL_1\", \"requestType\": \"OBJECT_ACCESS\" }'\n```\n\nA GUEST identity is created on the fly; note the returned `identityUid`.\n\n### Example: migrate that guest into a permanent identity\n\n```bash\ncurl -X POST http://localhost:8080/api/v2/identities/migrate \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"guestIdentityUid\": \"<uid-from-previous-response>\",\n        \"roles\": [\"CITIZEN\"]\n      }'\n```\n\nAll of the guest's `Request` and `Interaction` rows are re-pointed onto the new\n`PRIMARY` identityUid; an `IDENTITY_MERGED` event is appended to history.\n\n### Example: QR governance\n\nQR creation is gated. First obtain an APPROVED decision via a `QR_CREATION` scan,\nthen register the QR using the returned `requestUid`:\n\n```bash\n# 1. approved QR_CREATION request\ncurl -X POST http://localhost:8080/api/v2/scan \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"identityUid\":\"11111111-1111-1111-1111-111111111111\",\n        \"objectUid\":\"SELF\", \"requestType\":\"QR_CREATION\" }'\n\n# 2. register the QR (use requestUid from step 1)\ncurl -X POST http://localhost:8080/api/v2/qr \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"identityUid\":\"11111111-1111-1111-1111-111111111111\",\n        \"requestUid\":\"<requestUid>\", \"qrType\":\"MAIN\" }'\n```\n\nCalling `/qr` with a `requestUid` that has no APPROVED decision returns `409 Conflict`.\n\n---\n\n## Rules engine summary\n\n1. **Time window** — `ENGINEER` access to `INFRA_*` objects allowed only 08:00–18:00; outside → `REJECTED`.\n2. **Multi-role** — the identity must hold the role governing the object's prefix\n   (`MED_`→DOCTOR, `INFRA_`→ENGINEER, `FIN_`→FINANCIER, `CIV_`→CITIZEN, `ADM_`→ADMIN),\n   regardless of default context.\n3. **Request-type coherence** — e.g. a medical object rejects a finance request type.\n4. **Unknown prefix** → `REVIEW` (manual).\n5. **QR creation** — approved for any identity with ≥1 role; roleless → `REVIEW`.\n\n---\n\n## Deploy to Render\n\nThis repo is a Docker Web Service.\n\n1. Push to GitHub.\n2. In Render: **New → Blueprint**, point at the repo. `render.yaml` is detected.\n3. Render builds the `Dockerfile` and deploys, health-checking `/api/v2/health`.\n\nThe Dockerfile sets JVM flags for the 512 MB free tier:\n\n```\n-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError\n```\n\n`PORT` is supplied by Render and honoured via `server.port=${PORT:8080}`.\n\n> Note: H2 is in-memory, so data resets on each deploy/restart. Swap the datasource\n> for Postgres for persistence.\n
+===================================================================
+diff --git a/README.md b/README.md
+--- a/README.md	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/README.md	(date 1781579066000)
+@@ -1,146 +1,256 @@
+-# IDEAQR Digital Gateway — Stage 2
++# IDEAQR Digital Gateway — Stage 3
++
++An access-governance and immutable-audit layer for the **Digital Kazakhstan** vision.
++QR codes act **only as identifiers** — the underlying data stays in its registries.
++Every scan and every object creation is routed through a decision engine and written
++to an **append-only history**, so access is always governed and fully traceable.
+ 
+-Identity-centric digital trust platform. Replaces the Stage-1 prefix-check prototype
+-with a full pipeline:
++This is an investor-stage MVP. The medical, retail, eco and infrastructure registries
++are enriched **mock data** that simulate integration with state and commercial systems.
++
++---
++
++## What Stage 3 adds
++
++Stage 2 delivered the governance pipeline:
+ 
+ ```
+-Identity ──> Request ──> Decision ──> QR Creation ──> Assignment ──> Interaction ──> History
++Identity → Request → Decision → QR / Access → Assignment → Interaction → History
+ ```
+ 
+-- **Spring Boot 3.2 / Java 17 / JPA (Hibernate) / H2 in-memory**
+-- UUID primary keys on all new entities
+-- Append-only `History` audit journal (JSON payloads)
+-- Advanced rules engine (time-window + multi-role evaluation)
+-- Dynamic GUEST provisioning + guest→primary migration
+-- Dockerized, tuned for the Render free tier (512 MB)
++Stage 3 puts a real identity and access layer on top of it:
++
++- **Spring Security authentication** with BCrypt-hashed passwords.
++- **Persistent accounts** — file-based H2 that survives restarts (credentials and
++  created objects are *not* volatile). PostgreSQL is available via a profile.
++- A **`User`** entity bound to the Stage 2 **`Identity`** (each registered user gets a
++  primary identity, a primary QR and a trust level derived from their profession).
++- **Three role-based interfaces** served from a single SPA:
++  1. **Unauthenticated** — Russian login / registration.
++  2. **Administrator** — a governance panel to mint scannable QR codes for objects.
++  3. **Citizen / specialist** — a terminal with a live camera scanner and a search hub
++     that renders contextual data cards.
++
++> **Localization:** the backend keeps English identifiers for types, enums and data
++> keys, but **every user-facing string in the UI is in Russian**.
++
++---
++
++## Tech stack
++
++| Layer        | Choice                                             |
++|--------------|----------------------------------------------------|
++| Language     | Java 17                                             |
++| Framework    | Spring Boot 3.2.5 (Web, Data JPA, Security, Validation) |
++| Persistence  | H2 (file, default) · PostgreSQL (profile)          |
++| ORM          | Hibernate / JPA                                     |
++| QR codes     | ZXing 3.5.3 (server-side PNG, returned as data URI) |
++| Frontend     | Vanilla JS SPA + `html5-qrcode` (camera)            |
++| Boilerplate  | Lombok                                              |
+ 
+ ---
+ 
+-## Build & run locally
++## Running it
++
++### Option A — Maven (local)
++
++Requires JDK 17+ and Maven.
++
++```bash
++mvn spring-boot:run
++```
++
++Then open **http://localhost:8080**.
++
++The first launch seeds four demo accounts and creates `./data/ideaqr.mv.db`.
++Stop and restart — your data is still there.
++
++### Option B — Packaged jar
+ 
+ ```bash
+ mvn clean package
+ java -jar target/ideaqr-gateway.jar
+-# or
+-mvn spring-boot:run
+ ```
+ 
+-App starts on `http://localhost:8080`. H2 console at `/h2-console`
+-(JDBC URL `jdbc:h2:mem:ideaqr`, user `sa`, empty password).
+-
+-Two demo identities are seeded on boot:
+-
+-| identityUid | roles |
+-|---|---|
+-| `11111111-1111-1111-1111-111111111111` | ENGINEER, CITIZEN |
+-| `22222222-2222-2222-2222-222222222222` | DOCTOR, CITIZEN |
+-
+----
+-
+-## API (base path `/api/v2`)
+-
+-| Method | Path | Purpose |
+-|---|---|---|
+-| POST | `/scan` | End-to-end scan pipeline |
+-| POST | `/identities` | Register a PRIMARY identity |
+-| GET | `/identities` | List identities |
+-| GET | `/identities/{identityUid}` | Fetch one identity |
+-| POST | `/identities/migrate` | Migrate GUEST → PRIMARY |
+-| POST | `/qr` | Register a QR (requires APPROVED decision) |
+-| POST | `/assignments` | Bind identity + QR to an object |
+-| GET | `/audit` | Read append-only history journal |
+-| GET | `/health` | Liveness probe |
+-
+-### Example: registered engineer accessing infrastructure
++### Option C — Docker
+ 
+ ```bash
+-curl -X POST http://localhost:8080/api/v2/scan \
+-  -H "Content-Type: application/json" \
+-  -d '{
+-        "identityUid": "11111111-1111-1111-1111-111111111111",
+-        "objectUid": "INFRA_WAREHOUSE_7",
+-        "requestType": "INFRASTRUCTURE_ACCESS",
+-        "interactionType": "PHYSICAL_GATE"
+-      }'
++docker build -t ideaqr-gateway .
++docker run -p 8080:8080 ideaqr-gateway
+ ```
+ 
+-Returns `APPROVED` only between 08:00–18:00 (server local time); otherwise `REJECTED`
+-with a time-window reason. On approval the response carries mock KZ registry data.
++---
++
++## Demo accounts
++
++Seeded automatically on first run. On the login screen you can also click a demo
++account chip to auto-fill the form.
++
++| Username    | Password      | Person (RU)         | Interface        | Domain role |
++|-------------|---------------|---------------------|------------------|-------------|
++| `admin`     | `Admin123!`   | Аружан Сапарова     | Admin panel      | Retail admin |
++| `doctor`    | `Doctor123!`  | Санжар Ким          | Citizen terminal | Doctor      |
++| `inspector` | `Inspect123!` | Гульнара Ахметова   | Citizen terminal | Inspector   |
++| `citizen`   | `Citizen123!` | Дамир Оспанов       | Citizen terminal | Citizen     |
++
++Profession → access profile mapping:
++
++| Profession (RU)             | Domain roles                     | Trust | Admin UI |
++|-----------------------------|----------------------------------|-------|----------|
++| Врач                        | DOCTOR, CITIZEN                   | 85    | no       |
++| Администратор торговли      | RETAIL_ADMIN, ADMIN, CITIZEN     | 80    | **yes**  |
++| Инспектор инфраструктуры    | INSPECTOR, ENGINEER, CITIZEN     | 80    | no       |
++| Гражданин                   | CITIZEN                          | 50    | no       |
++
++---
++
++## Demo scenarios
++
++The citizen terminal has four **quick-scenario chips**. Each one feeds a known
++identifier into the gateway so you can see the policy engine accept or reject access.
++
++There is also a **"Контекст времени" (time context)** selector. Time-gated objects
++(medical, infrastructure) only open during working hours (08:00–18:00). Because a live
++demo might run at any hour, set the selector to **"Рабочее — 10:00"** to satisfy the
++time gate, or to **"Нерабочее — 23:00"** to watch the same scan be denied.
++
++### A · Medical — `PATIENT_7291`
++- **Log in as `doctor`** and set the time context to a working hour.
++- The engine checks role (DOCTOR), trust (≥70) and the working-hours window, then grants
++  access and renders the patient card: **allergy warning banner**, blood type and masked
++  IIN, chronic conditions, a medication table, an **SVG blood-pressure / pulse chart**,
++  visit history, immunizations and an AI assistant note.
++- Log in as `citizen` and scan the same code → **access denied** (role gate). Try `doctor`
++  at 23:00 → **denied** (time gate).
+ 
+-### Example: anonymous (guest) scan
++### B · Retail — `RETAIL_ADIDAS_SHIRT`
++- Works for **any** logged-in user (public object).
++- Renders the product card: price, rating, **per-size live stock** (in / low / out),
++  colours, **cheaper alternatives** (Kaspi, Wildberries, Lamoda) and a loyalty promo code.
++
++### C · Eco — `ECO_SMART_BIN_102`
++- Public object. Renders a **fill-level gauge** (colour-coded), operator and address,
++  pickup schedule, environmental tier and recycling stats, plus a
++  **"Сообщить о переполнении / поломке"** button that files a governed report.
++
++### D · Infrastructure — `INFRA_SUBSTATION_07`
++- **Log in as `inspector`** with a working-hour context.
++- Role + trust + time gates apply (same as medical). Renders asset type, voltage, status,
++  inspection / maintenance dates, technical notes and a **"Сообщить о проблеме"** button.
++
++The **administrator** can also create brand-new objects from the panel (the brief's
++"Adidas Black T-Shirt" flow). A created object runs the full `QR_CREATION` pipeline and
++returns a **real, scannable QR PNG**; scanning that code in the terminal resolves the
++object you just created.
++
++---
++
++## How a scan is governed
++
++`GatewayService.scan(...)` performs, in order:
++
++1. **Resolve** the object via `RegistryClient` (DB-created objects first, then the
++   enriched demo registry, then prefix inference).
++2. Create a **`Request`** (ACCESS, PENDING).
++3. Ask **`ValidationService`** for a **`Decision`** — evaluated against role, request
++   type, object category, trust level and the time-of-day policy window.
++4. Record an **`Interaction`** (always), mark the request PROCESSED / FAILED.
++5. Attach the data payload **only when APPROVED**.
++6. Append a **`History`** entry (ACCESS_GRANTED / DENIED / REVIEW).
++7. Return the verdict, the localized reason, a risk level and the **full chain of UUIDs**,
++   which the SPA animates in the **governance pipeline tracker**.
++
++Rejected scans and rejected object creations still return **HTTP 200** with
++`success: false` and an `outcome`, so the UI can show the verdict and the pipeline rather
++than treating governance decisions as errors.
++
++---
++
++## Design
++
++The interface is themed as a **secure terminal / control room**: a deep-ink base,
++Kazakh-sky **cyan** as the primary accent and **gold** as the trust accent, with
++*Golos Text* for Cyrillic UI and *JetBrains Mono* for codes and UUIDs. The signature
++element is the **governance pipeline tracker**, which lights
++Личность → Запрос → Решение → Действие → История with the real generated UUIDs on every
++scan and every object creation.
++
++---
++
++## Persistence & inspection
++
++- Default DB file: `./data/ideaqr.mv.db` (created on first run).
++- **H2 console:** http://localhost:8080/h2-console
++  JDBC URL `jdbc:h2:file:./data/ideaqr`, user `sa`, empty password.
++- Schema is managed with `ddl-auto=update` (preserved across restarts).
++- To start fresh, stop the app and delete the `./data` directory.
++
++---
++
++## Deploying with PostgreSQL (e.g. Render)
++
++A `postgres` profile is included. Provide the standard datasource environment variables
++and activate the profile:
+ 
+ ```bash
+-curl -X POST http://localhost:8080/api/v2/scan \
+-  -H "Content-Type: application/json" \
+-  -d '{ "objectUid": "CIV_PORTAL_1", "requestType": "OBJECT_ACCESS" }'
+-```
+-
+-A GUEST identity is created on the fly; note the returned `identityUid`.
+-
+-### Example: migrate that guest into a permanent identity
+-
+-```bash
+-curl -X POST http://localhost:8080/api/v2/identities/migrate \
+-  -H "Content-Type: application/json" \
+-  -d '{
+-        "guestIdentityUid": "<uid-from-previous-response>",
+-        "roles": ["CITIZEN"]
+-      }'
+-```
+-
+-All of the guest's `Request` and `Interaction` rows are re-pointed onto the new
+-`PRIMARY` identityUid; an `IDENTITY_MERGED` event is appended to history.
+-
+-### Example: QR governance
+-
+-QR creation is gated. First obtain an APPROVED decision via a `QR_CREATION` scan,
+-then register the QR using the returned `requestUid`:
+-
+-```bash
+-# 1. approved QR_CREATION request
+-curl -X POST http://localhost:8080/api/v2/scan \
+-  -H "Content-Type: application/json" \
+-  -d '{ "identityUid":"11111111-1111-1111-1111-111111111111",
+-        "objectUid":"SELF", "requestType":"QR_CREATION" }'
+-
+-# 2. register the QR (use requestUid from step 1)
+-curl -X POST http://localhost:8080/api/v2/qr \
+-  -H "Content-Type: application/json" \
+-  -d '{ "identityUid":"11111111-1111-1111-1111-111111111111",
+-        "requestUid":"<requestUid>", "qrType":"MAIN" }'
++SPRING_PROFILES_ACTIVE=postgres
++SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
++SPRING_DATASOURCE_USERNAME=<user>
++SPRING_DATASOURCE_PASSWORD=<password>
+ ```
+ 
+-Calling `/qr` with a `requestUid` that has no APPROVED decision returns `409 Conflict`.
++The server binds to `$PORT` automatically (defaults to 8080), which suits Render/Heroku.
+ 
+ ---
+ 
+-## Rules engine summary
++## Security notes & caveats
+ 
+-1. **Time window** — `ENGINEER` access to `INFRA_*` objects allowed only 08:00–18:00; outside → `REJECTED`.
+-2. **Multi-role** — the identity must hold the role governing the object's prefix
+-   (`MED_`→DOCTOR, `INFRA_`→ENGINEER, `FIN_`→FINANCIER, `CIV_`→CITIZEN, `ADM_`→ADMIN),
+-   regardless of default context.
+-3. **Request-type coherence** — e.g. a medical object rejects a finance request type.
+-4. **Unknown prefix** → `REVIEW` (manual).
+-5. **QR creation** — approved for any identity with ≥1 role; roleless → `REVIEW`.
++- **Investor MVP.** All registry data (including the medical record) is **mock data**
++  that simulates integration with external registries. No real personal data is stored.
++- **CSRF is disabled** to keep the JSON SPA + form-login flow simple for the demo. A
++  production build would enable CSRF tokens (or move to a stateless token scheme) and
++  serve the app over HTTPS.
++- Passwords are hashed with **BCrypt**; the session cookie is `JSESSIONID`.
++- The H2 console and verbose error bodies are development conveniences and should be
++  disabled in production.
+ 
+ ---
+ 
+-## Deploy to Render
+-
+-This repo is a Docker Web Service.
+-
+-1. Push to GitHub.
+-2. In Render: **New → Blueprint**, point at the repo. `render.yaml` is detected.
+-3. Render builds the `Dockerfile` and deploys, health-checking `/api/v2/health`.
+-
+-The Dockerfile sets JVM flags for the 512 MB free tier:
++## Project layout
+ 
+ ```
+--XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
++src/main/java/com/ideaqr/gateway
++├── IdeaqrGatewayApplication.java
++├── config/        SecurityConfig, DataSeeder
++├── domain/        Entities (Identity, User, Request, Decision, Qr, Assignment,
++│   │              Interaction, History, RegistryObject)
++│   └── enums/     RoleType, RequestType, ObjectCategory, … (11 enums)
++├── dto/           Request/response payloads
++├── repository/    Spring Data JPA repositories
++├── service/       AuditService, IdentityService, QrService, ValidationService,
++│                  RegistryClient, GatewayService, UserService, CustomUserDetailsService
++├── web/           AuthController, GatewayController, QrAdminController,
++│                  HealthController, GlobalExceptionHandler, AuthSupport
++└── exception/     UsernameAlreadyExistsException
++
++src/main/resources
++├── application.properties            (file-H2 default)
++├── application-postgres.properties   (PostgreSQL profile)
++└── static/        index.html, styles.css, app.js  (the SPA)
+ ```
+ 
+-`PORT` is supplied by Render and honoured via `server.port=${PORT:8080}`.
++---
++
++## API reference
+ 
+-> Note: H2 is in-memory, so data resets on each deploy/restart. Swap the datasource
+-> for Postgres for persistence.
++| Method | Path                     | Auth        | Purpose                              |
++|--------|--------------------------|-------------|--------------------------------------|
++| POST   | `/api/auth/register`     | public      | Register a new account               |
++| POST   | `/login`                 | public      | Form login (`username`, `password`)  |
++| POST   | `/logout`                | session     | Log out                              |
++| GET    | `/api/auth/me`           | session     | Current user profile                 |
++| POST   | `/api/v2/scan`           | session     | Scan an object through the pipeline  |
++| POST   | `/api/v2/report`         | session     | File a governed issue report         |
++| POST   | `/api/admin/qr/create`   | ROLE_ADMIN  | Mint a governed object + QR          |
++| GET    | `/api/admin/qr/list`     | ROLE_ADMIN  | List created objects                 |
++| GET    | `/api/health`            | public      | Liveness                             |
+Index: Dockerfile
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+># ============================================================\n# IDEAQR Digital Gateway - Stage 2\n# Multi-stage Dockerfile (Java 17), tuned for Render free tier\n# ============================================================\n\n# ---- Stage 1: build ----\nFROM maven:3.9-eclipse-temurin-17 AS build\nWORKDIR /build\n\n# Cache dependencies first\nCOPY pom.xml .\nRUN mvn -q -e dependency:go-offline\n\n# Build the application\nCOPY src ./src\nRUN mvn -q -e clean package -DskipTests\n\n# ---- Stage 2: runtime ----\nFROM eclipse-temurin:17-jre-jammy\nWORKDIR /app\n\n# Copy the fat jar from the build stage\nCOPY --from=build /build/target/ideaqr-gateway.jar app.jar\n\n# Render provides PORT; default to 8080 for local runs\nENV PORT=8080\nEXPOSE 8080\n\n# JVM tuning for the 512MB Render free tier:\n#  - MaxRAMPercentage=70 keeps the heap inside the container limit\n#  - SerialGC has the smallest footprint for a single-CPU free instance\nENV JAVA_OPTS=\"-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError\"\n\nENTRYPOINT [\"sh\", \"-c\", \"java $JAVA_OPTS -jar app.jar\"]\n
+===================================================================
+diff --git a/Dockerfile b/Dockerfile
+--- a/Dockerfile	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/Dockerfile	(date 1781579001000)
+@@ -1,34 +1,31 @@
+-# ============================================================
+-# IDEAQR Digital Gateway - Stage 2
+-# Multi-stage Dockerfile (Java 17), tuned for Render free tier
+-# ============================================================
++# syntax=docker/dockerfile:1
+ 
+-# ---- Stage 1: build ----
++# ----------------------------------------------------------------------
++# Stage 1 — Build the fat jar with Maven (Temurin JDK 17)
++# ----------------------------------------------------------------------
+ FROM maven:3.9-eclipse-temurin-17 AS build
+ WORKDIR /build
+ 
+-# Cache dependencies first
++# Cache dependencies first (only re-downloads when pom.xml changes)
+ COPY pom.xml .
+-RUN mvn -q -e dependency:go-offline
++RUN mvn -q -B dependency:go-offline
+ 
+ # Build the application
+ COPY src ./src
+-RUN mvn -q -e clean package -DskipTests
++RUN mvn -q -B clean package -DskipTests
+ 
+-# ---- Stage 2: runtime ----
+-FROM eclipse-temurin:17-jre-jammy
++# ----------------------------------------------------------------------
++# Stage 2 — Minimal runtime (JRE only)
++# ----------------------------------------------------------------------
++FROM eclipse-temurin:17-jre
+ WORKDIR /app
+ 
+-# Copy the fat jar from the build stage
++# Non-root user for safety
++RUN useradd -r -u 1001 ideaqr
+ COPY --from=build /build/target/ideaqr-gateway.jar app.jar
++RUN mkdir -p /app/data && chown -R ideaqr:ideaqr /app
++USER ideaqr
+ 
+-# Render provides PORT; default to 8080 for local runs
+-ENV PORT=8080
++# The app honours $PORT (defaults to 8080) — Render/Heroku friendly.
+ EXPOSE 8080
+-
+-# JVM tuning for the 512MB Render free tier:
+-#  - MaxRAMPercentage=70 keeps the heap inside the container limit
+-#  - SerialGC has the smallest footprint for a single-CPU free instance
+-ENV JAVA_OPTS="-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+-
+-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
++ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+Index: src/main/java/com/ideaqr/gateway/service/AuditService.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport com.ideaqr.gateway.entity.History;\nimport com.ideaqr.gateway.repository.HistoryRepository;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Propagation;\nimport org.springframework.transaction.annotation.Transactional;\n\nimport java.time.LocalDateTime;\nimport java.util.Map;\nimport java.util.UUID;\n\n/**\n * Append-only audit writer. Every meaningful state change funnels through here and\n * lands in the immutable {@code histories} journal as a JSON payload.\n *\n * Each append runs in its own REQUIRES_NEW transaction so that an audit write is\n * never silently rolled back together with a failing business transaction.\n */\n@Service\n@Slf4j\n@RequiredArgsConstructor\npublic class AuditService {\n\n    private final HistoryRepository historyRepository;\n    private final ObjectMapper objectMapper;\n\n    @Transactional(propagation = Propagation.REQUIRES_NEW)\n    public History append(String eventType, UUID interactionUid, Map<String, Object> payload) {\n        History history = History.builder()\n                .historyUid(UUID.randomUUID())\n                .interactionUid(interactionUid)\n                .eventType(eventType)\n                .eventPayload(toJson(payload))\n                .createdAt(LocalDateTime.now())\n                .build();\n        History saved = historyRepository.save(history);\n        log.info(\"AUDIT event={} historyUid={} interactionUid={}\",\n                eventType, saved.getHistoryUid(), interactionUid);\n        return saved;\n    }\n\n    private String toJson(Map<String, Object> payload) {\n        try {\n            return objectMapper.writeValueAsString(payload);\n        } catch (JsonProcessingException e) {\n            log.warn(\"Failed to serialize audit payload, storing fallback string: {}\", e.getMessage());\n            return String.valueOf(payload);\n        }\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/AuditService.java b/src/main/java/com/ideaqr/gateway/service/AuditService.java
+--- a/src/main/java/com/ideaqr/gateway/service/AuditService.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/AuditService.java	(date 1781545056000)
+@@ -1,55 +1,59 @@
+ package com.ideaqr.gateway.service;
+ 
+-import com.fasterxml.jackson.core.JsonProcessingException;
+-import com.fasterxml.jackson.databind.ObjectMapper;
+-import com.ideaqr.gateway.entity.History;
++import com.ideaqr.gateway.domain.History;
++import com.ideaqr.gateway.domain.enums.HistoryEventType;
+ import com.ideaqr.gateway.repository.HistoryRepository;
+ import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
+ import org.springframework.stereotype.Service;
+-import org.springframework.transaction.annotation.Propagation;
+-import org.springframework.transaction.annotation.Transactional;
+ 
+-import java.time.LocalDateTime;
+-import java.util.Map;
++import java.util.List;
+ import java.util.UUID;
+ 
+ /**
+- * Append-only audit writer. Every meaningful state change funnels through here and
+- * lands in the immutable {@code histories} journal as a JSON payload.
+- *
+- * Each append runs in its own REQUIRES_NEW transaction so that an audit write is
+- * never silently rolled back together with a failing business transaction.
++ * Writes events to the append-only History journal. This service only ever
++ * inserts rows — it never updates or deletes — which keeps the audit trail
++ * immutable, the core guarantee of the platform.
+  */
+ @Service
+-@Slf4j
+ @RequiredArgsConstructor
+ public class AuditService {
+ 
+     private final HistoryRepository historyRepository;
+-    private final ObjectMapper objectMapper;
+ 
+-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+-    public History append(String eventType, UUID interactionUid, Map<String, Object> payload) {
++    /**
++     * Append a fully-linked event to the journal.
++     *
++     * @return the persisted History record (its UID is surfaced to the client).
++     */
++    public History record(UUID identityUid,
++                          UUID requestUid,
++                          UUID decisionUid,
++                          UUID interactionUid,
++                          String objectUid,
++                          HistoryEventType eventType,
++                          String description) {
+         History history = History.builder()
+-                .historyUid(UUID.randomUUID())
++                .identityUid(identityUid)
++                .requestUid(requestUid)
++                .decisionUid(decisionUid)
+                 .interactionUid(interactionUid)
++                .objectUid(objectUid)
+                 .eventType(eventType)
+-                .eventPayload(toJson(payload))
+-                .createdAt(LocalDateTime.now())
++                .description(description)
+                 .build();
+-        History saved = historyRepository.save(history);
+-        log.info("AUDIT event={} historyUid={} interactionUid={}",
+-                eventType, saved.getHistoryUid(), interactionUid);
+-        return saved;
++        return historyRepository.save(history);
++    }
++
++    /** Convenience overload for events that are not tied to a full chain. */
++    public History record(UUID identityUid, String objectUid, HistoryEventType eventType, String description) {
++        return record(identityUid, null, null, null, objectUid, eventType, description);
+     }
+ 
+-    private String toJson(Map<String, Object> payload) {
+-        try {
+-            return objectMapper.writeValueAsString(payload);
+-        } catch (JsonProcessingException e) {
+-            log.warn("Failed to serialize audit payload, storing fallback string: {}", e.getMessage());
+-            return String.valueOf(payload);
+-        }
++    public List<History> recentGlobal() {
++        return historyRepository.findTop50ByOrderByCreatedAtDesc();
++    }
++
++    public List<History> forIdentity(UUID identityUid) {
++        return historyRepository.findByIdentityUidOrderByCreatedAtDesc(identityUid);
+     }
+ }
+Index: pom.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>org.springframework.boot</groupId>\n        <artifactId>spring-boot-starter-parent</artifactId>\n        <version>3.2.5</version>\n        <relativePath/>\n    </parent>\n\n    <groupId>com.ideaqr</groupId>\n    <artifactId>ideaqr-gateway</artifactId>\n    <version>2.0.0</version>\n    <name>ideaqr-gateway</name>\n    <description>IDEAQR Digital Gateway - Stage 2: Identity / Request / Decision / Audit architecture</description>\n\n    <properties>\n        <java.version>17</java.version>\n        <maven.compiler.source>17</maven.compiler.source>\n        <maven.compiler.target>17</maven.compiler.target>\n        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n    </properties>\n\n    <dependencies>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-web</artifactId>\n        </dependency>\n\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-data-jpa</artifactId>\n        </dependency>\n\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-validation</artifactId>\n        </dependency>\n\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-actuator</artifactId>\n        </dependency>\n\n        <dependency>\n            <groupId>com.h2database</groupId>\n            <artifactId>h2</artifactId>\n            <scope>runtime</scope>\n        </dependency>\n\n        <dependency>\n            <groupId>org.projectlombok</groupId>\n            <artifactId>lombok</artifactId>\n            <optional>true</optional>\n        </dependency>\n\n        <dependency>\n            <groupId>com.fasterxml.jackson.datatype</groupId>\n            <artifactId>jackson-datatype-jsr310</artifactId>\n        </dependency>\n\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-test</artifactId>\n            <scope>test</scope>\n        </dependency>\n    </dependencies>\n\n    <build>\n        <finalName>ideaqr-gateway</finalName>\n        <plugins>\n            <plugin>\n                <groupId>org.springframework.boot</groupId>\n                <artifactId>spring-boot-maven-plugin</artifactId>\n                <configuration>\n                    <excludes>\n                        <exclude>\n                            <groupId>org.projectlombok</groupId>\n                            <artifactId>lombok</artifactId>\n                        </exclude>\n                    </excludes>\n                </configuration>\n            </plugin>\n            <plugin>\n                <groupId>org.apache.maven.plugins</groupId>\n                <artifactId>maven-compiler-plugin</artifactId>\n                <configuration>\n                    <source>17</source>\n                    <target>17</target>\n                    <annotationProcessorPaths>\n                        <path>\n                            <groupId>org.projectlombok</groupId>\n                            <artifactId>lombok</artifactId>\n                        </path>\n                    </annotationProcessorPaths>\n                </configuration>\n            </plugin>\n        </plugins>\n    </build>\n\n</project>\n
+===================================================================
+diff --git a/pom.xml b/pom.xml
+--- a/pom.xml	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/pom.xml	(date 1781544777000)
+@@ -12,59 +12,83 @@
+     </parent>
+ 
+     <groupId>com.ideaqr</groupId>
+-    <artifactId>ideaqr-gateway</artifactId>
+-    <version>2.0.0</version>
+-    <name>ideaqr-gateway</name>
+-    <description>IDEAQR Digital Gateway - Stage 2: Identity / Request / Decision / Audit architecture</description>
++    <artifactId>gateway</artifactId>
++    <version>3.0.0</version>
++    <name>ideaqr-digital-gateway</name>
++    <description>IDEAQR Digital Gateway — Stage 3 (Authentication, Persistent Accounts, Role-Based Interfaces)</description>
+ 
+     <properties>
+         <java.version>17</java.version>
+-        <maven.compiler.source>17</maven.compiler.source>
+-        <maven.compiler.target>17</maven.compiler.target>
+-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
++        <zxing.version>3.5.3</zxing.version>
+     </properties>
+ 
+     <dependencies>
++        <!-- Web (REST controllers, embedded Tomcat, static resources) -->
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-web</artifactId>
+         </dependency>
+ 
++        <!-- Persistence (JPA / Hibernate) -->
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-data-jpa</artifactId>
+         </dependency>
+ 
++        <!-- Real security: authentication, BCrypt, role-based access -->
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+-            <artifactId>spring-boot-starter-validation</artifactId>
++            <artifactId>spring-boot-starter-security</artifactId>
+         </dependency>
+ 
++        <!-- Bean validation for registration / QR-creation payloads -->
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+-            <artifactId>spring-boot-starter-actuator</artifactId>
++            <artifactId>spring-boot-starter-validation</artifactId>
+         </dependency>
+ 
++        <!-- File-based persistent H2 (default profile) -->
+         <dependency>
+             <groupId>com.h2database</groupId>
+             <artifactId>h2</artifactId>
+             <scope>runtime</scope>
+         </dependency>
+ 
++        <!-- PostgreSQL driver (activated via the 'postgres' profile, e.g. on Render) -->
++        <dependency>
++            <groupId>org.postgresql</groupId>
++            <artifactId>postgresql</artifactId>
++            <scope>runtime</scope>
++        </dependency>
++
++        <!-- Server-side QR generation (real scannable PNG codes) -->
++        <dependency>
++            <groupId>com.google.zxing</groupId>
++            <artifactId>core</artifactId>
++            <version>${zxing.version}</version>
++        </dependency>
++        <dependency>
++            <groupId>com.google.zxing</groupId>
++            <artifactId>javase</artifactId>
++            <version>${zxing.version}</version>
++        </dependency>
++
++        <!-- Lombok: removes entity/DTO boilerplate; processed at compile time by Maven -->
+         <dependency>
+             <groupId>org.projectlombok</groupId>
+             <artifactId>lombok</artifactId>
+             <optional>true</optional>
+         </dependency>
+ 
++        <!-- Test scope -->
+         <dependency>
+-            <groupId>com.fasterxml.jackson.datatype</groupId>
+-            <artifactId>jackson-datatype-jsr310</artifactId>
++            <groupId>org.springframework.boot</groupId>
++            <artifactId>spring-boot-starter-test</artifactId>
++            <scope>test</scope>
+         </dependency>
+-
+         <dependency>
+-            <groupId>org.springframework.boot</groupId>
+-            <artifactId>spring-boot-starter-test</artifactId>
++            <groupId>org.springframework.security</groupId>
++            <artifactId>spring-security-test</artifactId>
+             <scope>test</scope>
+         </dependency>
+     </dependencies>
+@@ -82,23 +106,8 @@
+                             <artifactId>lombok</artifactId>
+                         </exclude>
+                     </excludes>
+-                </configuration>
+-            </plugin>
+-            <plugin>
+-                <groupId>org.apache.maven.plugins</groupId>
+-                <artifactId>maven-compiler-plugin</artifactId>
+-                <configuration>
+-                    <source>17</source>
+-                    <target>17</target>
+-                    <annotationProcessorPaths>
+-                        <path>
+-                            <groupId>org.projectlombok</groupId>
+-                            <artifactId>lombok</artifactId>
+-                        </path>
+-                    </annotationProcessorPaths>
+                 </configuration>
+             </plugin>
+         </plugins>
+     </build>
+-
+ </project>
+Index: src/main/java/com/ideaqr/gateway/dto/ScanRequest.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.dto;\n\nimport com.ideaqr.gateway.enums.RequestType;\nimport jakarta.validation.constraints.NotNull;\nimport lombok.AllArgsConstructor;\nimport lombok.Builder;\nimport lombok.Data;\nimport lombok.NoArgsConstructor;\n\nimport java.util.UUID;\n\n/**\n * Inbound payload for a scan / access attempt.\n *\n * identityUid is optional: if null, the gateway treats the scan as anonymous and\n * dynamically provisions a GUEST identity.\n *\n * objectUid is the target object (e.g. \"INFRA_WAREHOUSE_7\", \"MED_WARD_3\").\n */\n@Data\n@NoArgsConstructor\n@AllArgsConstructor\n@Builder\npublic class ScanRequest {\n\n    /** Optional. When null, an anonymous GUEST identity is created. */\n    private UUID identityUid;\n\n    /** The object the subject is attempting to interact with. */\n    @NotNull(message = \"objectUid must not be null\")\n    private String objectUid;\n\n    /** The kind of action being requested. */\n    @NotNull(message = \"requestType must not be null\")\n    private RequestType requestType;\n\n    /** Free-form interaction descriptor (e.g. \"PHYSICAL_GATE\", \"API_CALL\"). Optional. */\n    private String interactionType;\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/dto/ScanRequest.java b/src/main/java/com/ideaqr/gateway/dto/ScanRequest.java
+--- a/src/main/java/com/ideaqr/gateway/dto/ScanRequest.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/dto/ScanRequest.java	(date 1781544993000)
+@@ -1,39 +1,23 @@
+ package com.ideaqr.gateway.dto;
+ 
+-import com.ideaqr.gateway.enums.RequestType;
+-import jakarta.validation.constraints.NotNull;
+-import lombok.AllArgsConstructor;
+-import lombok.Builder;
++import jakarta.validation.constraints.NotBlank;
+ import lombok.Data;
+-import lombok.NoArgsConstructor;
+-
+-import java.util.UUID;
+ 
+ /**
+- * Inbound payload for a scan / access attempt.
+- *
+- * identityUid is optional: if null, the gateway treats the scan as anonymous and
+- * dynamically provisions a GUEST identity.
+- *
+- * objectUid is the target object (e.g. "INFRA_WAREHOUSE_7", "MED_WARD_3").
++ * Payload sent by the citizen terminal when an object is scanned.
+  */
+ @Data
+-@NoArgsConstructor
+-@AllArgsConstructor
+-@Builder
+ public class ScanRequest {
+ 
+-    /** Optional. When null, an anonymous GUEST identity is created. */
+-    private UUID identityUid;
+-
+-    /** The object the subject is attempting to interact with. */
+-    @NotNull(message = "objectUid must not be null")
++    /** The scanned object identifier (e.g. PATIENT_7291, RETAIL_ADIDAS_SHIRT). */
++    @NotBlank(message = "Не указан идентификатор объекта")
+     private String objectUid;
+ 
+-    /** The kind of action being requested. */
+-    @NotNull(message = "requestType must not be null")
+-    private RequestType requestType;
+-
+-    /** Free-form interaction descriptor (e.g. "PHYSICAL_GATE", "API_CALL"). Optional. */
+-    private String interactionType;
++    /**
++     * Optional context override used purely for live demonstrations of the
++     * context/time policy engine. When provided (0–23), the decision engine
++     * evaluates the working-hours gate against this hour instead of the real
++     * server clock. When null, the real time is used.
++     */
++    private Integer contextHour;
+ }
+Index: src/main/java/com/ideaqr/gateway/service/IdentityService.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.ideaqr.gateway.dto.IdentityResponse;\nimport com.ideaqr.gateway.dto.MigrationResponse;\nimport com.ideaqr.gateway.entity.Identity;\nimport com.ideaqr.gateway.entity.Interaction;\nimport com.ideaqr.gateway.entity.RequestRecord;\nimport com.ideaqr.gateway.enums.IdentityStatus;\nimport com.ideaqr.gateway.enums.IdentityType;\nimport com.ideaqr.gateway.enums.Role;\nimport com.ideaqr.gateway.exception.BusinessRuleException;\nimport com.ideaqr.gateway.exception.ResourceNotFoundException;\nimport com.ideaqr.gateway.repository.IdentityRepository;\nimport com.ideaqr.gateway.repository.InteractionRepository;\nimport com.ideaqr.gateway.repository.RequestRepository;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\nimport java.time.LocalDateTime;\nimport java.util.HashSet;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.UUID;\n\n/**\n * Owns the lifecycle of Identity entities, including anonymous guest provisioning\n * and the guest-to-primary migration that re-points historical artefacts.\n */\n@Service\n@Slf4j\n@RequiredArgsConstructor\npublic class IdentityService {\n\n    private final IdentityRepository identityRepository;\n    private final RequestRepository requestRepository;\n    private final InteractionRepository interactionRepository;\n    private final AuditService auditService;\n\n    /**\n     * Register a new permanent PRIMARY identity with the given roles.\n     */\n    @Transactional\n    public IdentityResponse registerPrimary(Set<Role> roles) {\n        Identity identity = Identity.builder()\n                .identityUid(UUID.randomUUID())\n                .identityType(IdentityType.PRIMARY)\n                .status(IdentityStatus.ACTIVE)\n                .roles(roles == null ? new HashSet<>() : new HashSet<>(roles))\n                .createdAt(LocalDateTime.now())\n                .build();\n        Identity saved = identityRepository.save(identity);\n\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"identityUid\", saved.getIdentityUid().toString());\n        payload.put(\"identityType\", saved.getIdentityType().name());\n        payload.put(\"roles\", saved.getRoles());\n        auditService.append(\"IDENTITY_REGISTERED\", null, payload);\n\n        log.info(\"Registered PRIMARY identity {}\", saved.getIdentityUid());\n        return toResponse(saved);\n    }\n\n    /**\n     * Provision an ephemeral GUEST identity for an anonymous scan.\n     * Guests start with no roles and PENDING status.\n     */\n    @Transactional\n    public Identity provisionGuest() {\n        Identity guest = Identity.builder()\n                .identityUid(UUID.randomUUID())\n                .identityType(IdentityType.GUEST)\n                .status(IdentityStatus.PENDING)\n                .roles(new HashSet<>())\n                .createdAt(LocalDateTime.now())\n                .build();\n        Identity saved = identityRepository.save(guest);\n\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"identityUid\", saved.getIdentityUid().toString());\n        payload.put(\"identityType\", saved.getIdentityType().name());\n        auditService.append(\"GUEST_PROVISIONED\", null, payload);\n\n        log.info(\"Provisioned GUEST identity {}\", saved.getIdentityUid());\n        return saved;\n    }\n\n    /**\n     * Look up an identity or throw.\n     */\n    @Transactional(readOnly = true)\n    public Identity getById(UUID identityUid) {\n        return identityRepository.findById(identityUid)\n                .orElseThrow(() -> new ResourceNotFoundException(\"Identity not found: \" + identityUid));\n    }\n\n    @Transactional(readOnly = true)\n    public IdentityResponse getResponseById(UUID identityUid) {\n        return toResponse(getById(identityUid));\n    }\n\n    @Transactional(readOnly = true)\n    public List<IdentityResponse> findAll() {\n        return identityRepository.findAll().stream().map(this::toResponse).toList();\n    }\n\n    /**\n     * Migrate a GUEST identity into a new PRIMARY identity.\n     * All Requests and Interactions previously bound to the guest's identityUid are\n     * re-pointed onto the new primary identityUid, and an append-only audit event is written.\n     *\n     * The guest identity itself is marked SUSPENDED (kept for traceability) rather than deleted.\n     */\n    @Transactional\n    public MigrationResponse migrateGuestToPrimary(UUID guestIdentityUid, Set<Role> roles) {\n        Identity guest = identityRepository.findById(guestIdentityUid)\n                .orElseThrow(() -> new ResourceNotFoundException(\"Guest identity not found: \" + guestIdentityUid));\n\n        if (guest.getIdentityType() != IdentityType.GUEST) {\n            throw new BusinessRuleException(\n                    \"Identity \" + guestIdentityUid + \" is not a GUEST and cannot be migrated\");\n        }\n\n        // Create the new permanent identity.\n        Identity primary = Identity.builder()\n                .identityUid(UUID.randomUUID())\n                .identityType(IdentityType.PRIMARY)\n                .status(IdentityStatus.ACTIVE)\n                .roles(roles == null ? new HashSet<>() : new HashSet<>(roles))\n                .createdAt(LocalDateTime.now())\n                .build();\n        Identity savedPrimary = identityRepository.save(primary);\n\n        // Re-point requests.\n        List<RequestRecord> guestRequests =\n                requestRepository.findByIdentityUidOrderByCreatedAtDesc(guestIdentityUid);\n        for (RequestRecord req : guestRequests) {\n            req.setIdentityUid(savedPrimary.getIdentityUid());\n        }\n        requestRepository.saveAll(guestRequests);\n\n        // Re-point interactions.\n        List<Interaction> guestInteractions =\n                interactionRepository.findByIdentityUidOrderByCreatedAtDesc(guestIdentityUid);\n        for (Interaction interaction : guestInteractions) {\n            interaction.setIdentityUid(savedPrimary.getIdentityUid());\n        }\n        interactionRepository.saveAll(guestInteractions);\n\n        // Retire the guest shell.\n        guest.setStatus(IdentityStatus.SUSPENDED);\n        identityRepository.save(guest);\n\n        // Append immutable audit event capturing the merge.\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"guestIdentityUid\", guestIdentityUid.toString());\n        payload.put(\"primaryIdentityUid\", savedPrimary.getIdentityUid().toString());\n        payload.put(\"rebindedRequests\", guestRequests.size());\n        payload.put(\"rebindedInteractions\", guestInteractions.size());\n        payload.put(\"grantedRoles\", savedPrimary.getRoles());\n        auditService.append(\"IDENTITY_MERGED\", null, payload);\n\n        log.info(\"Migrated GUEST {} -> PRIMARY {} (requests={}, interactions={})\",\n                guestIdentityUid, savedPrimary.getIdentityUid(),\n                guestRequests.size(), guestInteractions.size());\n\n        return MigrationResponse.builder()\n                .guestIdentityUid(guestIdentityUid)\n                .primaryIdentityUid(savedPrimary.getIdentityUid())\n                .rebindedRequests(guestRequests.size())\n                .rebindedInteractions(guestInteractions.size())\n                .appendedHistoryEvents(1)\n                .message(\"Guest successfully migrated to primary identity\")\n                .build();\n    }\n\n    public IdentityResponse toResponse(Identity identity) {\n        return IdentityResponse.builder()\n                .identityUid(identity.getIdentityUid())\n                .identityType(identity.getIdentityType())\n                .status(identity.getStatus())\n                .roles(identity.getRoles())\n                .createdAt(identity.getCreatedAt())\n                .build();\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/IdentityService.java b/src/main/java/com/ideaqr/gateway/service/IdentityService.java
+--- a/src/main/java/com/ideaqr/gateway/service/IdentityService.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/IdentityService.java	(date 1781545071000)
+@@ -1,189 +1,87 @@
+ package com.ideaqr.gateway.service;
+ 
+-import com.ideaqr.gateway.dto.IdentityResponse;
+-import com.ideaqr.gateway.dto.MigrationResponse;
+-import com.ideaqr.gateway.entity.Identity;
+-import com.ideaqr.gateway.entity.Interaction;
+-import com.ideaqr.gateway.entity.RequestRecord;
+-import com.ideaqr.gateway.enums.IdentityStatus;
+-import com.ideaqr.gateway.enums.IdentityType;
+-import com.ideaqr.gateway.enums.Role;
+-import com.ideaqr.gateway.exception.BusinessRuleException;
+-import com.ideaqr.gateway.exception.ResourceNotFoundException;
++import com.ideaqr.gateway.domain.Identity;
++import com.ideaqr.gateway.domain.enums.HistoryEventType;
++import com.ideaqr.gateway.domain.enums.IdentityStatus;
++import com.ideaqr.gateway.domain.enums.IdentityType;
++import com.ideaqr.gateway.domain.enums.RoleType;
+ import com.ideaqr.gateway.repository.IdentityRepository;
+-import com.ideaqr.gateway.repository.InteractionRepository;
+-import com.ideaqr.gateway.repository.RequestRepository;
+ import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
+ import org.springframework.stereotype.Service;
+-import org.springframework.transaction.annotation.Transactional;
+ 
+-import java.time.LocalDateTime;
+-import java.util.HashSet;
+-import java.util.LinkedHashMap;
+-import java.util.List;
+-import java.util.Map;
++import java.util.LinkedHashSet;
+ import java.util.Set;
+ import java.util.UUID;
+ 
+ /**
+- * Owns the lifecycle of Identity entities, including anonymous guest provisioning
+- * and the guest-to-primary migration that re-points historical artefacts.
++ * Manages digital identities: creates the permanent identity behind each user
++ * account, mints temporary guest identities for unauthenticated traffic, and
++ * resolves identities for the pipeline.
+  */
+ @Service
+-@Slf4j
+ @RequiredArgsConstructor
+ public class IdentityService {
+ 
+     private final IdentityRepository identityRepository;
+-    private final RequestRepository requestRepository;
+-    private final InteractionRepository interactionRepository;
+     private final AuditService auditService;
+ 
++    /** Trust baselines per the Stage 2 trust profile module. */
++    public static final int TRUST_GUEST = 10;
++    public static final int TRUST_CITIZEN = 50;
++    public static final int TRUST_VERIFIED = 80;
++    public static final int TRUST_SPECIALIST = 85;
++    public static final int TRUST_GOV = 90;
++
+     /**
+-     * Register a new permanent PRIMARY identity with the given roles.
++     * Create the permanent (PRIMARY) identity that backs a user account.
+      */
+-    @Transactional
+-    public IdentityResponse registerPrimary(Set<Role> roles) {
++    public Identity createPrimaryIdentity(Set<RoleType> roles, int trustLevel) {
++        Set<RoleType> roleSet = new LinkedHashSet<>(roles == null ? Set.of() : roles);
++        if (roleSet.isEmpty()) {
++            roleSet.add(RoleType.CITIZEN);
++        }
+         Identity identity = Identity.builder()
+-                .identityUid(UUID.randomUUID())
+                 .identityType(IdentityType.PRIMARY)
+                 .status(IdentityStatus.ACTIVE)
+-                .roles(roles == null ? new HashSet<>() : new HashSet<>(roles))
+-                .createdAt(LocalDateTime.now())
++                .roles(roleSet)
++                .trustLevel(trustLevel)
+                 .build();
+-        Identity saved = identityRepository.save(identity);
+-
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("identityUid", saved.getIdentityUid().toString());
+-        payload.put("identityType", saved.getIdentityType().name());
+-        payload.put("roles", saved.getRoles());
+-        auditService.append("IDENTITY_REGISTERED", null, payload);
+-
+-        log.info("Registered PRIMARY identity {}", saved.getIdentityUid());
+-        return toResponse(saved);
++        identity = identityRepository.save(identity);
++        auditService.record(identity.getIdentityUid(), null, HistoryEventType.IDENTITY_CREATED,
++                "Создана основная цифровая личность с ролями: " + roleSet);
++        return identity;
+     }
+ 
+     /**
+-     * Provision an ephemeral GUEST identity for an anonymous scan.
+-     * Guests start with no roles and PENDING status.
++     * Mint a temporary guest identity on the fly. Guest actions are still logged
++     * and can later be merged into a primary identity.
+      */
+-    @Transactional
+-    public Identity provisionGuest() {
++    public Identity createGuestIdentity() {
+         Identity guest = Identity.builder()
+-                .identityUid(UUID.randomUUID())
+                 .identityType(IdentityType.GUEST)
+-                .status(IdentityStatus.PENDING)
+-                .roles(new HashSet<>())
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-        Identity saved = identityRepository.save(guest);
+-
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("identityUid", saved.getIdentityUid().toString());
+-        payload.put("identityType", saved.getIdentityType().name());
+-        auditService.append("GUEST_PROVISIONED", null, payload);
+-
+-        log.info("Provisioned GUEST identity {}", saved.getIdentityUid());
+-        return saved;
+-    }
+-
+-    /**
+-     * Look up an identity or throw.
+-     */
+-    @Transactional(readOnly = true)
+-    public Identity getById(UUID identityUid) {
+-        return identityRepository.findById(identityUid)
+-                .orElseThrow(() -> new ResourceNotFoundException("Identity not found: " + identityUid));
+-    }
+-
+-    @Transactional(readOnly = true)
+-    public IdentityResponse getResponseById(UUID identityUid) {
+-        return toResponse(getById(identityUid));
+-    }
+-
+-    @Transactional(readOnly = true)
+-    public List<IdentityResponse> findAll() {
+-        return identityRepository.findAll().stream().map(this::toResponse).toList();
+-    }
+-
+-    /**
+-     * Migrate a GUEST identity into a new PRIMARY identity.
+-     * All Requests and Interactions previously bound to the guest's identityUid are
+-     * re-pointed onto the new primary identityUid, and an append-only audit event is written.
+-     *
+-     * The guest identity itself is marked SUSPENDED (kept for traceability) rather than deleted.
+-     */
+-    @Transactional
+-    public MigrationResponse migrateGuestToPrimary(UUID guestIdentityUid, Set<Role> roles) {
+-        Identity guest = identityRepository.findById(guestIdentityUid)
+-                .orElseThrow(() -> new ResourceNotFoundException("Guest identity not found: " + guestIdentityUid));
+-
+-        if (guest.getIdentityType() != IdentityType.GUEST) {
+-            throw new BusinessRuleException(
+-                    "Identity " + guestIdentityUid + " is not a GUEST and cannot be migrated");
+-        }
+-
+-        // Create the new permanent identity.
+-        Identity primary = Identity.builder()
+-                .identityUid(UUID.randomUUID())
+-                .identityType(IdentityType.PRIMARY)
+                 .status(IdentityStatus.ACTIVE)
+-                .roles(roles == null ? new HashSet<>() : new HashSet<>(roles))
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-        Identity savedPrimary = identityRepository.save(primary);
+-
+-        // Re-point requests.
+-        List<RequestRecord> guestRequests =
+-                requestRepository.findByIdentityUidOrderByCreatedAtDesc(guestIdentityUid);
+-        for (RequestRecord req : guestRequests) {
+-            req.setIdentityUid(savedPrimary.getIdentityUid());
+-        }
+-        requestRepository.saveAll(guestRequests);
+-
+-        // Re-point interactions.
+-        List<Interaction> guestInteractions =
+-                interactionRepository.findByIdentityUidOrderByCreatedAtDesc(guestIdentityUid);
+-        for (Interaction interaction : guestInteractions) {
+-            interaction.setIdentityUid(savedPrimary.getIdentityUid());
+-        }
+-        interactionRepository.saveAll(guestInteractions);
+-
+-        // Retire the guest shell.
+-        guest.setStatus(IdentityStatus.SUSPENDED);
+-        identityRepository.save(guest);
+-
+-        // Append immutable audit event capturing the merge.
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("guestIdentityUid", guestIdentityUid.toString());
+-        payload.put("primaryIdentityUid", savedPrimary.getIdentityUid().toString());
+-        payload.put("rebindedRequests", guestRequests.size());
+-        payload.put("rebindedInteractions", guestInteractions.size());
+-        payload.put("grantedRoles", savedPrimary.getRoles());
+-        auditService.append("IDENTITY_MERGED", null, payload);
+-
+-        log.info("Migrated GUEST {} -> PRIMARY {} (requests={}, interactions={})",
+-                guestIdentityUid, savedPrimary.getIdentityUid(),
+-                guestRequests.size(), guestInteractions.size());
+-
+-        return MigrationResponse.builder()
+-                .guestIdentityUid(guestIdentityUid)
+-                .primaryIdentityUid(savedPrimary.getIdentityUid())
+-                .rebindedRequests(guestRequests.size())
+-                .rebindedInteractions(guestInteractions.size())
+-                .appendedHistoryEvents(1)
+-                .message("Guest successfully migrated to primary identity")
++                .roles(new LinkedHashSet<>(Set.of(RoleType.CITIZEN)))
++                .trustLevel(TRUST_GUEST)
+                 .build();
++        guest = identityRepository.save(guest);
++        auditService.record(guest.getIdentityUid(), null, HistoryEventType.IDENTITY_CREATED,
++                "Создана временная гостевая личность");
++        return guest;
+     }
+ 
+-    public IdentityResponse toResponse(Identity identity) {
+-        return IdentityResponse.builder()
+-                .identityUid(identity.getIdentityUid())
+-                .identityType(identity.getIdentityType())
+-                .status(identity.getStatus())
+-                .roles(identity.getRoles())
+-                .createdAt(identity.getCreatedAt())
+-                .build();
++    public Identity getOrCreateGuest(UUID identityUid) {
++        if (identityUid != null) {
++            return identityRepository.findById(identityUid).orElseGet(this::createGuestIdentity);
++        }
++        return createGuestIdentity();
++    }
++
++    public Identity findById(UUID identityUid) {
++        return identityRepository.findById(identityUid)
++                .orElseThrow(() -> new IllegalStateException("Личность не найдена: " + identityUid));
++    }
++
++    public Identity save(Identity identity) {
++        return identityRepository.save(identity);
+     }
+ }
+Index: src/main/java/com/ideaqr/gateway/service/QrService.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.ideaqr.gateway.entity.Assignment;\nimport com.ideaqr.gateway.entity.QrCode;\nimport com.ideaqr.gateway.enums.AssignmentStatus;\nimport com.ideaqr.gateway.enums.DecisionResult;\nimport com.ideaqr.gateway.enums.QrType;\nimport com.ideaqr.gateway.exception.BusinessRuleException;\nimport com.ideaqr.gateway.repository.AssignmentRepository;\nimport com.ideaqr.gateway.repository.DecisionRepository;\nimport com.ideaqr.gateway.repository.QrCodeRepository;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\nimport java.time.LocalDateTime;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.UUID;\n\n/**\n * QR governance. A QR code may only be registered when an APPROVED Decision exists\n * for a QR_CREATION Request. Also produces Assignments binding a QR to a concrete object.\n */\n@Service\n@Slf4j\n@RequiredArgsConstructor\npublic class QrService {\n\n    private final QrCodeRepository qrCodeRepository;\n    private final AssignmentRepository assignmentRepository;\n    private final DecisionRepository decisionRepository;\n    private final AuditService auditService;\n\n    /**\n     * Register a QR code for an identity, gated on an APPROVED QR_CREATION decision.\n     *\n     * @param identityUid the owner\n     * @param requestUid  the QR_CREATION request whose decision authorizes this\n     * @param qrType      MAIN or TEMPORARY\n     * @return the persisted QrCode\n     */\n    @Transactional\n    public QrCode createQr(UUID identityUid, UUID requestUid, QrType qrType) {\n        boolean approved = decisionRepository\n                .existsByRequestUidAndResult(requestUid, DecisionResult.APPROVED);\n        if (!approved) {\n            throw new BusinessRuleException(\n                    \"QR creation denied: no APPROVED decision for request \" + requestUid);\n        }\n\n        QrCode qr = QrCode.builder()\n                .qrUid(UUID.randomUUID())\n                .identityUid(identityUid)\n                .qrType(qrType)\n                .active(true)\n                .createdAt(LocalDateTime.now())\n                .build();\n        QrCode saved = qrCodeRepository.save(qr);\n\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"qrUid\", saved.getQrUid().toString());\n        payload.put(\"identityUid\", identityUid.toString());\n        payload.put(\"qrType\", qrType.name());\n        payload.put(\"authorizingRequestUid\", requestUid.toString());\n        auditService.append(\"QR_CREATED\", null, payload);\n\n        log.info(\"Created {} QR {} for identity {}\", qrType, saved.getQrUid(), identityUid);\n        return saved;\n    }\n\n    /**\n     * Bind an identity + QR to a concrete object via an Assignment.\n     */\n    @Transactional\n    public Assignment assign(UUID identityUid, UUID qrUid, String objectUid) {\n        Assignment assignment = Assignment.builder()\n                .assignmentUid(UUID.randomUUID())\n                .identityUid(identityUid)\n                .qrUid(qrUid)\n                .objectUid(objectUid)\n                .status(AssignmentStatus.ACTIVE)\n                .createdAt(LocalDateTime.now())\n                .build();\n        Assignment saved = assignmentRepository.save(assignment);\n\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"assignmentUid\", saved.getAssignmentUid().toString());\n        payload.put(\"identityUid\", identityUid.toString());\n        payload.put(\"qrUid\", qrUid.toString());\n        payload.put(\"objectUid\", objectUid);\n        auditService.append(\"ASSIGNMENT_CREATED\", null, payload);\n\n        log.info(\"Created assignment {} ({} -> {} -> {})\",\n                saved.getAssignmentUid(), identityUid, qrUid, objectUid);\n        return saved;\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/QrService.java b/src/main/java/com/ideaqr/gateway/service/QrService.java
+--- a/src/main/java/com/ideaqr/gateway/service/QrService.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/QrService.java	(date 1781545144000)
+@@ -1,99 +1,339 @@
+ package com.ideaqr.gateway.service;
+ 
+-import com.ideaqr.gateway.entity.Assignment;
+-import com.ideaqr.gateway.entity.QrCode;
+-import com.ideaqr.gateway.enums.AssignmentStatus;
+-import com.ideaqr.gateway.enums.DecisionResult;
+-import com.ideaqr.gateway.enums.QrType;
+-import com.ideaqr.gateway.exception.BusinessRuleException;
+-import com.ideaqr.gateway.repository.AssignmentRepository;
+-import com.ideaqr.gateway.repository.DecisionRepository;
+-import com.ideaqr.gateway.repository.QrCodeRepository;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.google.zxing.BarcodeFormat;
++import com.google.zxing.EncodeHintType;
++import com.google.zxing.client.j2se.MatrixToImageWriter;
++import com.google.zxing.common.BitMatrix;
++import com.google.zxing.qrcode.QRCodeWriter;
++import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
++import com.ideaqr.gateway.domain.*;
++import com.ideaqr.gateway.domain.enums.*;
++import com.ideaqr.gateway.dto.QrCreationRequest;
++import com.ideaqr.gateway.dto.QrCreationResponse;
++import com.ideaqr.gateway.repository.*;
+ import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+-import java.time.LocalDateTime;
+-import java.util.LinkedHashMap;
+-import java.util.Map;
+-import java.util.UUID;
++import java.io.ByteArrayOutputStream;
++import java.time.format.DateTimeFormatter;
++import java.util.*;
+ 
+ /**
+- * QR governance. A QR code may only be registered when an APPROVED Decision exists
+- * for a QR_CREATION Request. Also produces Assignments binding a QR to a concrete object.
++ * QR governance. Generates real scannable PNG codes (server-side, via ZXing),
++ * mints the permanent primary QR for each identity, and runs the full
++ * {@code QR_CREATION} governance pipeline when an administrator creates a new
++ * object: Request → Decision → QR → Assignment → Interaction → History.
+  */
+ @Service
+-@Slf4j
+ @RequiredArgsConstructor
+ public class QrService {
+ 
+-    private final QrCodeRepository qrCodeRepository;
++    private final QrRepository qrRepository;
+     private final AssignmentRepository assignmentRepository;
++    private final RegistryObjectRepository registryObjectRepository;
++    private final RequestRepository requestRepository;
+     private final DecisionRepository decisionRepository;
++    private final InteractionRepository interactionRepository;
+     private final AuditService auditService;
++    private final ValidationService validationService;
++    private final ObjectMapper objectMapper;
++
++    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
++
++    // ------------------------------------------------------------------
++    //  QR image generation (real, scannable PNG)
++    // ------------------------------------------------------------------
++
++    public String generateQrPngDataUri(String text) {
++        try {
++            QRCodeWriter writer = new QRCodeWriter();
++            Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
++            hints.put(EncodeHintType.MARGIN, 1);
++            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
++            hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M);
++            BitMatrix matrix = writer.encode(text, BarcodeFormat.QR_CODE, 360, 360, hints);
++            ByteArrayOutputStream out = new ByteArrayOutputStream();
++            MatrixToImageWriter.writeToStream(matrix, "PNG", out);
++            return "data:image/png;base64," + Base64.getEncoder().encodeToString(out.toByteArray());
++        } catch (Exception e) {
++            throw new IllegalStateException("Не удалось сгенерировать QR-код", e);
++        }
++    }
+ 
+-    /**
+-     * Register a QR code for an identity, gated on an APPROVED QR_CREATION decision.
+-     *
+-     * @param identityUid the owner
+-     * @param requestUid  the QR_CREATION request whose decision authorizes this
+-     * @param qrType      MAIN or TEMPORARY
+-     * @return the persisted QrCode
+-     */
++    // ------------------------------------------------------------------
++    //  Primary identity QR (one permanent QR per verified person)
++    // ------------------------------------------------------------------
++
++    public Qr createPrimaryQr(Identity identity) {
++        Qr qr = Qr.builder()
++                .qrValue("IDENTITY:" + identity.getIdentityUid())
++                .qrType(QrType.PRIMARY)
++                .status(QrStatus.ACTIVE)
++                .ownerIdentityUid(identity.getIdentityUid())
++                .build();
++        qr = qrRepository.save(qr);
++
++        Assignment assignment = Assignment.builder()
++                .qrUid(qr.getQrUid())
++                .identityUid(identity.getIdentityUid())
++                .assignmentRole("OWNER")
++                .build();
++        assignmentRepository.save(assignment);
++        return qr;
++    }
++
++    // ------------------------------------------------------------------
++    //  Governed object creation (admin panel "Govern and Create QR codes")
++    // ------------------------------------------------------------------
++
+     @Transactional
+-    public QrCode createQr(UUID identityUid, UUID requestUid, QrType qrType) {
+-        boolean approved = decisionRepository
+-                .existsByRequestUidAndResult(requestUid, DecisionResult.APPROVED);
+-        if (!approved) {
+-            throw new BusinessRuleException(
+-                    "QR creation denied: no APPROVED decision for request " + requestUid);
+-        }
++    public QrCreationResponse createGovernedObject(Identity admin, QrCreationRequest request) {
++        ObjectCategory category = parseCategory(request.getCategory());
+ 
+-        QrCode qr = QrCode.builder()
+-                .qrUid(UUID.randomUUID())
+-                .identityUid(identityUid)
+-                .qrType(qrType)
+-                .active(true)
+-                .createdAt(LocalDateTime.now())
++        // 1. Request enters the pipeline.
++        RequestRecord req = RequestRecord.builder()
++                .identityUid(admin.getIdentityUid())
++                .objectUid(null)
++                .requestType(RequestType.QR_CREATION)
++                .status(RequestStatus.PENDING)
+                 .build();
+-        QrCode saved = qrCodeRepository.save(qr);
++        req = requestRepository.save(req);
++
++        // 2. Decision: only governing roles may mint objects.
++        ValidationService.DecisionResult result = validationService.decideQrCreation(admin);
++        Decision decision = Decision.builder()
++                .requestUid(req.getRequestUid())
++                .identityUid(admin.getIdentityUid())
++                .outcome(result.outcome())
++                .reasonCode(result.reasonCode())
++                .reason(result.reason())
++                .riskLevel(result.riskLevel())
++                .build();
++        decision = decisionRepository.save(decision);
++
++        if (result.outcome() != DecisionOutcome.APPROVED) {
++            req.setStatus(RequestStatus.FAILED);
++            requestRepository.save(req);
++
++            Interaction denied = interactionRepository.save(Interaction.builder()
++                    .identityUid(admin.getIdentityUid())
++                    .requestUid(req.getRequestUid())
++                    .interactionType("QR_CREATION")
++                    .detail("Отклонено: " + result.reason())
++                    .build());
+ 
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("qrUid", saved.getQrUid().toString());
+-        payload.put("identityUid", identityUid.toString());
+-        payload.put("qrType", qrType.name());
+-        payload.put("authorizingRequestUid", requestUid.toString());
+-        auditService.append("QR_CREATED", null, payload);
++            History h = auditService.record(admin.getIdentityUid(), req.getRequestUid(),
++                    decision.getDecisionUid(), denied.getInteractionUid(), null,
++                    HistoryEventType.ACCESS_DENIED, "Отказано в создании QR-объекта: " + result.reason());
+ 
+-        log.info("Created {} QR {} for identity {}", qrType, saved.getQrUid(), identityUid);
+-        return saved;
+-    }
++            return QrCreationResponse.builder()
++                    .success(false)
++                    .outcome(result.outcome().name())
++                    .reason(result.reason())
++                    .identityUid(admin.getIdentityUid().toString())
++                    .requestUid(req.getRequestUid().toString())
++                    .decisionUid(decision.getDecisionUid().toString())
++                    .interactionUid(denied.getInteractionUid().toString())
++                    .historyUid(h.getHistoryUid().toString())
++                    .build();
++        }
+ 
+-    /**
+-     * Bind an identity + QR to a concrete object via an Assignment.
+-     */
+-    @Transactional
+-    public Assignment assign(UUID identityUid, UUID qrUid, String objectUid) {
+-        Assignment assignment = Assignment.builder()
+-                .assignmentUid(UUID.randomUUID())
+-                .identityUid(identityUid)
+-                .qrUid(qrUid)
++        // 3. Approved → generate a unique object UID and the governed QR.
++        String objectUid = generateObjectUid(category);
++        Qr qr = qrRepository.save(Qr.builder()
++                .qrValue(objectUid)
++                .qrType(QrType.OBJECT)
++                .status(QrStatus.ACTIVE)
++                .ownerIdentityUid(admin.getIdentityUid())
++                .build());
++
++        // 4. Assignment binds the QR to the governing admin.
++        assignmentRepository.save(Assignment.builder()
++                .qrUid(qr.getQrUid())
++                .identityUid(admin.getIdentityUid())
++                .assignmentRole("GOVERNOR")
++                .build());
++
++        // 5. Persist the registry object with its contextual card payload.
++        Map<String, Object> payload = buildPayload(category, objectUid, request);
++        String dataJson = writeJson(payload);
++        registryObjectRepository.save(RegistryObject.builder()
++                .objectUid(objectUid)
++                .category(category)
++                .displayName(request.getDisplayName())
++                .dataJson(dataJson)
++                .createdByIdentityUid(admin.getIdentityUid())
++                .qrUid(qr.getQrUid())
++                .build());
++
++        // 6. Interaction + 7. append-only history.
++        Interaction interaction = interactionRepository.save(Interaction.builder()
++                .identityUid(admin.getIdentityUid())
++                .requestUid(req.getRequestUid())
+                 .objectUid(objectUid)
+-                .status(AssignmentStatus.ACTIVE)
+-                .createdAt(LocalDateTime.now())
++                .interactionType("QR_CREATION")
++                .detail("Создан объект «" + request.getDisplayName() + "» (" + category + ")")
++                .build());
++
++        req.setObjectUid(objectUid);
++        req.setStatus(RequestStatus.PROCESSED);
++        requestRepository.save(req);
++
++        History history = auditService.record(admin.getIdentityUid(), req.getRequestUid(),
++                decision.getDecisionUid(), interaction.getInteractionUid(), objectUid,
++                HistoryEventType.QR_CREATED,
++                "Сгенерирован QR-код для объекта «" + request.getDisplayName() + "»");
++
++        return QrCreationResponse.builder()
++                .success(true)
++                .outcome(result.outcome().name())
++                .reason(result.reason())
++                .objectUid(objectUid)
++                .displayName(request.getDisplayName())
++                .category(category.name())
++                .qrUid(qr.getQrUid().toString())
++                .qrImageDataUri(generateQrPngDataUri(objectUid))
++                .identityUid(admin.getIdentityUid().toString())
++                .requestUid(req.getRequestUid().toString())
++                .decisionUid(decision.getDecisionUid().toString())
++                .interactionUid(interaction.getInteractionUid().toString())
++                .historyUid(history.getHistoryUid().toString())
++                .createdAt(java.time.LocalDateTime.now().format(TS))
+                 .build();
+-        Assignment saved = assignmentRepository.save(assignment);
++    }
++
++    public List<RegistryObject> listObjectsForAdmin(UUID adminIdentityUid) {
++        return registryObjectRepository.findByCreatedByIdentityUidOrderByCreatedAtDesc(adminIdentityUid);
++    }
++
++    public String regenerateImageFor(String objectUid) {
++        return generateQrPngDataUri(objectUid);
++    }
++
++    // ------------------------------------------------------------------
++    //  Helpers
++    // ------------------------------------------------------------------
++
++    private ObjectCategory parseCategory(String raw) {
++        if (raw == null) {
++            return ObjectCategory.GENERAL;
++        }
++        try {
++            return ObjectCategory.valueOf(raw.trim().toUpperCase(Locale.ROOT));
++        } catch (IllegalArgumentException ex) {
++            return ObjectCategory.GENERAL;
++        }
++    }
+ 
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("assignmentUid", saved.getAssignmentUid().toString());
+-        payload.put("identityUid", identityUid.toString());
+-        payload.put("qrUid", qrUid.toString());
+-        payload.put("objectUid", objectUid);
+-        auditService.append("ASSIGNMENT_CREATED", null, payload);
++    private String generateObjectUid(ObjectCategory category) {
++        String prefix = switch (category) {
++            case RETAIL -> "RETAIL";
++            case MEDICAL -> "PATIENT";
++            case ECO -> "ECO";
++            case INFRASTRUCTURE -> "INFRA";
++            default -> "OBJECT";
++        };
++        String candidate;
++        do {
++            String suffix = UUID.randomUUID().toString().replace("-", "")
++                    .substring(0, 8).toUpperCase(Locale.ROOT);
++            candidate = prefix + "_" + suffix;
++        } while (registryObjectRepository.existsByObjectUid(candidate));
++        return candidate;
++    }
+ 
+-        log.info("Created assignment {} ({} -> {} -> {})",
+-                saved.getAssignmentUid(), identityUid, qrUid, objectUid);
+-        return saved;
++    private Map<String, Object> buildPayload(ObjectCategory category, String objectUid, QrCreationRequest r) {
++        Map<String, Object> data = new LinkedHashMap<>();
++        switch (category) {
++            case RETAIL -> {
++                data.put("productName", r.getDisplayName());
++                data.put("brand", orDefault(r.getBrand(), "—"));
++                data.put("sku", objectUid);
++                data.put("price", r.getPrice() != null ? r.getPrice() : 0L);
++                data.put("currency", orDefault(r.getCurrency(), "₸"));
++                data.put("description", orDefault(r.getDescription(), "Описание не указано."));
++                List<Map<String, Object>> sizes = new ArrayList<>();
++                if (r.getSizes() != null) {
++                    for (QrCreationRequest.SizeStock s : r.getSizes()) {
++                        if (s.getSize() == null || s.getSize().isBlank()) {
++                            continue;
++                        }
++                        Map<String, Object> sm = new LinkedHashMap<>();
++                        sm.put("size", s.getSize());
++                        sm.put("stock", s.getStock() != null ? s.getStock() : 0);
++                        sizes.add(sm);
++                    }
++                }
++                data.put("sizes", sizes);
++                List<Map<String, Object>> alts = new ArrayList<>();
++                if (r.getAlternatives() != null) {
++                    for (QrCreationRequest.Alternative a : r.getAlternatives()) {
++                        if (a.getStore() == null || a.getStore().isBlank()) {
++                            continue;
++                        }
++                        Map<String, Object> am = new LinkedHashMap<>();
++                        am.put("store", a.getStore());
++                        am.put("price", a.getPrice() != null ? a.getPrice() : 0L);
++                        am.put("url", orDefault(a.getUrl(), "#"));
++                        am.put("note", orDefault(a.getNote(), ""));
++                        alts.add(am);
++                    }
++                }
++                data.put("alternatives", alts);
++                if (r.getDiscountCode() != null && !r.getDiscountCode().isBlank()) {
++                    Map<String, Object> loyalty = new LinkedHashMap<>();
++                    loyalty.put("code", r.getDiscountCode());
++                    loyalty.put("discount", "");
++                    loyalty.put("note", orDefault(r.getDiscountNote(),
++                            "Эксклюзивный промокод в приложении IDEAQR."));
++                    data.put("loyalty", loyalty);
++                }
++            }
++            case ECO -> {
++                data.put("binId", objectUid);
++                data.put("title", r.getDisplayName());
++                data.put("location", orDefault(r.getLocation(), "Местоположение не указано"));
++                data.put("status", "В эксплуатации");
++                data.put("environmentalTier", "Зелёный уровень");
++                data.put("description", orDefault(r.getDescription(), ""));
++                data.put("actions", List.of("report"));
++            }
++            case INFRASTRUCTURE -> {
++                data.put("assetId", objectUid);
++                data.put("title", r.getDisplayName());
++                data.put("location", orDefault(r.getLocation(), "Местоположение не указано"));
++                data.put("status", "В эксплуатации");
++                data.put("technicalNotes", orDefault(r.getDescription(), ""));
++                data.put("actions", List.of("report"));
++            }
++            case MEDICAL -> {
++                data.put("patientName", r.getDisplayName());
++                data.put("patientId", objectUid);
++                data.put("description", orDefault(r.getDescription(), ""));
++                data.put("note", "Демонстрационная карта, созданная администратором.");
++            }
++            default -> {
++                data.put("title", r.getDisplayName());
++                data.put("description", orDefault(r.getDescription(), ""));
++            }
++        }
++        if (r.getExtra() != null && !r.getExtra().isEmpty()) {
++            data.put("extra", r.getExtra());
++        }
++        return data;
++    }
++
++    private String orDefault(String value, String fallback) {
++        return (value == null || value.isBlank()) ? fallback : value;
++    }
++
++    private String writeJson(Object value) {
++        try {
++            return objectMapper.writeValueAsString(value);
++        } catch (Exception e) {
++            throw new IllegalStateException("Ошибка сериализации данных объекта", e);
++        }
+     }
+ }
+Index: src/main/java/com/ideaqr/gateway/service/GatewayService.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.ideaqr.gateway.dto.GatewayResponse;\nimport com.ideaqr.gateway.dto.ScanRequest;\nimport com.ideaqr.gateway.entity.Decision;\nimport com.ideaqr.gateway.entity.Identity;\nimport com.ideaqr.gateway.entity.Interaction;\nimport com.ideaqr.gateway.entity.RequestRecord;\nimport com.ideaqr.gateway.enums.DecisionResult;\nimport com.ideaqr.gateway.enums.RequestStatus;\nimport com.ideaqr.gateway.enums.RequestType;\nimport com.ideaqr.gateway.repository.DecisionRepository;\nimport com.ideaqr.gateway.repository.InteractionRepository;\nimport com.ideaqr.gateway.repository.RequestRepository;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\nimport java.time.LocalDateTime;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.UUID;\n\n/**\n * End-to-end orchestration of a scan, implementing the pipeline:\n *\n *   Intake -> Create Request -> Evaluate rules (time/roles) -> Create Decision\n *          -> (if APPROVED) route to mock KZ registry\n *          -> Create Interaction + append History\n *\n * Anonymous scans dynamically provision a GUEST identity before processing.\n */\n@Service\n@Slf4j\n@RequiredArgsConstructor\npublic class GatewayService {\n\n    private final RequestRepository requestRepository;\n    private final DecisionRepository decisionRepository;\n    private final InteractionRepository interactionRepository;\n    private final IdentityService identityService;\n    private final ValidationService validationService;\n    private final RegistryClient registryClient;\n    private final AuditService auditService;\n\n    /**\n     * Process a single scan end to end.\n     */\n    @Transactional\n    public GatewayResponse processScan(ScanRequest scanRequest) {\n        LocalDateTime now = LocalDateTime.now();\n\n        // 1. Resolve or provision the identity.\n        Identity identity = resolveIdentity(scanRequest);\n\n        // 2. Create the Request (PENDING).\n        RequestRecord request = RequestRecord.builder()\n                .requestUid(UUID.randomUUID())\n                .identityUid(identity.getIdentityUid())\n                .requestType(scanRequest.getRequestType())\n                .status(RequestStatus.PENDING)\n                .createdAt(now)\n                .build();\n        request = requestRepository.save(request);\n\n        Map<String, Object> requestPayload = new LinkedHashMap<>();\n        requestPayload.put(\"requestUid\", request.getRequestUid().toString());\n        requestPayload.put(\"identityUid\", identity.getIdentityUid().toString());\n        requestPayload.put(\"requestType\", request.getRequestType().name());\n        requestPayload.put(\"objectUid\", scanRequest.getObjectUid());\n        auditService.append(\"REQUEST_CREATED\", null, requestPayload);\n\n        // 3. Evaluate the rules engine.\n        ValidationService.Verdict verdict = validationService.evaluate(\n                identity, scanRequest.getRequestType(), scanRequest.getObjectUid(), now);\n\n        // 4. Persist the Decision.\n        Decision decision = Decision.builder()\n                .decisionUid(UUID.randomUUID())\n                .requestUid(request.getRequestUid())\n                .result(verdict.getResult())\n                .reason(verdict.getReason())\n                .createdAt(LocalDateTime.now())\n                .build();\n        decision = decisionRepository.save(decision);\n\n        // 5. Update request status based on the verdict.\n        request.setStatus(verdict.getResult() == DecisionResult.APPROVED\n                ? RequestStatus.PROCESSED\n                : RequestStatus.FAILED);\n        request = requestRepository.save(request);\n\n        // 6. Create the Interaction (always recorded, approved or not).\n        String interactionType = scanRequest.getInteractionType() != null\n                ? scanRequest.getInteractionType()\n                : \"SCAN\";\n        Interaction interaction = Interaction.builder()\n                .interactionUid(UUID.randomUUID())\n                .identityUid(identity.getIdentityUid())\n                .requestUid(request.getRequestUid())\n                .decisionUid(decision.getDecisionUid())\n                .objectUid(scanRequest.getObjectUid())\n                .interactionType(interactionType)\n                .createdAt(LocalDateTime.now())\n                .build();\n        interaction = interactionRepository.save(interaction);\n\n        // 7. Route to mock registry only when approved.\n        Object registryData = null;\n        if (verdict.isApproved()) {\n            registryData = registryClient.fetchMockData(\n                    scanRequest.getObjectUid(), scanRequest.getRequestType());\n        }\n\n        // 8. Append the deep audit event tied to this interaction.\n        String eventType = switch (verdict.getResult()) {\n            case APPROVED -> \"ACCESS_GRANTED\";\n            case REJECTED -> \"ACCESS_DENIED\";\n            case REVIEW -> \"ACCESS_REVIEW\";\n        };\n        Map<String, Object> auditPayload = new LinkedHashMap<>();\n        auditPayload.put(\"identityUid\", identity.getIdentityUid().toString());\n        auditPayload.put(\"identityType\", identity.getIdentityType().name());\n        auditPayload.put(\"requestUid\", request.getRequestUid().toString());\n        auditPayload.put(\"decisionUid\", decision.getDecisionUid().toString());\n        auditPayload.put(\"interactionUid\", interaction.getInteractionUid().toString());\n        auditPayload.put(\"objectUid\", scanRequest.getObjectUid());\n        auditPayload.put(\"result\", verdict.getResult().name());\n        auditPayload.put(\"reason\", verdict.getReason());\n        auditService.append(eventType, interaction.getInteractionUid(), auditPayload);\n\n        log.info(\"Processed scan: identity={} object={} result={}\",\n                identity.getIdentityUid(), scanRequest.getObjectUid(), verdict.getResult());\n\n        // 9. Build the response.\n        return GatewayResponse.builder()\n                .identityUid(identity.getIdentityUid())\n                .requestUid(request.getRequestUid())\n                .decisionUid(decision.getDecisionUid())\n                .interactionUid(interaction.getInteractionUid())\n                .result(verdict.getResult())\n                .reason(verdict.getReason())\n                .objectUid(scanRequest.getObjectUid())\n                .registryData(registryData)\n                .processedAt(interaction.getCreatedAt())\n                .build();\n    }\n\n    /**\n     * If an identityUid was supplied, load it; otherwise provision a GUEST.\n     */\n    private Identity resolveIdentity(ScanRequest scanRequest) {\n        if (scanRequest.getIdentityUid() != null) {\n            return identityService.getById(scanRequest.getIdentityUid());\n        }\n        log.info(\"Anonymous scan detected; provisioning GUEST identity\");\n        return identityService.provisionGuest();\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/GatewayService.java b/src/main/java/com/ideaqr/gateway/service/GatewayService.java
+--- a/src/main/java/com/ideaqr/gateway/service/GatewayService.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/GatewayService.java	(date 1781545434000)
+@@ -1,160 +1,192 @@
+ package com.ideaqr.gateway.service;
+ 
++import com.ideaqr.gateway.domain.Decision;
++import com.ideaqr.gateway.domain.History;
++import com.ideaqr.gateway.domain.Identity;
++import com.ideaqr.gateway.domain.Interaction;
++import com.ideaqr.gateway.domain.RequestRecord;
++import com.ideaqr.gateway.domain.enums.DecisionOutcome;
++import com.ideaqr.gateway.domain.enums.HistoryEventType;
++import com.ideaqr.gateway.domain.enums.ObjectCategory;
++import com.ideaqr.gateway.domain.enums.RequestStatus;
++import com.ideaqr.gateway.domain.enums.RequestType;
+ import com.ideaqr.gateway.dto.GatewayResponse;
++import com.ideaqr.gateway.dto.ReportRequest;
+ import com.ideaqr.gateway.dto.ScanRequest;
+-import com.ideaqr.gateway.entity.Decision;
+-import com.ideaqr.gateway.entity.Identity;
+-import com.ideaqr.gateway.entity.Interaction;
+-import com.ideaqr.gateway.entity.RequestRecord;
+-import com.ideaqr.gateway.enums.DecisionResult;
+-import com.ideaqr.gateway.enums.RequestStatus;
+-import com.ideaqr.gateway.enums.RequestType;
+ import com.ideaqr.gateway.repository.DecisionRepository;
+ import com.ideaqr.gateway.repository.InteractionRepository;
+ import com.ideaqr.gateway.repository.RequestRepository;
+ import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+ import java.time.LocalDateTime;
+-import java.util.LinkedHashMap;
+-import java.util.Map;
+-import java.util.UUID;
++import java.time.format.DateTimeFormatter;
++import java.util.Optional;
+ 
+ /**
+- * End-to-end orchestration of a scan, implementing the pipeline:
+- *
+- *   Intake -> Create Request -> Evaluate rules (time/roles) -> Create Decision
+- *          -> (if APPROVED) route to mock KZ registry
+- *          -> Create Interaction + append History
+- *
+- * Anonymous scans dynamically provision a GUEST identity before processing.
++ * Orchestrates the Stage 2 governance pipeline for authenticated Stage 3 users:
++ * <pre>Identity → Request → Decision → Interaction → History</pre>
++ * Every scan and every issue-report flows through here. An Interaction and a
++ * History record are written on <em>every</em> attempt — approved or not — which
++ * is what makes the audit trail complete.
+  */
+ @Service
+-@Slf4j
+ @RequiredArgsConstructor
+ public class GatewayService {
+ 
+-    private final RequestRepository requestRepository;
+-    private final DecisionRepository decisionRepository;
+-    private final InteractionRepository interactionRepository;
+     private final IdentityService identityService;
+     private final ValidationService validationService;
+     private final RegistryClient registryClient;
+     private final AuditService auditService;
++    private final RequestRepository requestRepository;
++    private final DecisionRepository decisionRepository;
++    private final InteractionRepository interactionRepository;
++
++    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+ 
+-    /**
+-     * Process a single scan end to end.
+-     */
++    // ------------------------------------------------------------------
++    //  Scan
++    // ------------------------------------------------------------------
++
+     @Transactional
+-    public GatewayResponse processScan(ScanRequest scanRequest) {
+-        LocalDateTime now = LocalDateTime.now();
++    public GatewayResponse scan(Identity identity, ScanRequest request) {
++        String objectUid = request.getObjectUid().trim();
+ 
+-        // 1. Resolve or provision the identity.
+-        Identity identity = resolveIdentity(scanRequest);
++        // Resolve the object (admin-created first, then demo registries).
++        Optional<RegistryClient.ResolvedObject> resolved = registryClient.resolve(objectUid);
++        ObjectCategory category = resolved.map(RegistryClient.ResolvedObject::category)
++                .orElse(registryClient.inferCategory(objectUid));
++        String displayName = resolved.map(RegistryClient.ResolvedObject::displayName).orElse(objectUid);
+ 
+-        // 2. Create the Request (PENDING).
+-        RequestRecord request = RequestRecord.builder()
+-                .requestUid(UUID.randomUUID())
++        // 1. Request enters the pipeline.
++        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                 .identityUid(identity.getIdentityUid())
+-                .requestType(scanRequest.getRequestType())
++                .objectUid(objectUid)
++                .requestType(RequestType.ACCESS)
+                 .status(RequestStatus.PENDING)
+-                .createdAt(now)
+-                .build();
+-        request = requestRepository.save(request);
+-
+-        Map<String, Object> requestPayload = new LinkedHashMap<>();
+-        requestPayload.put("requestUid", request.getRequestUid().toString());
+-        requestPayload.put("identityUid", identity.getIdentityUid().toString());
+-        requestPayload.put("requestType", request.getRequestType().name());
+-        requestPayload.put("objectUid", scanRequest.getObjectUid());
+-        auditService.append("REQUEST_CREATED", null, requestPayload);
+-
+-        // 3. Evaluate the rules engine.
+-        ValidationService.Verdict verdict = validationService.evaluate(
+-                identity, scanRequest.getRequestType(), scanRequest.getObjectUid(), now);
+-
+-        // 4. Persist the Decision.
+-        Decision decision = Decision.builder()
+-                .decisionUid(UUID.randomUUID())
+-                .requestUid(request.getRequestUid())
+-                .result(verdict.getResult())
+-                .reason(verdict.getReason())
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-        decision = decisionRepository.save(decision);
++                .build());
+ 
+-        // 5. Update request status based on the verdict.
+-        request.setStatus(verdict.getResult() == DecisionResult.APPROVED
+-                ? RequestStatus.PROCESSED
+-                : RequestStatus.FAILED);
+-        request = requestRepository.save(request);
+-
+-        // 6. Create the Interaction (always recorded, approved or not).
+-        String interactionType = scanRequest.getInteractionType() != null
+-                ? scanRequest.getInteractionType()
+-                : "SCAN";
+-        Interaction interaction = Interaction.builder()
+-                .interactionUid(UUID.randomUUID())
++        // 2. Decision via the rules engine.
++        ValidationService.DecisionResult result =
++                validationService.decide(identity, RequestType.ACCESS, objectUid, category, request.getContextHour());
++        Decision decision = decisionRepository.save(Decision.builder()
++                .requestUid(req.getRequestUid())
+                 .identityUid(identity.getIdentityUid())
+-                .requestUid(request.getRequestUid())
+-                .decisionUid(decision.getDecisionUid())
+-                .objectUid(scanRequest.getObjectUid())
+-                .interactionType(interactionType)
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-        interaction = interactionRepository.save(interaction);
++                .outcome(result.outcome())
++                .reasonCode(result.reasonCode())
++                .reason(result.reason())
++                .riskLevel(result.riskLevel())
++                .build());
++
++        // 3. Interaction is always recorded.
++        Interaction interaction = interactionRepository.save(Interaction.builder()
++                .identityUid(identity.getIdentityUid())
++                .requestUid(req.getRequestUid())
++                .objectUid(objectUid)
++                .interactionType("SCAN")
++                .detail("Сканирование объекта «" + displayName + "» → " + result.outcome())
++                .build());
+ 
+-        // 7. Route to mock registry only when approved.
+-        Object registryData = null;
+-        if (verdict.isApproved()) {
+-            registryData = registryClient.fetchMockData(
+-                    scanRequest.getObjectUid(), scanRequest.getRequestType());
+-        }
++        // 4. Request status follows the verdict.
++        boolean approved = result.outcome() == DecisionOutcome.APPROVED;
++        req.setStatus(approved ? RequestStatus.PROCESSED : RequestStatus.FAILED);
++        requestRepository.save(req);
+ 
+-        // 8. Append the deep audit event tied to this interaction.
+-        String eventType = switch (verdict.getResult()) {
+-            case APPROVED -> "ACCESS_GRANTED";
+-            case REJECTED -> "ACCESS_DENIED";
+-            case REVIEW -> "ACCESS_REVIEW";
++        // 5. Attach registry data only when approved.
++        Object data = (approved && resolved.isPresent()) ? resolved.get().data() : null;
++
++        // 6. Append to the immutable history.
++        HistoryEventType eventType = switch (result.outcome()) {
++            case APPROVED -> HistoryEventType.ACCESS_GRANTED;
++            case REJECTED -> HistoryEventType.ACCESS_DENIED;
++            case REVIEW -> HistoryEventType.ACCESS_REVIEW;
+         };
+-        Map<String, Object> auditPayload = new LinkedHashMap<>();
+-        auditPayload.put("identityUid", identity.getIdentityUid().toString());
+-        auditPayload.put("identityType", identity.getIdentityType().name());
+-        auditPayload.put("requestUid", request.getRequestUid().toString());
+-        auditPayload.put("decisionUid", decision.getDecisionUid().toString());
+-        auditPayload.put("interactionUid", interaction.getInteractionUid().toString());
+-        auditPayload.put("objectUid", scanRequest.getObjectUid());
+-        auditPayload.put("result", verdict.getResult().name());
+-        auditPayload.put("reason", verdict.getReason());
+-        auditService.append(eventType, interaction.getInteractionUid(), auditPayload);
++        History history = auditService.record(identity.getIdentityUid(), req.getRequestUid(),
++                decision.getDecisionUid(), interaction.getInteractionUid(), objectUid,
++                eventType, "Доступ к «" + displayName + "»: " + result.reason());
+ 
+-        log.info("Processed scan: identity={} object={} result={}",
+-                identity.getIdentityUid(), scanRequest.getObjectUid(), verdict.getResult());
+-
+-        // 9. Build the response.
+         return GatewayResponse.builder()
++                .success(approved)
++                .outcome(result.outcome().name())
++                .reasonCode(result.reasonCode())
++                .reason(result.reason())
++                .riskLevel(result.riskLevel())
++                .objectUid(objectUid)
++                .category(category != null ? category.name() : ObjectCategory.UNKNOWN.name())
++                .data(data)
++                .identityUid(identity.getIdentityUid().toString())
++                .requestUid(req.getRequestUid().toString())
++                .decisionUid(decision.getDecisionUid().toString())
++                .interactionUid(interaction.getInteractionUid().toString())
++                .historyUid(history.getHistoryUid().toString())
++                .timestamp(LocalDateTime.now().format(TS))
++                .build();
++    }
++
++    // ------------------------------------------------------------------
++    //  Report an issue (eco / infrastructure objects)
++    // ------------------------------------------------------------------
++
++    @Transactional
++    public GatewayResponse report(Identity identity, ReportRequest request) {
++        String objectUid = request.getObjectUid().trim();
++        Optional<RegistryClient.ResolvedObject> resolved = registryClient.resolve(objectUid);
++        ObjectCategory category = resolved.map(RegistryClient.ResolvedObject::category)
++                .orElse(registryClient.inferCategory(objectUid));
++        String displayName = resolved.map(RegistryClient.ResolvedObject::displayName).orElse(objectUid);
++
++        RequestRecord req = requestRepository.save(RequestRecord.builder()
++                .identityUid(identity.getIdentityUid())
++                .objectUid(objectUid)
++                .requestType(RequestType.REPORT_ISSUE)
++                .status(RequestStatus.PENDING)
++                .build());
++
++        ValidationService.DecisionResult result = validationService.decideReport(identity, category);
++        Decision decision = decisionRepository.save(Decision.builder()
++                .requestUid(req.getRequestUid())
++                .identityUid(identity.getIdentityUid())
++                .outcome(result.outcome())
++                .reasonCode(result.reasonCode())
++                .reason(result.reason())
++                .riskLevel(result.riskLevel())
++                .build());
++
++        String message = (request.getMessage() == null || request.getMessage().isBlank())
++                ? "Сообщение о проблеме без описания"
++                : request.getMessage().trim();
++
++        Interaction interaction = interactionRepository.save(Interaction.builder()
+                 .identityUid(identity.getIdentityUid())
+-                .requestUid(request.getRequestUid())
+-                .decisionUid(decision.getDecisionUid())
+-                .interactionUid(interaction.getInteractionUid())
+-                .result(verdict.getResult())
+-                .reason(verdict.getReason())
+-                .objectUid(scanRequest.getObjectUid())
+-                .registryData(registryData)
+-                .processedAt(interaction.getCreatedAt())
++                .requestUid(req.getRequestUid())
++                .objectUid(objectUid)
++                .interactionType("REPORT_ISSUE")
++                .detail("Обращение по объекту «" + displayName + "»: " + message)
++                .build());
++
++        req.setStatus(RequestStatus.PROCESSED);
++        requestRepository.save(req);
++
++        History history = auditService.record(identity.getIdentityUid(), req.getRequestUid(),
++                decision.getDecisionUid(), interaction.getInteractionUid(), objectUid,
++                HistoryEventType.ISSUE_REPORTED, "Зарегистрировано обращение по объекту «" + displayName + "»");
++
++        return GatewayResponse.builder()
++                .success(true)
++                .outcome(result.outcome().name())
++                .reasonCode(result.reasonCode())
++                .reason("Обращение принято. Регистрационный номер: "
++                        + req.getRequestUid().toString().substring(0, 8).toUpperCase())
++                .riskLevel(result.riskLevel())
++                .objectUid(objectUid)
++                .category(category != null ? category.name() : ObjectCategory.UNKNOWN.name())
++                .identityUid(identity.getIdentityUid().toString())
++                .requestUid(req.getRequestUid().toString())
++                .decisionUid(decision.getDecisionUid().toString())
++                .interactionUid(interaction.getInteractionUid().toString())
++                .historyUid(history.getHistoryUid().toString())
++                .timestamp(LocalDateTime.now().format(TS))
+                 .build();
+     }
+-
+-    /**
+-     * If an identityUid was supplied, load it; otherwise provision a GUEST.
+-     */
+-    private Identity resolveIdentity(ScanRequest scanRequest) {
+-        if (scanRequest.getIdentityUid() != null) {
+-            return identityService.getById(scanRequest.getIdentityUid());
+-        }
+-        log.info("Anonymous scan detected; provisioning GUEST identity");
+-        return identityService.provisionGuest();
+-    }
+ }
+Index: src/main/java/com/ideaqr/gateway/repository/HistoryRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.History;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.List;\nimport java.util.UUID;\n\n@Repository\npublic interface HistoryRepository extends JpaRepository<History, UUID> {\n\n    List<History> findByInteractionUidOrderByCreatedAtDesc(UUID interactionUid);\n\n    List<History> findAllByOrderByCreatedAtDesc();\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/HistoryRepository.java b/src/main/java/com/ideaqr/gateway/repository/HistoryRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/HistoryRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/HistoryRepository.java	(date 1781544972000)
+@@ -1,16 +1,18 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.History;
++import com.ideaqr.gateway.domain.History;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+ import java.util.List;
+ import java.util.UUID;
+ 
+-@Repository
++/**
++ * History is append-only: the application only inserts and reads. No update or
++ * delete operations are ever invoked against this repository.
++ */
+ public interface HistoryRepository extends JpaRepository<History, UUID> {
+ 
+-    List<History> findByInteractionUidOrderByCreatedAtDesc(UUID interactionUid);
++    List<History> findTop50ByOrderByCreatedAtDesc();
+ 
+-    List<History> findAllByOrderByCreatedAtDesc();
++    List<History> findByIdentityUidOrderByCreatedAtDesc(UUID identityUid);
+ }
+Index: src/main/java/com/ideaqr/gateway/repository/IdentityRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.Identity;\nimport com.ideaqr.gateway.enums.IdentityType;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.List;\nimport java.util.UUID;\n\n@Repository\npublic interface IdentityRepository extends JpaRepository<Identity, UUID> {\n\n    List<Identity> findByIdentityType(IdentityType identityType);\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/IdentityRepository.java b/src/main/java/com/ideaqr/gateway/repository/IdentityRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/IdentityRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/IdentityRepository.java	(date 1781544943000)
+@@ -1,15 +1,9 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.Identity;
+-import com.ideaqr.gateway.enums.IdentityType;
++import com.ideaqr.gateway.domain.Identity;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+-import java.util.List;
+ import java.util.UUID;
+ 
+-@Repository
+ public interface IdentityRepository extends JpaRepository<Identity, UUID> {
+-
+-    List<Identity> findByIdentityType(IdentityType identityType);
+ }
+Index: src/main/java/com/ideaqr/gateway/repository/DecisionRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.Decision;\nimport com.ideaqr.gateway.enums.DecisionResult;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.Optional;\nimport java.util.UUID;\n\n@Repository\npublic interface DecisionRepository extends JpaRepository<Decision, UUID> {\n\n    Optional<Decision> findByRequestUid(UUID requestUid);\n\n    boolean existsByRequestUidAndResult(UUID requestUid, DecisionResult result);\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/DecisionRepository.java b/src/main/java/com/ideaqr/gateway/repository/DecisionRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/DecisionRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/DecisionRepository.java	(date 1781544956000)
+@@ -1,17 +1,9 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.Decision;
+-import com.ideaqr.gateway.enums.DecisionResult;
++import com.ideaqr.gateway.domain.Decision;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+-import java.util.Optional;
+ import java.util.UUID;
+ 
+-@Repository
+ public interface DecisionRepository extends JpaRepository<Decision, UUID> {
+-
+-    Optional<Decision> findByRequestUid(UUID requestUid);
+-
+-    boolean existsByRequestUidAndResult(UUID requestUid, DecisionResult result);
+ }
+Index: src/main/java/com/ideaqr/gateway/dto/GatewayResponse.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.dto;\n\nimport com.ideaqr.gateway.enums.DecisionResult;\nimport lombok.AllArgsConstructor;\nimport lombok.Builder;\nimport lombok.Data;\nimport lombok.NoArgsConstructor;\n\nimport java.time.LocalDateTime;\nimport java.util.UUID;\n\n/**\n * Outbound response describing the full outcome of a processed scan.\n * Carries the identifiers of every artefact produced along the pipeline.\n */\n@Data\n@NoArgsConstructor\n@AllArgsConstructor\n@Builder\npublic class GatewayResponse {\n\n    private UUID identityUid;\n    private UUID requestUid;\n    private UUID decisionUid;\n    private UUID interactionUid;\n\n    private DecisionResult result;\n    private String reason;\n\n    private String objectUid;\n\n    /** Mock registry payload returned only when access is APPROVED; null otherwise. */\n    private Object registryData;\n\n    private LocalDateTime processedAt;\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/dto/GatewayResponse.java b/src/main/java/com/ideaqr/gateway/dto/GatewayResponse.java
+--- a/src/main/java/com/ideaqr/gateway/dto/GatewayResponse.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/dto/GatewayResponse.java	(date 1781545022000)
+@@ -1,36 +1,45 @@
+ package com.ideaqr.gateway.dto;
+ 
+-import com.ideaqr.gateway.enums.DecisionResult;
+-import lombok.AllArgsConstructor;
+ import lombok.Builder;
+ import lombok.Data;
+-import lombok.NoArgsConstructor;
+-
+-import java.time.LocalDateTime;
+-import java.util.UUID;
+ 
+ /**
+- * Outbound response describing the full outcome of a processed scan.
+- * Carries the identifiers of every artefact produced along the pipeline.
++ * The response returned for a scan. Carries the verdict, the localized reason,
++ * the contextual data payload (when approved), and every UUID produced along the
++ * pipeline so the client can display the governance chain.
+  */
+ @Data
+-@NoArgsConstructor
+-@AllArgsConstructor
+ @Builder
+ public class GatewayResponse {
+ 
+-    private UUID identityUid;
+-    private UUID requestUid;
+-    private UUID decisionUid;
+-    private UUID interactionUid;
++    private boolean success;
++
++    /** APPROVED / REJECTED / REVIEW. */
++    private String outcome;
+ 
+-    private DecisionResult result;
++    /** Machine-readable reason code (English). */
++    private String reasonCode;
++
++    /** Human-readable reason shown to the user (Russian). */
+     private String reason;
+ 
++    /** Assessed risk level: LOW / MEDIUM / HIGH / CRITICAL. */
++    private String riskLevel;
++
+     private String objectUid;
+ 
+-    /** Mock registry payload returned only when access is APPROVED; null otherwise. */
+-    private Object registryData;
++    /** MEDICAL / RETAIL / ECO / INFRASTRUCTURE / UNKNOWN. */
++    private String category;
++
++    /** Contextual card payload; null unless the scan was approved. */
++    private Object data;
+ 
+-    private LocalDateTime processedAt;
++    // --- The governance chain (Stage 2 pipeline) --------------------------
++    private String identityUid;
++    private String requestUid;
++    private String decisionUid;
++    private String interactionUid;
++    private String historyUid;
++
++    private String timestamp;
+ }
+Index: src/main/java/com/ideaqr/gateway/repository/AssignmentRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.Assignment;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.List;\nimport java.util.UUID;\n\n@Repository\npublic interface AssignmentRepository extends JpaRepository<Assignment, UUID> {\n\n    List<Assignment> findByIdentityUid(UUID identityUid);\n\n    List<Assignment> findByObjectUid(String objectUid);\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/AssignmentRepository.java b/src/main/java/com/ideaqr/gateway/repository/AssignmentRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/AssignmentRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/AssignmentRepository.java	(date 1781544963000)
+@@ -1,16 +1,9 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.Assignment;
++import com.ideaqr.gateway.domain.Assignment;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+-import java.util.List;
+ import java.util.UUID;
+ 
+-@Repository
+ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
+-
+-    List<Assignment> findByIdentityUid(UUID identityUid);
+-
+-    List<Assignment> findByObjectUid(String objectUid);
+ }
+Index: src/main/java/com/ideaqr/gateway/repository/RequestRepository.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.repository;\n\nimport com.ideaqr.gateway.entity.RequestRecord;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.stereotype.Repository;\n\nimport java.util.List;\nimport java.util.UUID;\n\n@Repository\npublic interface RequestRepository extends JpaRepository<RequestRecord, UUID> {\n\n    List<RequestRecord> findByIdentityUidOrderByCreatedAtDesc(UUID identityUid);\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/repository/RequestRepository.java b/src/main/java/com/ideaqr/gateway/repository/RequestRepository.java
+--- a/src/main/java/com/ideaqr/gateway/repository/RequestRepository.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/repository/RequestRepository.java	(date 1781544952000)
+@@ -1,14 +1,9 @@
+ package com.ideaqr.gateway.repository;
+ 
+-import com.ideaqr.gateway.entity.RequestRecord;
++import com.ideaqr.gateway.domain.RequestRecord;
+ import org.springframework.data.jpa.repository.JpaRepository;
+-import org.springframework.stereotype.Repository;
+ 
+-import java.util.List;
+ import java.util.UUID;
+ 
+-@Repository
+ public interface RequestRepository extends JpaRepository<RequestRecord, UUID> {
+-
+-    List<RequestRecord> findByIdentityUidOrderByCreatedAtDesc(UUID identityUid);
+ }
+Index: src/main/java/com/ideaqr/gateway/config/DataSeeder.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.config;\n\nimport com.ideaqr.gateway.entity.Identity;\nimport com.ideaqr.gateway.enums.IdentityStatus;\nimport com.ideaqr.gateway.enums.IdentityType;\nimport com.ideaqr.gateway.enums.Role;\nimport com.ideaqr.gateway.repository.IdentityRepository;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.boot.CommandLineRunner;\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.stereotype.Component;\n\nimport java.time.LocalDateTime;\nimport java.util.Set;\nimport java.util.UUID;\n\n/**\n * Seeds a couple of demo identities on startup so the in-memory H2 deployment is\n * immediately testable. Disabled under the \"test\" profile.\n */\n@Component\n@Slf4j\n@Profile(\"!test\")\n@RequiredArgsConstructor\npublic class DataSeeder implements CommandLineRunner {\n\n    private final IdentityRepository identityRepository;\n\n    @Override\n    public void run(String... args) {\n        if (identityRepository.count() > 0) {\n            return;\n        }\n\n        Identity engineerCitizen = Identity.builder()\n                .identityUid(UUID.fromString(\"11111111-1111-1111-1111-111111111111\"))\n                .identityType(IdentityType.PRIMARY)\n                .status(IdentityStatus.ACTIVE)\n                .roles(Set.of(Role.ENGINEER, Role.CITIZEN))\n                .createdAt(LocalDateTime.now())\n                .build();\n\n        Identity doctor = Identity.builder()\n                .identityUid(UUID.fromString(\"22222222-2222-2222-2222-222222222222\"))\n                .identityType(IdentityType.PRIMARY)\n                .status(IdentityStatus.ACTIVE)\n                .roles(Set.of(Role.DOCTOR, Role.CITIZEN))\n                .createdAt(LocalDateTime.now())\n                .build();\n\n        identityRepository.save(engineerCitizen);\n        identityRepository.save(doctor);\n\n        log.info(\"Seeded demo identities: ENGINEER+CITIZEN={}, DOCTOR+CITIZEN={}\",\n                engineerCitizen.getIdentityUid(), doctor.getIdentityUid());\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/config/DataSeeder.java b/src/main/java/com/ideaqr/gateway/config/DataSeeder.java
+--- a/src/main/java/com/ideaqr/gateway/config/DataSeeder.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/config/DataSeeder.java	(date 1781545547000)
+@@ -1,58 +1,50 @@
+ package com.ideaqr.gateway.config;
+ 
+-import com.ideaqr.gateway.entity.Identity;
+-import com.ideaqr.gateway.enums.IdentityStatus;
+-import com.ideaqr.gateway.enums.IdentityType;
+-import com.ideaqr.gateway.enums.Role;
+-import com.ideaqr.gateway.repository.IdentityRepository;
++import com.ideaqr.gateway.dto.RegistrationRequest;
++import com.ideaqr.gateway.repository.UserRepository;
++import com.ideaqr.gateway.service.UserService;
+ import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.boot.CommandLineRunner;
+-import org.springframework.context.annotation.Profile;
+ import org.springframework.stereotype.Component;
+ 
+-import java.time.LocalDateTime;
+-import java.util.Set;
+-import java.util.UUID;
+-
+ /**
+- * Seeds a couple of demo identities on startup so the in-memory H2 deployment is
+- * immediately testable. Disabled under the "test" profile.
++ * Seeds a small set of demonstration accounts on first start so investors can
++ * sign in immediately and walk every scenario. Accounts are created only when
++ * absent, so the seeder is safe to run against the persistent database on every
++ * restart.
+  */
+ @Component
+-@Slf4j
+-@Profile("!test")
+ @RequiredArgsConstructor
+ public class DataSeeder implements CommandLineRunner {
+ 
+-    private final IdentityRepository identityRepository;
++    private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
++
++    private final UserService userService;
++    private final UserRepository userRepository;
+ 
+     @Override
+     public void run(String... args) {
+-        if (identityRepository.count() > 0) {
++        seed("admin", "Admin123!", "Аружан", "Сапарова", "EMPLOYED", UserService.PROFESSION_RETAIL_ADMIN);
++        seed("doctor", "Doctor123!", "Санжар", "Ким", "EMPLOYED", UserService.PROFESSION_DOCTOR);
++        seed("inspector", "Inspect123!", "Гульнара", "Ахметова", "EMPLOYED", UserService.PROFESSION_INSPECTOR);
++        seed("citizen", "Citizen123!", "Дамир", "Оспанов", "EMPLOYED", UserService.PROFESSION_CITIZEN);
++    }
++
++    private void seed(String username, String password, String firstName, String lastName,
++                      String employmentStatus, String profession) {
++        if (userRepository.existsByUsername(username)) {
+             return;
+         }
+-
+-        Identity engineerCitizen = Identity.builder()
+-                .identityUid(UUID.fromString("11111111-1111-1111-1111-111111111111"))
+-                .identityType(IdentityType.PRIMARY)
+-                .status(IdentityStatus.ACTIVE)
+-                .roles(Set.of(Role.ENGINEER, Role.CITIZEN))
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-
+-        Identity doctor = Identity.builder()
+-                .identityUid(UUID.fromString("22222222-2222-2222-2222-222222222222"))
+-                .identityType(IdentityType.PRIMARY)
+-                .status(IdentityStatus.ACTIVE)
+-                .roles(Set.of(Role.DOCTOR, Role.CITIZEN))
+-                .createdAt(LocalDateTime.now())
+-                .build();
+-
+-        identityRepository.save(engineerCitizen);
+-        identityRepository.save(doctor);
+-
+-        log.info("Seeded demo identities: ENGINEER+CITIZEN={}, DOCTOR+CITIZEN={}",
+-                engineerCitizen.getIdentityUid(), doctor.getIdentityUid());
++        RegistrationRequest req = new RegistrationRequest();
++        req.setUsername(username);
++        req.setPassword(password);
++        req.setFirstName(firstName);
++        req.setLastName(lastName);
++        req.setEmploymentStatus(employmentStatus);
++        req.setProfession(profession);
++        userService.register(req);
++        log.info("Создан демонстрационный аккаунт: {} ({})", username, profession);
+     }
+ }
+Index: src/main/resources/application.properties
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+># ============================================================\n# IDEAQR Digital Gateway - Stage 2\n# application.properties\n# ============================================================\n\nspring.application.name=ideaqr-gateway\n\n# ------------------------------------------------------------\n# Server / Render port binding\n# Render injects the PORT env var; default to 8080 locally.\n# ------------------------------------------------------------\nserver.port=${PORT:8080}\n\n# ------------------------------------------------------------\n# H2 in-memory datasource\n# ------------------------------------------------------------\nspring.datasource.url=jdbc:h2:mem:ideaqr;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE\nspring.datasource.driver-class-name=org.h2.Driver\nspring.datasource.username=sa\nspring.datasource.password=\n\n# ------------------------------------------------------------\n# H2 console (read-only inspection during demos)\n# Reachable at /h2-console\n# ------------------------------------------------------------\nspring.h2.console.enabled=true\nspring.h2.console.path=/h2-console\nspring.h2.console.settings.web-allow-others=true\n\n# ------------------------------------------------------------\n# JPA / Hibernate\n# create-drop rebuilds the schema for every boot of the in-memory DB.\n# ------------------------------------------------------------\nspring.jpa.hibernate.ddl-auto=create-drop\nspring.jpa.show-sql=false\nspring.jpa.open-in-view=false\nspring.jpa.properties.hibernate.format_sql=true\nspring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect\n\n# ------------------------------------------------------------\n# Jackson\n# ------------------------------------------------------------\nspring.jackson.serialization.write-dates-as-timestamps=false\n\n# ------------------------------------------------------------\n# Actuator (health endpoint for Render health checks)\n# ------------------------------------------------------------\nmanagement.endpoints.web.exposure.include=health,info\nmanagement.endpoint.health.show-details=always\n\n# ------------------------------------------------------------\n# Logging\n# ------------------------------------------------------------\nlogging.level.root=INFO\nlogging.level.com.ideaqr.gateway=INFO\nlogging.level.org.hibernate.SQL=WARN\nlogging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] - %msg%n\n
+===================================================================
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+--- a/src/main/resources/application.properties	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/resources/application.properties	(date 1781544789000)
+@@ -1,57 +1,49 @@
+-# ============================================================
+-# IDEAQR Digital Gateway - Stage 2
+-# application.properties
+-# ============================================================
++# =====================================================================
++#  IDEAQR Digital Gateway â Stage 3
++#  Default profile: file-based persistent H2 (survives restarts)
++# =====================================================================
+ 
+-spring.application.name=ideaqr-gateway
+-
+-# ------------------------------------------------------------
+-# Server / Render port binding
+-# Render injects the PORT env var; default to 8080 locally.
+-# ------------------------------------------------------------
++spring.application.name=ideaqr-digital-gateway
+ server.port=${PORT:8080}
+ 
+-# ------------------------------------------------------------
+-# H2 in-memory datasource
+-# ------------------------------------------------------------
+-spring.datasource.url=jdbc:h2:mem:ideaqr;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
++# ---------------------------------------------------------------------
++#  PERSISTENCE â file-based H2.
++#  Data is written to ./data/ideaqr.mv.db and is preserved between
++#  application restarts (this is the Stage 3 requirement: user
++#  credentials and created QR objects must NOT be volatile).
++# ---------------------------------------------------------------------
++spring.datasource.url=jdbc:h2:file:./data/ideaqr;AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE
+ spring.datasource.driver-class-name=org.h2.Driver
+ spring.datasource.username=sa
+ spring.datasource.password=
+ 
+-# ------------------------------------------------------------
+-# H2 console (read-only inspection during demos)
+-# Reachable at /h2-console
+-# ------------------------------------------------------------
++# Keep the schema across restarts (update, never create-drop).
++spring.jpa.hibernate.ddl-auto=update
++spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect
++spring.jpa.open-in-view=false
++spring.jpa.show-sql=false
++
++# H2 web console (development convenience): http://localhost:8080/h2-console
++# JDBC URL to use in the console: jdbc:h2:file:./data/ideaqr
+ spring.h2.console.enabled=true
+ spring.h2.console.path=/h2-console
+-spring.h2.console.settings.web-allow-others=true
+ 
+-# ------------------------------------------------------------
+-# JPA / Hibernate
+-# create-drop rebuilds the schema for every boot of the in-memory DB.
+-# ------------------------------------------------------------
+-spring.jpa.hibernate.ddl-auto=create-drop
+-spring.jpa.show-sql=false
+-spring.jpa.open-in-view=false
+-spring.jpa.properties.hibernate.format_sql=true
+-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect
++# ---------------------------------------------------------------------
++#  JACKSON
++# ---------------------------------------------------------------------
++spring.jackson.serialization.indent-output=false
++spring.jackson.default-property-inclusion=non_null
+ 
+-# ------------------------------------------------------------
+-# Jackson
+-# ------------------------------------------------------------
+-spring.jackson.serialization.write-dates-as-timestamps=false
++# ---------------------------------------------------------------------
++#  GATEWAY DOMAIN CONFIGURATION
++#  Working-hours policy window used by the context/policy engine
++#  (ValidationService) for time-gated objects (medical, infrastructure).
++# ---------------------------------------------------------------------
++ideaqr.policy.working-hours.start=8
++ideaqr.policy.working-hours.end=18
++ideaqr.policy.min-trust.medical=70
++ideaqr.policy.min-trust.infrastructure=70
+ 
+-# ------------------------------------------------------------
+-# Actuator (health endpoint for Render health checks)
+-# ------------------------------------------------------------
+-management.endpoints.web.exposure.include=health,info
+-management.endpoint.health.show-details=always
+-
+-# ------------------------------------------------------------
+-# Logging
+-# ------------------------------------------------------------
+-logging.level.root=INFO
+-logging.level.com.ideaqr.gateway=INFO
+-logging.level.org.hibernate.SQL=WARN
+-logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] - %msg%n
++# Multipart not used, but bound generously for safety.
++spring.servlet.multipart.max-file-size=5MB
++spring.servlet.multipart.max-request-size=5MB
+Index: src/main/java/com/ideaqr/gateway/service/RegistryClient.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.ideaqr.gateway.enums.RequestType;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\n\nimport java.time.LocalDateTime;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Mock client simulating integration with external Kazakhstan state registries.\n * In production this would proxy to real government APIs; here it returns deterministic\n * mock payloads keyed by the object's sub-network and the request type.\n */\n@Service\n@Slf4j\npublic class RegistryClient {\n\n    /**\n     * Fetch mock registry data for an approved access.\n     *\n     * @param objectUid   the target object\n     * @param requestType the approved request type\n     * @return a structured mock payload\n     */\n    public Map<String, Object> fetchMockData(String objectUid, RequestType requestType) {\n        String registry = resolveRegistryName(objectUid);\n        log.info(\"Routing approved access to mock registry '{}' for object {}\", registry, objectUid);\n\n        Map<String, Object> payload = new LinkedHashMap<>();\n        payload.put(\"registry\", registry);\n        payload.put(\"objectUid\", objectUid);\n        payload.put(\"requestType\", requestType.name());\n        payload.put(\"source\", \"MOCK_KZ_GOV_API\");\n        payload.put(\"fetchedAt\", LocalDateTime.now().toString());\n        payload.put(\"record\", buildRecord(registry, objectUid));\n        return payload;\n    }\n\n    private Map<String, Object> buildRecord(String registry, String objectUid) {\n        Map<String, Object> record = new LinkedHashMap<>();\n        switch (registry) {\n            case \"MED_REGISTER\":\n                record.put(\"facility\", objectUid);\n                record.put(\"clearanceLevel\", \"MEDICAL_STAFF\");\n                record.put(\"ehrLinked\", true);\n                break;\n            case \"INFRA_REGISTER\":\n                record.put(\"site\", objectUid);\n                record.put(\"zone\", \"RESTRICTED\");\n                record.put(\"maintenanceWindowOpen\", true);\n                break;\n            case \"FIN_REGISTER\":\n                record.put(\"account\", objectUid);\n                record.put(\"ledger\", \"TREASURY\");\n                record.put(\"auditFlag\", false);\n                break;\n            case \"CIV_REGISTER\":\n                record.put(\"service\", objectUid);\n                record.put(\"citizenPortal\", true);\n                break;\n            default:\n                record.put(\"object\", objectUid);\n                record.put(\"classification\", \"GENERIC\");\n                break;\n        }\n        return record;\n    }\n\n    private String resolveRegistryName(String objectUid) {\n        if (objectUid == null) {\n            return \"GENERIC_REGISTER\";\n        }\n        if (objectUid.startsWith(\"MED_\")) {\n            return \"MED_REGISTER\";\n        }\n        if (objectUid.startsWith(\"INFRA_\")) {\n            return \"INFRA_REGISTER\";\n        }\n        if (objectUid.startsWith(\"FIN_\")) {\n            return \"FIN_REGISTER\";\n        }\n        if (objectUid.startsWith(\"CIV_\")) {\n            return \"CIV_REGISTER\";\n        }\n        if (objectUid.startsWith(\"ADM_\")) {\n            return \"ADM_REGISTER\";\n        }\n        return \"GENERIC_REGISTER\";\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/RegistryClient.java b/src/main/java/com/ideaqr/gateway/service/RegistryClient.java
+--- a/src/main/java/com/ideaqr/gateway/service/RegistryClient.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/RegistryClient.java	(date 1781545400000)
+@@ -1,92 +1,328 @@
+ package com.ideaqr.gateway.service;
+ 
+-import com.ideaqr.gateway.enums.RequestType;
+-import lombok.extern.slf4j.Slf4j;
++import com.fasterxml.jackson.core.type.TypeReference;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ideaqr.gateway.domain.RegistryObject;
++import com.ideaqr.gateway.domain.enums.ObjectCategory;
++import com.ideaqr.gateway.repository.RegistryObjectRepository;
++import lombok.RequiredArgsConstructor;
+ import org.springframework.stereotype.Service;
+ 
+-import java.time.LocalDateTime;
+ import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Locale;
+ import java.util.Map;
++import java.util.Optional;
+ 
+ /**
+- * Mock client simulating integration with external Kazakhstan state registries.
+- * In production this would proxy to real government APIs; here it returns deterministic
+- * mock payloads keyed by the object's sub-network and the request type.
++ * Stands in for the Kazakhstan state / commercial registries. The platform
++ * itself stores only metadata; the actual record content lives "behind" this
++ * client. Resolution order:
++ *
++ * <ol>
++ *   <li>objects created by an administrator (persisted {@link RegistryObject});</li>
++ *   <li>the enriched, hard-coded demonstration objects below;</li>
++ *   <li>category inference by identifier prefix (so unknown-but-typed codes
++ *       still route through the correct policy).</li>
++ * </ol>
++ *
++ * All card content is authored in natural Russian. The data keys are English
++ * and match exactly the keys the frontend renderers expect.
+  */
+ @Service
+-@Slf4j
++@RequiredArgsConstructor
+ public class RegistryClient {
+ 
+-    /**
+-     * Fetch mock registry data for an approved access.
+-     *
+-     * @param objectUid   the target object
+-     * @param requestType the approved request type
+-     * @return a structured mock payload
+-     */
+-    public Map<String, Object> fetchMockData(String objectUid, RequestType requestType) {
+-        String registry = resolveRegistryName(objectUid);
+-        log.info("Routing approved access to mock registry '{}' for object {}", registry, objectUid);
++    private final RegistryObjectRepository registryObjectRepository;
++    private final ObjectMapper objectMapper;
++
++    /** Resolved registry record passed back to the gateway. */
++    public record ResolvedObject(ObjectCategory category, String displayName, Map<String, Object> data) {
++    }
++
++    public Optional<ResolvedObject> resolve(String objectUid) {
++        if (objectUid == null || objectUid.isBlank()) {
++            return Optional.empty();
++        }
++        String key = objectUid.trim();
+ 
+-        Map<String, Object> payload = new LinkedHashMap<>();
+-        payload.put("registry", registry);
+-        payload.put("objectUid", objectUid);
+-        payload.put("requestType", requestType.name());
+-        payload.put("source", "MOCK_KZ_GOV_API");
+-        payload.put("fetchedAt", LocalDateTime.now().toString());
+-        payload.put("record", buildRecord(registry, objectUid));
+-        return payload;
+-    }
++        // 1. Administrator-created objects take precedence.
++        Optional<RegistryObject> persisted = registryObjectRepository.findByObjectUid(key);
++        if (persisted.isPresent()) {
++            RegistryObject obj = persisted.get();
++            Map<String, Object> data = parseJson(obj.getDataJson());
++            return Optional.of(new ResolvedObject(obj.getCategory(), obj.getDisplayName(), data));
++        }
+ 
+-    private Map<String, Object> buildRecord(String registry, String objectUid) {
+-        Map<String, Object> record = new LinkedHashMap<>();
+-        switch (registry) {
+-            case "MED_REGISTER":
+-                record.put("facility", objectUid);
+-                record.put("clearanceLevel", "MEDICAL_STAFF");
+-                record.put("ehrLinked", true);
+-                break;
+-            case "INFRA_REGISTER":
+-                record.put("site", objectUid);
+-                record.put("zone", "RESTRICTED");
+-                record.put("maintenanceWindowOpen", true);
+-                break;
+-            case "FIN_REGISTER":
+-                record.put("account", objectUid);
+-                record.put("ledger", "TREASURY");
+-                record.put("auditFlag", false);
+-                break;
+-            case "CIV_REGISTER":
+-                record.put("service", objectUid);
+-                record.put("citizenPortal", true);
+-                break;
++        // 2. Built-in demonstration objects (case-insensitive match).
++        String upper = key.toUpperCase(Locale.ROOT);
++        switch (upper) {
++            case "PATIENT_7291":
++                return Optional.of(new ResolvedObject(ObjectCategory.MEDICAL, "Алия Нурланова", patient7291()));
++            case "RETAIL_ADIDAS_SHIRT":
++                return Optional.of(new ResolvedObject(ObjectCategory.RETAIL,
++                        "Adidas Originals Trefoil — чёрная футболка", adidasShirt()));
++            case "ECO_SMART_BIN_102":
++                return Optional.of(new ResolvedObject(ObjectCategory.ECO, "Умный контейнер №102", smartBin102()));
++            case "INFRA_SUBSTATION_07":
++                return Optional.of(new ResolvedObject(ObjectCategory.INFRASTRUCTURE,
++                        "Трансформаторная подстанция №07", substation07()));
+             default:
+-                record.put("object", objectUid);
+-                record.put("classification", "GENERIC");
+-                break;
++                // 3. Fall back to prefix inference.
++                ObjectCategory inferred = inferCategory(upper);
++                if (inferred == ObjectCategory.UNKNOWN) {
++                    return Optional.empty();
++                }
++                return Optional.of(new ResolvedObject(inferred, key, unknownButTyped(inferred, key)));
+         }
+-        return record;
+     }
+ 
+-    private String resolveRegistryName(String objectUid) {
++    public ObjectCategory inferCategory(String objectUid) {
+         if (objectUid == null) {
+-            return "GENERIC_REGISTER";
++            return ObjectCategory.UNKNOWN;
+         }
+-        if (objectUid.startsWith("MED_")) {
+-            return "MED_REGISTER";
++        String u = objectUid.toUpperCase(Locale.ROOT);
++        if (u.startsWith("PATIENT")) {
++            return ObjectCategory.MEDICAL;
+         }
+-        if (objectUid.startsWith("INFRA_")) {
+-            return "INFRA_REGISTER";
++        if (u.startsWith("RETAIL")) {
++            return ObjectCategory.RETAIL;
+         }
+-        if (objectUid.startsWith("FIN_")) {
+-            return "FIN_REGISTER";
++        if (u.startsWith("ECO")) {
++            return ObjectCategory.ECO;
+         }
+-        if (objectUid.startsWith("CIV_")) {
+-            return "CIV_REGISTER";
++        if (u.startsWith("INFRA")) {
++            return ObjectCategory.INFRASTRUCTURE;
+         }
+-        if (objectUid.startsWith("ADM_")) {
+-            return "ADM_REGISTER";
+-        }
+-        return "GENERIC_REGISTER";
++        return ObjectCategory.UNKNOWN;
++    }
++
++    // ------------------------------------------------------------------
++    //  SCENARIO A — Medical record (PATIENT_7291)
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> patient7291() {
++        Map<String, Object> d = new LinkedHashMap<>();
++        d.put("patientName", "Алия Нурланова");
++        d.put("patientId", "PATIENT_7291");
++        d.put("age", 34);
++        d.put("gender", "Женский");
++        d.put("bloodType", "II (A) Rh+");
++        d.put("iinMasked", "8901••••••23");
++        d.put("allergies", List.of("Пенициллин", "Пыльца берёзы"));
++        d.put("chronicConditions", List.of("Бронхиальная астма", "Гипотиреоз"));
++        d.put("medications", List.of(
++                medication("Левотироксин", "50 мкг", "1 раз в день, утром"),
++                medication("Сальбутамол (ингалятор)", "100 мкг", "По потребности"),
++                medication("Витамин D3", "2000 МЕ", "1 раз в день")));
++        Map<String, Object> vitals = new LinkedHashMap<>();
++        vitals.put("series", List.of(
++                vital("Янв", 122, 80, 74),
++                vital("Фев", 126, 82, 78),
++                vital("Мар", 119, 78, 72),
++                vital("Апр", 131, 85, 81),
++                vital("Май", 124, 81, 76),
++                vital("Июн", 128, 83, 79)));
++        d.put("vitals", vitals);
++        d.put("recentVisits", List.of(
++                visit("2026-05-21", "Городская поликлиника №4", "Плановый осмотр эндокринолога", "Доктор С. Ким"),
++                visit("2026-03-08", "Медцентр «Сункар»", "Обострение астмы", "Доктор А. Жумабаев"),
++                visit("2025-12-15", "Городская поликлиника №4", "Контроль ТТГ", "Доктор С. Ким")));
++        d.put("immunizations", List.of("Грипп (2025)", "COVID-19 (бустер, 2024)", "Столбняк (2021)"));
++        d.put("aiNotes", "ИИ-ассистент: уровень ТТГ стабилизировался на фоне терапии. "
++                + "Отмечается лёгкая тенденция к повышению систолического давления за последние 2 месяца — "
++                + "рекомендуется контроль АД и консультация кардиолога. Критических взаимодействий "
++                + "назначенных препаратов не выявлено. Важно: аллергия на пенициллин — исключить "
++                + "бета-лактамные антибиотики.");
++        return d;
+     }
++
++    private Map<String, Object> medication(String name, String dose, String schedule) {
++        Map<String, Object> m = new LinkedHashMap<>();
++        m.put("name", name);
++        m.put("dose", dose);
++        m.put("schedule", schedule);
++        return m;
++    }
++
++    private Map<String, Object> vital(String label, int systolic, int diastolic, int pulse) {
++        Map<String, Object> v = new LinkedHashMap<>();
++        v.put("label", label);
++        v.put("systolic", systolic);
++        v.put("diastolic", diastolic);
++        v.put("pulse", pulse);
++        return v;
++    }
++
++    private Map<String, Object> visit(String date, String clinic, String reason, String doctor) {
++        Map<String, Object> v = new LinkedHashMap<>();
++        v.put("date", date);
++        v.put("clinic", clinic);
++        v.put("reason", reason);
++        v.put("doctor", doctor);
++        return v;
++    }
++
++    // ------------------------------------------------------------------
++    //  SCENARIO B — Retail item (RETAIL_ADIDAS_SHIRT)
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> adidasShirt() {
++        Map<String, Object> d = new LinkedHashMap<>();
++        d.put("productName", "Adidas Originals Trefoil — чёрная футболка");
++        d.put("brand", "Adidas");
++        d.put("sku", "RETAIL_ADIDAS_SHIRT");
++        d.put("price", 25000L);
++        d.put("currency", "₸");
++        d.put("description", "Классическая хлопковая футболка Adidas Originals с логотипом Trefoil. "
++                + "Мягкий джерси 100% хлопок, прямой крой унисекс. Оригинальная продукция с гарантией бренда.");
++        d.put("rating", 4.7);
++        d.put("reviews", 318);
++        d.put("colors", List.of("Чёрный", "Белый", "Тёмно-синий"));
++        d.put("sizes", List.of(
++                size("S", 5),
++                size("M", 12),
++                size("L", 0),
++                size("XL", 3)));
++        d.put("alternatives", List.of(
++                alternative("Kaspi Магазин", 22990L, "https://kaspi.kz", "Дешевле на 2010 ₸, доставка 1–2 дня"),
++                alternative("Wildberries", 21500L, "https://www.wildberries.kz", "Самая низкая цена, доставка 3–5 дней"),
++                alternative("Lamoda", 23700L, "https://www.lamoda.kz", "Бесплатная примерка при доставке")));
++        Map<String, Object> loyalty = new LinkedHashMap<>();
++        loyalty.put("code", "IDEAQR-ADIDAS-10");
++        loyalty.put("discount", "10%");
++        loyalty.put("note", "Эксклюзивный промокод участника IDEAQR. Действует в фирменном магазине Adidas.");
++        d.put("loyalty", loyalty);
++        return d;
++    }
++
++    private Map<String, Object> size(String size, int stock) {
++        Map<String, Object> s = new LinkedHashMap<>();
++        s.put("size", size);
++        s.put("stock", stock);
++        return s;
++    }
++
++    private Map<String, Object> alternative(String store, long price, String url, String note) {
++        Map<String, Object> a = new LinkedHashMap<>();
++        a.put("store", store);
++        a.put("price", price);
++        a.put("url", url);
++        a.put("note", note);
++        return a;
++    }
++
++    // ------------------------------------------------------------------
++    //  SCENARIO C — Eco smart bin (ECO_SMART_BIN_102)
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> smartBin102() {
++        Map<String, Object> d = new LinkedHashMap<>();
++        d.put("binId", "ECO_SMART_BIN_102");
++        d.put("title", "Умный контейнер №102");
++        d.put("location", "г. Астана, ул. Кабанбай батыра, 53");
++        d.put("coordinates", "51.0909, 71.4187");
++        d.put("fillLevel", 82);
++        d.put("status", "Требует вывоза");
++        d.put("environmentalTier", "Зелёный уровень B");
++        d.put("wasteTypes", List.of("Смешанные отходы", "Пластик", "Бумага"));
++        d.put("lastEmptied", "2026-06-14 07:30");
++        d.put("pickupSchedule", List.of(
++                pickup("Понедельник", "07:00"),
++                pickup("Среда", "07:00"),
++                pickup("Пятница", "07:00"),
++                pickup("Воскресенье", "08:30")));
++        d.put("operator", "ТОО «Astana Tazalyk»");
++        d.put("co2SavedKg", 1240);
++        d.put("recyclingRate", 63);
++        d.put("actions", List.of("report"));
++        return d;
++    }
++
++    private Map<String, Object> pickup(String day, String time) {
++        Map<String, Object> p = new LinkedHashMap<>();
++        p.put("day", day);
++        p.put("time", time);
++        return p;
++    }
++
++    // ------------------------------------------------------------------
++    //  Infrastructure asset (INFRA_SUBSTATION_07) — role + time gated
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> substation07() {
++        Map<String, Object> d = new LinkedHashMap<>();
++        d.put("assetId", "INFRA_SUBSTATION_07");
++        d.put("title", "Трансформаторная подстанция №07");
++        d.put("assetType", "Электроподстанция 10/0.4 кВ");
++        d.put("location", "г. Астана, район Есиль, ул. Сыганак, 18");
++        d.put("status", "В эксплуатации");
++        d.put("lastInspection", "2026-05-28");
++        d.put("nextMaintenance", "2026-07-15");
++        d.put("voltage", "10 кВ / 0.4 кВ");
++        d.put("operator", "АО «Астана-РЭК»");
++        d.put("technicalNotes", "Плановое обслуживание выполнено. Замечаний по изоляции трансформатора Т-2 нет. "
++                + "Рекомендована проверка контуров заземления при следующем визите.");
++        d.put("actions", List.of("report"));
++        return d;
++    }
++
++    // ------------------------------------------------------------------
++    //  Typed-but-unknown fallback
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> unknownButTyped(ObjectCategory category, String objectUid) {
++        Map<String, Object> d = new LinkedHashMap<>();
++        switch (category) {
++            case MEDICAL -> {
++                d.put("patientName", "Карта пациента");
++                d.put("patientId", objectUid);
++                d.put("note", "Запись найдена в медицинском реестре, но детальная карта недоступна в демо-режиме.");
++            }
++            case RETAIL -> {
++                d.put("productName", "Товар");
++                d.put("sku", objectUid);
++                d.put("price", 0L);
++                d.put("currency", "₸");
++                d.put("description", "Товар найден в торговом реестре, но карточка не заполнена.");
++                d.put("sizes", List.of());
++                d.put("alternatives", List.of());
++            }
++            case ECO -> {
++                d.put("binId", objectUid);
++                d.put("title", "Экологический объект");
++                d.put("status", "Нет данных");
++                d.put("actions", List.of("report"));
++            }
++            case INFRASTRUCTURE -> {
++                d.put("assetId", objectUid);
++                d.put("title", "Инфраструктурный объект");
++                d.put("status", "Нет данных");
++                d.put("actions", List.of("report"));
++            }
++            default -> {
++                d.put("title", objectUid);
++                d.put("description", "Объект найден, но данные отсутствуют.");
++            }
++        }
++        return d;
++    }
++
++    // ------------------------------------------------------------------
++    //  JSON helper
++    // ------------------------------------------------------------------
++
++    private Map<String, Object> parseJson(String json) {
++        if (json == null || json.isBlank()) {
++            return new LinkedHashMap<>();
++        }
++        try {
++            return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
++            });
++        } catch (Exception e) {
++            Map<String, Object> fallback = new LinkedHashMap<>();
++            fallback.put("raw", json);
++            return fallback;
++        }
++    }
+ }
+Index: src/main/java/com/ideaqr/gateway/IdeaqrGatewayApplication.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n/**\n * IDEAQR Digital Gateway - Stage 2.\n * Identity / Request / Decision / QR / Assignment / Interaction / History architecture.\n */\n@SpringBootApplication\npublic class IdeaqrGatewayApplication {\n\n    public static void main(String[] args) {\n        SpringApplication.run(IdeaqrGatewayApplication.class, args);\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/IdeaqrGatewayApplication.java b/src/main/java/com/ideaqr/gateway/IdeaqrGatewayApplication.java
+--- a/src/main/java/com/ideaqr/gateway/IdeaqrGatewayApplication.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/IdeaqrGatewayApplication.java	(date 1781544803000)
+@@ -4,8 +4,19 @@
+ import org.springframework.boot.autoconfigure.SpringBootApplication;
+ 
+ /**
+- * IDEAQR Digital Gateway - Stage 2.
+- * Identity / Request / Decision / QR / Assignment / Interaction / History architecture.
++ * IDEAQR Digital Gateway — Stage 3.
++ *
++ * <p>An access-governance and immutable-audit layer built on top of digital
++ * identities. Stage 3 adds real authentication (Spring Security + BCrypt),
++ * persistent accounts, and two role-based interfaces: an administrator QR
++ * governance panel and a citizen scanning terminal.</p>
++ *
++ * <p>The Stage 2 processing pipeline is preserved and is now driven by
++ * authenticated identities:</p>
++ *
++ * <pre>
++ *   Identity → Request → Decision → QR/Access → Assignment → Interaction → History
++ * </pre>
+  */
+ @SpringBootApplication
+ public class IdeaqrGatewayApplication {
+Index: src/main/java/com/ideaqr/gateway/service/ValidationService.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.ideaqr.gateway.service;\n\nimport com.ideaqr.gateway.entity.Identity;\nimport com.ideaqr.gateway.enums.DecisionResult;\nimport com.ideaqr.gateway.enums.RequestType;\nimport com.ideaqr.gateway.enums.Role;\nimport lombok.Getter;\nimport lombok.RequiredArgsConstructor;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\n\nimport java.time.LocalDateTime;\nimport java.time.LocalTime;\nimport java.util.Set;\n\n/**\n * Advanced rules engine. Replaces the old prefix-only check with a multi-factor\n * evaluation: object/role prefix match, role-capability mapping, and time-window\n * constraints. Produces a {@link Verdict} that the orchestration layer persists as\n * a Decision entity.\n */\n@Service\n@Slf4j\n@RequiredArgsConstructor\npublic class ValidationService {\n\n    /** Engineers may access INFRA_ objects only within this working window. */\n    public static final LocalTime INFRA_WINDOW_START = LocalTime.of(8, 0);\n    public static final LocalTime INFRA_WINDOW_END = LocalTime.of(18, 0);\n\n    /**\n     * Immutable verdict carrier.\n     */\n    @Getter\n    public static class Verdict {\n        private final DecisionResult result;\n        private final String reason;\n\n        public Verdict(DecisionResult result, String reason) {\n            this.result = result;\n            this.reason = reason;\n        }\n\n        public boolean isApproved() {\n            return result == DecisionResult.APPROVED;\n        }\n    }\n\n    /**\n     * Evaluate an access request for a given identity against a target object.\n     *\n     * @param identity    the (already persisted) subject\n     * @param requestType the kind of access requested\n     * @param objectUid   the target object identifier (carries a sub-network prefix)\n     * @param now         evaluation timestamp (injected for testability)\n     * @return a verdict\n     */\n    public Verdict evaluate(Identity identity, RequestType requestType, String objectUid, LocalDateTime now) {\n        Set<Role> roles = identity.getRoles();\n\n        // QR creation is a self-service request that does not target a guarded object.\n        if (requestType == RequestType.QR_CREATION) {\n            return evaluateQrCreation(identity);\n        }\n\n        if (objectUid == null || objectUid.isBlank()) {\n            return new Verdict(DecisionResult.REJECTED, \"Missing objectUid for access request\");\n        }\n\n        // Determine which role would be required to govern this object.\n        Role requiredRole = resolveRoleByObjectPrefix(objectUid);\n        if (requiredRole == null) {\n            return new Verdict(DecisionResult.REVIEW,\n                    \"Unknown object prefix '\" + prefixOf(objectUid) + \"' has no governing role; routed to manual REVIEW\");\n        }\n\n        // Multi-role check: the identity must actually hold the required role,\n        // regardless of any default context.\n        if (roles == null || !roles.contains(requiredRole)) {\n            return new Verdict(DecisionResult.REJECTED,\n                    \"Identity lacks required role \" + requiredRole + \" for object \" + objectUid);\n        }\n\n        // Cross-check that the request type is coherent with the object class.\n        Verdict typeCoherence = checkRequestTypeCoherence(requestType, requiredRole, objectUid);\n        if (typeCoherence != null) {\n            return typeCoherence;\n        }\n\n        // Time-window rule: ENGINEER access to INFRA_ objects is constrained to 08:00-18:00.\n        if (requiredRole == Role.ENGINEER) {\n            LocalTime current = now.toLocalTime();\n            boolean withinWindow =\n                    !current.isBefore(INFRA_WINDOW_START) && !current.isAfter(INFRA_WINDOW_END);\n            if (!withinWindow) {\n                return new Verdict(DecisionResult.REJECTED,\n                        \"INFRA access for ENGINEER is restricted to \" + INFRA_WINDOW_START + \"-\"\n                                + INFRA_WINDOW_END + \"; current time \" + current + \" is outside the window\");\n            }\n        }\n\n        return new Verdict(DecisionResult.APPROVED,\n                \"Access granted: role \" + requiredRole + \" satisfies object \" + objectUid);\n    }\n\n    /**\n     * QR creation is approved for any ACTIVE-capable identity that holds at least one role.\n     * A guest with no roles is sent to REVIEW rather than auto-approved.\n     */\n    private Verdict evaluateQrCreation(Identity identity) {\n        if (identity.getRoles() == null || identity.getRoles().isEmpty()) {\n            return new Verdict(DecisionResult.REVIEW,\n                    \"QR creation requested by identity with no assigned roles; manual REVIEW required\");\n        }\n        return new Verdict(DecisionResult.APPROVED, \"QR creation approved for identity \" + identity.getIdentityUid());\n    }\n\n    /**\n     * Ensures the declared request type matches the class of object being targeted.\n     * Returns a rejecting/review verdict on mismatch, or null when coherent.\n     */\n    private Verdict checkRequestTypeCoherence(RequestType requestType, Role requiredRole, String objectUid) {\n        switch (requiredRole) {\n            case DOCTOR:\n                if (requestType != RequestType.MEDICAL_ACCESS && requestType != RequestType.OBJECT_ACCESS) {\n                    return new Verdict(DecisionResult.REJECTED,\n                            \"Request type \" + requestType + \" is not valid for medical object \" + objectUid);\n                }\n                break;\n            case ENGINEER:\n                if (requestType != RequestType.INFRASTRUCTURE_ACCESS && requestType != RequestType.OBJECT_ACCESS) {\n                    return new Verdict(DecisionResult.REJECTED,\n                            \"Request type \" + requestType + \" is not valid for infrastructure object \" + objectUid);\n                }\n                break;\n            case FINANCIER:\n                if (requestType != RequestType.FINANCE_ACCESS && requestType != RequestType.OBJECT_ACCESS) {\n                    return new Verdict(DecisionResult.REJECTED,\n                            \"Request type \" + requestType + \" is not valid for finance object \" + objectUid);\n                }\n                break;\n            default:\n                // CITIZEN / ADMIN governed objects accept generic OBJECT_ACCESS.\n                break;\n        }\n        return null;\n    }\n\n    /**\n     * Maps an object identifier's prefix to the role that governs it.\n     * Returns null when no role matches the prefix.\n     */\n    private Role resolveRoleByObjectPrefix(String objectUid) {\n        for (Role role : Role.values()) {\n            if (objectUid.startsWith(role.getObjectPrefix())) {\n                return role;\n            }\n        }\n        return null;\n    }\n\n    private String prefixOf(String objectUid) {\n        int underscore = objectUid.indexOf('_');\n        return underscore >= 0 ? objectUid.substring(0, underscore + 1) : objectUid;\n    }\n}\n
+===================================================================
+diff --git a/src/main/java/com/ideaqr/gateway/service/ValidationService.java b/src/main/java/com/ideaqr/gateway/service/ValidationService.java
+--- a/src/main/java/com/ideaqr/gateway/service/ValidationService.java	(revision b5ffdb538a4ebe0e1092f6924be6317e6e88073b)
++++ b/src/main/java/com/ideaqr/gateway/service/ValidationService.java	(date 1781545324000)
+@@ -1,166 +1,207 @@
+ package com.ideaqr.gateway.service;
+ 
+-import com.ideaqr.gateway.entity.Identity;
+-import com.ideaqr.gateway.enums.DecisionResult;
+-import com.ideaqr.gateway.enums.RequestType;
+-import com.ideaqr.gateway.enums.Role;
+-import lombok.Getter;
+-import lombok.RequiredArgsConstructor;
+-import lombok.extern.slf4j.Slf4j;
++import com.ideaqr.gateway.domain.Identity;
++import com.ideaqr.gateway.domain.enums.DecisionOutcome;
++import com.ideaqr.gateway.domain.enums.ObjectCategory;
++import com.ideaqr.gateway.domain.enums.RequestType;
++import com.ideaqr.gateway.domain.enums.RoleType;
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.stereotype.Service;
+ 
+-import java.time.LocalDateTime;
+ import java.time.LocalTime;
+-import java.util.Set;
+ 
+ /**
+- * Advanced rules engine. Replaces the old prefix-only check with a multi-factor
+- * evaluation: object/role prefix match, role-capability mapping, and time-window
+- * constraints. Produces a {@link Verdict} that the orchestration layer persists as
+- * a Decision entity.
++ * The rules / decision engine. This is the heart of "execution governance":
++ * it does not merely check whether a subject <em>has</em> a right, it checks
++ * whether the action is <em>admissible</em> in the current context — combining
++ * role, request type, object category, working-hours policy, trust level and a
++ * derived risk score into a single {@link DecisionResult}.
++ *
++ * <p>Every reason returned to the user is written in natural Russian; the
++ * machine-readable {@code reasonCode} stays in English for logs and analytics.</p>
+  */
+ @Service
+-@Slf4j
+-@RequiredArgsConstructor
+ public class ValidationService {
+ 
+-    /** Engineers may access INFRA_ objects only within this working window. */
+-    public static final LocalTime INFRA_WINDOW_START = LocalTime.of(8, 0);
+-    public static final LocalTime INFRA_WINDOW_END = LocalTime.of(18, 0);
++    @Value("${ideaqr.policy.working-hours.start:8}")
++    private int workingHoursStart;
+ 
+-    /**
+-     * Immutable verdict carrier.
+-     */
+-    @Getter
+-    public static class Verdict {
+-        private final DecisionResult result;
+-        private final String reason;
++    @Value("${ideaqr.policy.working-hours.end:18}")
++    private int workingHoursEnd;
+ 
+-        public Verdict(DecisionResult result, String reason) {
+-            this.result = result;
+-            this.reason = reason;
+-        }
++    @Value("${ideaqr.policy.min-trust.medical:70}")
++    private int minTrustMedical;
+ 
+-        public boolean isApproved() {
+-            return result == DecisionResult.APPROVED;
+-        }
+-    }
++    @Value("${ideaqr.policy.min-trust.infrastructure:70}")
++    private int minTrustInfrastructure;
+ 
+     /**
+-     * Evaluate an access request for a given identity against a target object.
++     * Immutable outcome of a policy evaluation.
+      *
+-     * @param identity    the (already persisted) subject
+-     * @param requestType the kind of access requested
+-     * @param objectUid   the target object identifier (carries a sub-network prefix)
+-     * @param now         evaluation timestamp (injected for testability)
+-     * @return a verdict
++     * @param outcome    APPROVED / REJECTED / REVIEW
++     * @param reasonCode machine-readable code (English)
++     * @param reason     human-readable explanation shown to the user (Russian)
++     * @param riskLevel  LOW / MEDIUM / HIGH / CRITICAL
+      */
+-    public Verdict evaluate(Identity identity, RequestType requestType, String objectUid, LocalDateTime now) {
+-        Set<Role> roles = identity.getRoles();
++    public record DecisionResult(DecisionOutcome outcome, String reasonCode, String reason, String riskLevel) {
+ 
+-        // QR creation is a self-service request that does not target a guarded object.
+-        if (requestType == RequestType.QR_CREATION) {
+-            return evaluateQrCreation(identity);
++        public static DecisionResult approved(String reasonCode, String reason, String riskLevel) {
++            return new DecisionResult(DecisionOutcome.APPROVED, reasonCode, reason, riskLevel);
+         }
+ 
+-        if (objectUid == null || objectUid.isBlank()) {
+-            return new Verdict(DecisionResult.REJECTED, "Missing objectUid for access request");
++        public static DecisionResult rejected(String reasonCode, String reason, String riskLevel) {
++            return new DecisionResult(DecisionOutcome.REJECTED, reasonCode, reason, riskLevel);
+         }
+ 
+-        // Determine which role would be required to govern this object.
+-        Role requiredRole = resolveRoleByObjectPrefix(objectUid);
+-        if (requiredRole == null) {
+-            return new Verdict(DecisionResult.REVIEW,
+-                    "Unknown object prefix '" + prefixOf(objectUid) + "' has no governing role; routed to manual REVIEW");
++        public static DecisionResult review(String reasonCode, String reason, String riskLevel) {
++            return new DecisionResult(DecisionOutcome.REVIEW, reasonCode, reason, riskLevel);
+         }
+-
+-        // Multi-role check: the identity must actually hold the required role,
+-        // regardless of any default context.
+-        if (roles == null || !roles.contains(requiredRole)) {
+-            return new Verdict(DecisionResult.REJECTED,
+-                    "Identity lacks required role " + requiredRole + " for object " + objectUid);
+-        }
++    }
+ 
+-        // Cross-check that the request type is coherent with the object class.
+-        Verdict typeCoherence = checkRequestTypeCoherence(requestType, requiredRole, objectUid);
+-        if (typeCoherence != null) {
+-            return typeCoherence;
+-        }
++    // ------------------------------------------------------------------
++    //  QR creation governance (admin panel)
++    // ------------------------------------------------------------------
+ 
+-        // Time-window rule: ENGINEER access to INFRA_ objects is constrained to 08:00-18:00.
+-        if (requiredRole == Role.ENGINEER) {
+-            LocalTime current = now.toLocalTime();
+-            boolean withinWindow =
+-                    !current.isBefore(INFRA_WINDOW_START) && !current.isAfter(INFRA_WINDOW_END);
+-            if (!withinWindow) {
+-                return new Verdict(DecisionResult.REJECTED,
+-                        "INFRA access for ENGINEER is restricted to " + INFRA_WINDOW_START + "-"
+-                                + INFRA_WINDOW_END + "; current time " + current + " is outside the window");
+-            }
+-        }
++    /**
++     * Decide whether an identity may govern (create) a new QR-coded object.
++     * Only identities holding a governing role (ADMIN or RETAIL_ADMIN) pass.
++     */
++    public DecisionResult decideQrCreation(Identity admin) {
++        if (admin != null && (admin.getRoles().contains(RoleType.ADMIN)
++                || admin.getRoles().contains(RoleType.RETAIL_ADMIN))) {
++            return DecisionResult.approved(
++                    "QR_CREATION_GRANTED",
++                    "Доступ к управлению объектами подтверждён. QR-код можно сгенерировать.",
++                    "LOW");
++        }
++        return DecisionResult.rejected(
++                "QR_CREATION_FORBIDDEN",
++                "Недостаточно прав для создания QR-объектов. Требуется роль администратора.",
++                "MEDIUM");
++    }
+ 
+-        return new Verdict(DecisionResult.APPROVED,
+-                "Access granted: role " + requiredRole + " satisfies object " + objectUid);
+-    }
++    // ------------------------------------------------------------------
++    //  Access governance (citizen / specialist scans)
++    // ------------------------------------------------------------------
+ 
+     /**
+-     * QR creation is approved for any ACTIVE-capable identity that holds at least one role.
+-     * A guest with no roles is sent to REVIEW rather than auto-approved.
++     * Evaluate an access request against the full rule set.
++     *
++     * @param identity    the acting subject
++     * @param requestType the type of request (ACCESS / REPORT_ISSUE …)
++     * @param objectUid   the scanned object identifier
++     * @param category    the resolved object category
++     * @param contextHour optional hour-of-day override (0–23) for demonstrating
++     *                    the time gate; when {@code null}, the live clock is used
+      */
+-    private Verdict evaluateQrCreation(Identity identity) {
+-        if (identity.getRoles() == null || identity.getRoles().isEmpty()) {
+-            return new Verdict(DecisionResult.REVIEW,
+-                    "QR creation requested by identity with no assigned roles; manual REVIEW required");
++    public DecisionResult decide(Identity identity,
++                                 RequestType requestType,
++                                 String objectUid,
++                                 ObjectCategory category,
++                                 Integer contextHour) {
++        if (category == null || category == ObjectCategory.UNKNOWN) {
++            return DecisionResult.review(
++                    "OBJECT_UNKNOWN",
++                    "Объект не найден в реестрах. Запрос направлен на ручную проверку.",
++                    "MEDIUM");
+         }
+-        return new Verdict(DecisionResult.APPROVED, "QR creation approved for identity " + identity.getIdentityUid());
++
++        return switch (category) {
++            case MEDICAL -> decideMedical(identity, contextHour);
++            case INFRASTRUCTURE -> decideInfrastructure(identity, contextHour);
++            case RETAIL -> DecisionResult.approved(
++                    "RETAIL_PUBLIC",
++                    "Карточка товара общедоступна. Доступ разрешён.",
++                    "LOW");
++            case ECO -> DecisionResult.approved(
++                    "ECO_PUBLIC",
++                    "Данные об экологическом объекте общедоступны. Доступ разрешён.",
++                    "LOW");
++            default -> DecisionResult.approved(
++                    "GENERAL_PUBLIC",
++                    "Объект общего назначения. Доступ разрешён.",
++                    "LOW");
++        };
+     }
+ 
+-    /**
+-     * Ensures the declared request type matches the class of object being targeted.
+-     * Returns a rejecting/review verdict on mismatch, or null when coherent.
+-     */
+-    private Verdict checkRequestTypeCoherence(RequestType requestType, Role requiredRole, String objectUid) {
+-        switch (requiredRole) {
+-            case DOCTOR:
+-                if (requestType != RequestType.MEDICAL_ACCESS && requestType != RequestType.OBJECT_ACCESS) {
+-                    return new Verdict(DecisionResult.REJECTED,
+-                            "Request type " + requestType + " is not valid for medical object " + objectUid);
+-                }
+-                break;
+-            case ENGINEER:
+-                if (requestType != RequestType.INFRASTRUCTURE_ACCESS && requestType != RequestType.OBJECT_ACCESS) {
+-                    return new Verdict(DecisionResult.REJECTED,
+-                            "Request type " + requestType + " is not valid for infrastructure object " + objectUid);
+-                }
+-                break;
+-            case FINANCIER:
+-                if (requestType != RequestType.FINANCE_ACCESS && requestType != RequestType.OBJECT_ACCESS) {
+-                    return new Verdict(DecisionResult.REJECTED,
+-                            "Request type " + requestType + " is not valid for finance object " + objectUid);
+-                }
+-                break;
+-            default:
+-                // CITIZEN / ADMIN governed objects accept generic OBJECT_ACCESS.
+-                break;
++    private DecisionResult decideMedical(Identity identity, Integer contextHour) {
++        boolean isDoctor = identity != null && identity.getRoles().contains(RoleType.DOCTOR);
++        if (!isDoctor) {
++            return DecisionResult.rejected(
++                    "MEDICAL_ROLE_REQUIRED",
++                    "Доступ к медицинской карте разрешён только верифицированным врачам.",
++                    "HIGH");
++        }
++        if (identity.getTrustLevel() < minTrustMedical) {
++            return DecisionResult.rejected(
++                    "MEDICAL_TRUST_TOO_LOW",
++                    "Недостаточный уровень доверия личности для доступа к медицинским данным (требуется не менее "
++                            + minTrustMedical + ").",
++                    "HIGH");
++        }
++        if (!isWithinWorkingHours(contextHour)) {
++            return DecisionResult.rejected(
++                    "MEDICAL_OUTSIDE_HOURS",
++                    "Запрос вне рабочего окна (" + formatWindow() + "). Доступ к медицинским данным запрещён по политике.",
++                    "HIGH");
++        }
++        return DecisionResult.approved(
++                "MEDICAL_GRANTED",
++                "Личность врача подтверждена, контекст допустим. Доступ к медицинской карте разрешён.",
++                "LOW");
++    }
++
++    private DecisionResult decideInfrastructure(Identity identity, Integer contextHour) {
++        boolean isTechnician = identity != null
++                && (identity.getRoles().contains(RoleType.ENGINEER)
++                || identity.getRoles().contains(RoleType.INSPECTOR));
++        if (!isTechnician) {
++            return DecisionResult.rejected(
++                    "INFRA_ROLE_REQUIRED",
++                    "Доступ к инфраструктурному объекту разрешён только инженерам и инспекторам.",
++                    "HIGH");
+         }
+-        return null;
++        if (identity.getTrustLevel() < minTrustInfrastructure) {
++            return DecisionResult.rejected(
++                    "INFRA_TRUST_TOO_LOW",
++                    "Недостаточный уровень доверия личности для доступа к инфраструктуре (требуется не менее "
++                            + minTrustInfrastructure + ").",
++                    "HIGH");
++        }
++        if (!isWithinWorkingHours(contextHour)) {
++            return DecisionResult.rejected(
++                    "INFRA_OUTSIDE_HOURS",
++                    "Запрос вне рабочего окна (" + formatWindow() + "). Доступ к инфраструктуре запрещён по политике.",
++                    "MEDIUM");
++        }
++        return DecisionResult.approved(
++                "INFRA_GRANTED",
++                "Личность технического специалиста подтверждена, контекст допустим. Доступ разрешён.",
++                "LOW");
+     }
+ 
+     /**
+-     * Maps an object identifier's prefix to the role that governs it.
+-     * Returns null when no role matches the prefix.
++     * Report-issue requests are intentionally open: any citizen may report a
++     * broken or overfilled public object. This keeps the civic feedback loop
++     * frictionless while still routing the action through Request → Decision.
+      */
+-    private Role resolveRoleByObjectPrefix(String objectUid) {
+-        for (Role role : Role.values()) {
+-            if (objectUid.startsWith(role.getObjectPrefix())) {
+-                return role;
+-            }
+-        }
+-        return null;
++    public DecisionResult decideReport(Identity identity, ObjectCategory category) {
++        return DecisionResult.approved(
++                "REPORT_ACCEPTED",
++                "Обращение принято в обработку. Спасибо за участие.",
++                "LOW");
++    }
++
++    // ------------------------------------------------------------------
++    //  Context helpers
++    // ------------------------------------------------------------------
++
++    private boolean isWithinWorkingHours(Integer contextHour) {
++        int hour = (contextHour != null) ? Math.floorMod(contextHour, 24) : LocalTime.now().getHour();
++        return hour >= workingHoursStart && hour < workingHoursEnd;
+     }
+ 
+-    private String prefixOf(String objectUid) {
+-        int underscore = objectUid.indexOf('_');
+-        return underscore >= 0 ? objectUid.substring(0, underscore + 1) : objectUid;
++    private String formatWindow() {
++        return String.format("%02d:00–%02d:00", workingHoursStart, workingHoursEnd);
+     }
+ }
