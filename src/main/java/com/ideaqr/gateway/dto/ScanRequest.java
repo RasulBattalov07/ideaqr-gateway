@@ -4,6 +4,6 @@ import lombok.Data;
 
 @Data
 public class ScanRequest {
-    private String qrCodeId;
-    private String scannedBy;
+    private String objectUid;
+    private Integer contextHour;
 }
