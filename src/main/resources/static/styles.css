@@ -1697,3 +1697,8 @@ body {
     .page-head h2 { font-size: 21px; }
     .qr-result img { width: 180px; height: 180px; }
 }
+
+/* Исправление конфликта атрибута hidden */
+[hidden] {
+    display: none !important;
+}
