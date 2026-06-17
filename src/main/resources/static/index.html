@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0C6E8F">
+    <title>IDEAQR · Цифровой шлюз доступа</title>
+
+    <!-- Manrope (display) · Golos Text (Cyrillic UI) · JetBrains Mono (codes). System fallbacks in CSS. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <!-- Official-service banner: signals this is a state system (always visible). -->
+    <div class="gov-banner">
+        <div class="gov-banner-inner">
+            <span class="gov-flag" aria-hidden="true"></span>
+            <span class="gov-banner-text">Официальная система электронного доступа · Цифровой Казахстан</span>
+            <span class="gov-conn" id="healthPill">
+                <span class="gov-dot" id="healthDot"></span>
+                <span id="healthText">подключение…</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- App bar: shown only when signed in. Populated by app.js. -->
+    <header id="appbar" class="appbar" hidden>
+        <div class="appbar-inner">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
+                        <rect x="2" y="2" width="12" height="12" rx="2.5" fill="currentColor"/>
+                        <rect x="18" y="2" width="12" height="12" rx="2.5" fill="currentColor" opacity="0.5"/>
+                        <rect x="2" y="18" width="12" height="12" rx="2.5" fill="currentColor" opacity="0.5"/>
+                        <rect x="18" y="18" width="12" height="12" rx="2.5" fill="currentColor"/>
+                    </svg>
+                </span>
+                <div class="brand-text">
+                    <span class="brand-name">IDEAQR</span>
+                    <span class="brand-sub">Цифровой шлюз доступа</span>
+                </div>
+            </div>
+            <div id="user-chip" class="user-chip"></div>
+        </div>
+    </header>
+
+    <!-- Single mount point; views are rendered by app.js. -->
+    <main id="app" class="app-root">
+        <div class="boot">
+            <div class="boot-spinner" aria-hidden="true"></div>
+            <p>Инициализация шлюза…</p>
+        </div>
+    </main>
+
+    <!-- Camera scanner overlay (citizen terminal). -->
+    <div id="scanner-overlay" class="scanner-overlay" hidden>
+        <div class="scanner-modal" role="dialog" aria-modal="true" aria-label="Сканирование QR-кода">
+            <div class="scanner-head">
+                <h3>Сканирование QR-кода</h3>
+                <button id="scanner-close" class="icon-btn" type="button" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="reader" class="reader"></div>
+            <p class="scanner-hint">Наведите камеру на QR-код объекта</p>
+        </div>
+    </div>
+
+    <!-- Toast notifications. -->
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <!-- QR scanner library (loaded from CDN at runtime in the browser). -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="/app.js" defer></script>
+</body>
+</html>
