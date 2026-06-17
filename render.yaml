@@ -1,0 +1,39 @@
+# ============================================================
+#  IDEAQR Digital Gateway — Stage 3
+#  Render Blueprint — deploy as a Docker Web Service
+#
+#  The default datasource is file-based H2. On Render, the container
+#  filesystem is ephemeral, so a persistent disk is mounted at /app/data
+#  (where the H2 file lives) to keep accounts and created QR objects
+#  across deploys. For a managed database instead, set the `postgres`
+#  Spring profile and the SPRING_DATASOURCE_* vars (see README).
+# ============================================================
+services:
+  - type: web
+    name: ideaqr-gateway
+    runtime: docker
+    plan: starter            # disks require a paid instance; use `free` without the disk
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+      # Uncomment to use a managed Postgres instead of file-H2:
+      # - key: SPRING_PROFILES_ACTIVE
+      #   value: "postgres"
+      # - key: SPRING_DATASOURCE_URL
+      #   fromDatabase:
+      #     name: ideaqr-db
+      #     property: connectionString
+    disk:
+      name: ideaqr-data
+      mountPath: /app/data
+      sizeGB: 1
+
+# Optional managed Postgres (uncomment together with the env vars above):
+# databases:
+#   - name: ideaqr-db
+#     plan: free
+#     region: frankfurt
