@@ -631,6 +631,10 @@ a { color: var(--primary); }
 .mt-sm { margin-top: 12px; }
 .mt-md { margin-top: 20px; }
 .hidden { display: none !important; }
+/* Make the HTML `hidden` attribute authoritative: class-level `display` rules
+   (e.g. .scanner-overlay { display:grid }, .appbar) otherwise override the
+   browser's low-priority [hidden]{display:none}, leaving overlays stuck open. */
+[hidden] { display: none !important; }
 
 .fade-in { animation: fade-up 0.3s ease; }
 @keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
