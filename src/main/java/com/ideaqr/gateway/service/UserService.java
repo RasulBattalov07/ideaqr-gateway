@@ -5,6 +5,7 @@ import com.ideaqr.gateway.domain.Qr;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.domain.enums.EmploymentStatus;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
+import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.RoleType;
 import com.ideaqr.gateway.dto.CurrentUserResponse;
 import com.ideaqr.gateway.dto.RegistrationRequest;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -80,6 +82,37 @@ public class UserService {
         return user;
     }
 
+    /**
+     * Provision a guest account + guest identity (no registration). The guest can
+     * scan and view; later, on registration, the guest's history can be merged into
+     * the new primary identity via {@link GuestService}.
+     */
+    @Transactional
+    public User createGuestAccount() {
+        Identity identity = identityService.createGuestIdentity();
+        Qr primaryQr = qrService.createPrimaryQr(identity);
+        identity.setPrimaryQrUid(primaryQr.getQrUid());
+        identityService.save(identity);
+
+        String suffix = identity.getIdentityUid().toString().substring(0, 8);
+        String username = "guest-" + suffix;
+        User user = User.builder()
+                .username(username)
+                .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
+                .firstName("Гость")
+                .lastName(suffix.toUpperCase(Locale.ROOT))
+                .employmentStatus(EmploymentStatus.UNEMPLOYED)
+                .profession(PROFESSION_CITIZEN)
+                .admin(false)
+                .identityUid(identity.getIdentityUid())
+                .build();
+        user = userRepository.save(user);
+
+        auditService.record(identity.getIdentityUid(), null, HistoryEventType.GUEST_CREATED,
+                "Создан гостевой доступ «" + username + "».");
+        return user;
+    }
+
     public User findByUsername(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalStateException("Пользователь не найден: " + username));
@@ -106,6 +139,8 @@ public class UserService {
                 .identityUid(identity.getIdentityUid().toString())
                 .primaryQrUid(identity.getPrimaryQrUid() != null ? identity.getPrimaryQrUid().toString() : null)
                 .trustLevel(identity.getTrustLevel())
+                .riskScore(identity.getRiskScore())
+                .guest(identity.getIdentityType() == IdentityType.GUEST)
                 .roles(roleNames)
                 .build();
     }

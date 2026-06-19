@@ -8,5 +8,14 @@ public enum HistoryEventType {
     QR_CREATED,
     ISSUE_REPORTED,
     IDENTITY_CREATED,
-    USER_REGISTERED
+    IDENTITY_VERIFIED,
+    USER_REGISTERED,
+
+    // Scenario events (working mode, SOS, guest lifecycle, notifications).
+    WORKING_MODE_ACTIVATED,
+    WORKING_MODE_DEACTIVATED,
+    SOS_CREATED,
+    GUEST_CREATED,
+    GUEST_MERGED,
+    NOTIFICATION_CREATED
 }

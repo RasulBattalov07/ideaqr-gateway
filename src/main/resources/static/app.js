@@ -14,6 +14,8 @@
     let html5QrInstance = null;
     let adminTab = 'manage';
     let citizenTab = 'terminal';
+    let sessionInfo = null;
+    let notifList = [];
 
     const app = () => document.getElementById('app');
 
@@ -70,7 +72,14 @@
         QR_CREATED: 'QR-код создан',
         ISSUE_REPORTED: 'Обращение зарегистрировано',
         IDENTITY_CREATED: 'Личность создана',
-        USER_REGISTERED: 'Регистрация пользователя'
+        IDENTITY_VERIFIED: 'Личность подтверждена',
+        USER_REGISTERED: 'Регистрация пользователя',
+        WORKING_MODE_ACTIVATED: 'Рабочий режим включён',
+        WORKING_MODE_DEACTIVATED: 'Рабочий режим завершён',
+        SOS_CREATED: 'SOS-запрос создан',
+        GUEST_CREATED: 'Гостевой доступ создан',
+        GUEST_MERGED: 'История гостя перенесена',
+        NOTIFICATION_CREATED: 'Уведомление'
     };
 
     function eventTag(evt) {
@@ -136,6 +145,32 @@
         currentUser = null;
         document.getElementById('appbar').hidden = true;
         renderAuth();
+    }
+
+    async function doGuest() {
+        try {
+            const { ok, data } = await apiJson('/api/auth/guest', { method: 'POST', body: {} });
+            if (!ok || !data) throw new Error((data && data.message) || 'Не удалось войти как гость');
+            currentUser = data;
+            try { localStorage.setItem('ideaqr_guest_uid', data.identityUid); } catch (_) { /* ignore */ }
+            toast('Вы вошли как гость. Действия будут записаны.', 'info');
+            route();
+        } catch (err) {
+            toast(err.message, 'err');
+        }
+    }
+
+    // After a guest registers, transfer the guest history into the new identity.
+    async function maybeMergeGuest() {
+        let guestUid = null;
+        try { guestUid = localStorage.getItem('ideaqr_guest_uid'); } catch (_) { /* ignore */ }
+        if (!guestUid || !currentUser || guestUid === currentUser.identityUid) return;
+        try {
+            const { ok, data } = await apiJson('/api/v2/guest/merge',
+                { method: 'POST', body: { guestIdentityUid: guestUid } });
+            if (ok) toast((data && data.message) || 'История гостя перенесена.', 'ok');
+        } catch (_) { /* ignore */ }
+        try { localStorage.removeItem('ideaqr_guest_uid'); } catch (_) { /* ignore */ }
     }
 
     // -------------------------------------------------------------
@@ -286,6 +321,9 @@
                     <div class="field-error" id="register-error"></div>
                     <button class="btn btn-primary btn-block" id="register-submit" type="submit">Создать аккаунт</button>
                 </form>
+
+                <div class="guest-divider"><span>или</span></div>
+                <button class="btn btn-ghost btn-block" id="guest-btn" type="button">Продолжить как гость</button>
             </section>
         </div>`;
 
@@ -308,6 +346,9 @@
         }
         tabLogin.addEventListener('click', () => activate('login'));
         tabRegister.addEventListener('click', () => activate('register'));
+
+        const guestBtn = document.getElementById('guest-btn');
+        if (guestBtn) guestBtn.addEventListener('click', doGuest);
 
         const creds = [
             { role: 'Администратор торговли', login: 'admin', pass: 'Admin123!', badge: 'admin' },
@@ -377,6 +418,7 @@
                 }
                 toast('Аккаунт создан. Выполняем вход…', 'ok');
                 await doLogin(payload.username, payload.password);
+                await maybeMergeGuest();
                 route();
             } catch (err) {
                 errEl.textContent = err.message;
@@ -679,7 +721,27 @@
                     <span class="idp-v">${esc(currentUser.trustLevel)} / 100</span></div>
                 <div class="id-pill"><span class="idp-k">Роли</span>
                     <span class="idp-v">${esc((currentUser.roles || []).join(', '))}</span></div>
+                <div class="id-pill"><span class="idp-k">Риск</span>
+                    <span class="idp-v">${esc(currentUser.riskScore || 'NORMAL')}</span></div>
             </div>
+
+            ${currentUser.guest ? `<div class="guest-banner">
+                <span>Вы вошли как <strong>гость</strong>. Действия записываются. Зарегистрируйтесь, чтобы сохранить историю.</span>
+                <button class="btn btn-ghost btn-sm" id="guest-register-btn" type="button">Зарегистрироваться</button>
+            </div>` : ''}
+
+            <div class="context-bar">
+                <div class="cb-mode">
+                    <span class="cb-label">Режим:</span>
+                    <span id="cb-mode-badge" class="cb-badge personal">Личный режим</span>
+                </div>
+                <div class="cb-actions">
+                    <button id="cb-mode-toggle" class="btn btn-ghost btn-sm" type="button">Перейти в рабочий режим</button>
+                    <button id="cb-sos" class="btn btn-danger btn-sm" type="button">🆘 SOS</button>
+                    <button id="cb-notif" class="btn btn-ghost btn-sm" type="button">🔔 Уведомления<span id="cb-notif-count" class="cb-count" hidden>0</span></button>
+                </div>
+            </div>
+            <div id="cb-notif-panel" class="cb-notif-panel" hidden></div>
 
             <div class="view-nav">
                 <button data-tab="terminal" type="button">Терминал</button>
@@ -694,8 +756,125 @@
             b.addEventListener('click', () => { citizenTab = b.dataset.tab; renderCitizen(); });
         });
 
+        wireContextBar();
+        loadCitizenContext();
+
         if (citizenTab === 'terminal') renderCitizenTerminal();
         else renderCitizenAudit();
+    }
+
+    // ---- Citizen context: working mode, SOS, notifications ----
+    async function loadCitizenContext() {
+        try {
+            const { ok, data } = await apiJson('/api/v2/session');
+            if (ok && data) { sessionInfo = data; renderModeBar(); }
+        } catch (_) { /* ignore */ }
+        refreshNotifications();
+    }
+
+    function renderModeBar() {
+        const badge = document.getElementById('cb-mode-badge');
+        const toggle = document.getElementById('cb-mode-toggle');
+        if (!badge || !toggle || !sessionInfo) return;
+        const working = sessionInfo.mode === 'WORKING';
+        badge.textContent = working
+            ? 'Рабочий · ' + (sessionInfo.activeOrganizationName || '')
+            : 'Личный режим';
+        badge.className = 'cb-badge ' + (working ? 'working' : 'personal');
+        const orgs = sessionInfo.organizations || [];
+        if (working) { toggle.textContent = 'Завершить рабочий режим'; toggle.disabled = false; }
+        else if (orgs.length === 0) { toggle.textContent = 'Рабочий режим недоступен'; toggle.disabled = true; }
+        else { toggle.textContent = 'Перейти в рабочий режим'; toggle.disabled = false; }
+    }
+
+    async function toggleWorkingMode() {
+        if (!sessionInfo) return;
+        try {
+            if (sessionInfo.mode === 'WORKING') {
+                const { ok, data } = await apiJson('/api/v2/mode/personal', { method: 'POST', body: {} });
+                if (ok) { sessionInfo = data; toast('Рабочий режим завершён.', 'info'); }
+            } else {
+                const orgs = sessionInfo.organizations || [];
+                let orgUid = orgs.length ? orgs[0].organizationUid : null;
+                if (orgs.length > 1) {
+                    const names = orgs.map((o, i) => `${i + 1}. ${o.name} (${o.role})`).join('\n');
+                    const choice = window.prompt('Выберите организацию:\n' + names, '1');
+                    if (choice === null) return;
+                    const picked = orgs[parseInt(choice, 10) - 1];
+                    if (!picked) { toast('Организация не выбрана.', 'err'); return; }
+                    orgUid = picked.organizationUid;
+                }
+                const { ok, data } = await apiJson('/api/v2/mode/work',
+                    { method: 'POST', body: orgUid ? { organizationUid: orgUid } : {} });
+                if (ok) { sessionInfo = data; toast('Рабочий режим активирован.', 'ok'); }
+                else { toast((data && data.message) || 'Не удалось включить рабочий режим.', 'err'); }
+            }
+            renderModeBar();
+            refreshNotifications();
+        } catch (_) { toast('Ошибка переключения режима.', 'err'); }
+    }
+
+    async function sendSOS() {
+        if (!window.confirm('Отправить SOS-сигнал? Будет создан приоритетный запрос.')) return;
+        try {
+            const { ok, data } = await apiJson('/api/v2/sos',
+                { method: 'POST', body: { message: 'SOS из терминала' } });
+            if (ok && data) {
+                toast('SOS-запрос зарегистрирован и эскалирован.', 'ok');
+                const slot = document.getElementById('scan-result');
+                if (slot) {
+                    slot.innerHTML = `${verdictHtml('APPROVED', data.reason, data.riskLevel)}<div class="pipeline" id="sos-pipeline"></div>`;
+                    animatePipeline(document.getElementById('sos-pipeline'), data, 'APPROVED');
+                }
+                refreshNotifications();
+            } else {
+                toast((data && data.message) || 'Не удалось отправить SOS.', 'err');
+            }
+        } catch (_) { toast('Ошибка отправки SOS.', 'err'); }
+    }
+
+    async function refreshNotifications() {
+        try {
+            const { ok, data } = await apiJson('/api/v2/notifications');
+            if (!ok || !Array.isArray(data)) return;
+            notifList = data;
+            const unread = data.filter(n => n.status === 'NEW').length;
+            const c = document.getElementById('cb-notif-count');
+            if (c) { c.textContent = unread; c.hidden = unread === 0; }
+            renderNotifPanel();
+        } catch (_) { /* ignore */ }
+    }
+
+    function renderNotifPanel() {
+        const panel = document.getElementById('cb-notif-panel');
+        if (!panel) return;
+        if (!notifList.length) { panel.innerHTML = '<div class="np-empty">Уведомлений нет.</div>'; return; }
+        panel.innerHTML = notifList.map(n => `
+            <div class="np-item ${n.status === 'NEW' ? 'unread' : ''}" data-id="${esc(n.notificationUid)}">
+                <div class="np-title">${esc(n.title)}</div>
+                <div class="np-meta">${esc(n.createdAt || '')}</div>
+            </div>`).join('');
+        panel.querySelectorAll('.np-item').forEach(el => {
+            el.addEventListener('click', async () => {
+                const id = el.getAttribute('data-id');
+                try { await apiJson(`/api/v2/notifications/${id}/read`, { method: 'POST', body: {} }); } catch (_) { /* ignore */ }
+                refreshNotifications();
+            });
+        });
+    }
+
+    function wireContextBar() {
+        const toggle = document.getElementById('cb-mode-toggle');
+        if (toggle) toggle.addEventListener('click', toggleWorkingMode);
+        const sos = document.getElementById('cb-sos');
+        if (sos) sos.addEventListener('click', sendSOS);
+        const notif = document.getElementById('cb-notif');
+        if (notif) notif.addEventListener('click', () => {
+            const panel = document.getElementById('cb-notif-panel');
+            if (panel) panel.hidden = !panel.hidden;
+        });
+        const guestReg = document.getElementById('guest-register-btn');
+        if (guestReg) guestReg.addEventListener('click', doLogout);
     }
 
     function renderCitizenTerminal() {

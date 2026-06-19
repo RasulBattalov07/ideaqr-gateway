@@ -7,5 +7,9 @@ public enum RequestType {
     /** Creation and governance of a new QR-identified object (admin panel). */
     QR_CREATION,
     /** A citizen reporting an issue against an infrastructure object. */
-    REPORT_ISSUE
+    REPORT_ISSUE,
+    /** An emergency / SOS request (escalated priority). */
+    SOS,
+    /** Activating or ending working mode (a governed session change). */
+    WORKING_MODE
 }

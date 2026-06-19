@@ -59,6 +59,11 @@ public class Identity {
     @Column(name = "trust_level", nullable = false)
     private int trustLevel;
 
+    /** Identity-level risk score per the brief: NORMAL | MEDIUM | HIGH. */
+    @Column(name = "risk_score", length = 20)
+    @Builder.Default
+    private String riskScore = "NORMAL";
+
     /** UUID of this identity's permanent primary QR (a {@code Qr} of type PRIMARY). */
     @Column(name = "primary_qr_uid")
     private UUID primaryQrUid;

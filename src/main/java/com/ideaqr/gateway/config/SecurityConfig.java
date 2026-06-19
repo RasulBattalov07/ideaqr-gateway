@@ -54,7 +54,7 @@ public class SecurityConfig {
                                 "/", "/index.html", "/styles.css", "/app.js",
                                 "/favicon.ico", "/assets/**", "/error").permitAll()
                         // Public endpoints.
-                        .requestMatchers("/api/health", "/api/auth/register").permitAll()
+                        .requestMatchers("/api/health", "/api/auth/register", "/api/auth/guest").permitAll()
                         .requestMatchers("/login", "/logout").permitAll()
                         // H2 console (demo only).
                         .requestMatchers("/h2-console/**").permitAll()

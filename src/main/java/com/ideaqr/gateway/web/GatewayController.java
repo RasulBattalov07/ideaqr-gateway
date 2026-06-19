@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * The citizen / specialist terminal API. Every scan and report is driven through
  * the governance pipeline; the response carries the verdict, the localized
@@ -39,5 +41,14 @@ public class GatewayController {
                                                   Authentication authentication) {
         Identity identity = authSupport.requireIdentity(authentication);
         return ResponseEntity.ok(gatewayService.report(identity, request));
+    }
+
+    @PostMapping("/sos")
+    public ResponseEntity<GatewayResponse> sos(@RequestBody(required = false) Map<String, String> body,
+                                               Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        String objectUid = body != null ? body.get("objectUid") : null;
+        String message = body != null ? body.get("message") : null;
+        return ResponseEntity.ok(gatewayService.sos(identity, objectUid, message));
     }
 }

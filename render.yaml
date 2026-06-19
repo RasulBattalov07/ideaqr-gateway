@@ -20,13 +20,17 @@ services:
     envVars:
       - key: JAVA_OPTS
         value: "-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
-      # Uncomment to use a managed Postgres instead of file-H2:
+      # Uncomment to use a managed Postgres instead of file-H2. The `postgres`
+      # profile reads DATABASE_URL / DB_USERNAME / DB_PASSWORD (see
+      # application-postgres.properties). DATABASE_URL must be a JDBC URL.
       # - key: SPRING_PROFILES_ACTIVE
       #   value: "postgres"
-      # - key: SPRING_DATASOURCE_URL
-      #   fromDatabase:
-      #     name: ideaqr-db
-      #     property: connectionString
+      # - key: DATABASE_URL
+      #   value: "jdbc:postgresql://<host>:5432/<db>"
+      # - key: DB_USERNAME
+      #   value: "<user>"
+      # - key: DB_PASSWORD
+      #   value: "<password>"
     disk:
       name: ideaqr-data
       mountPath: /app/data

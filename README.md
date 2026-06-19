@@ -252,6 +252,26 @@ src/main/resources
 
 ---
 
+## Scenario features (Stage 4)
+
+On top of the governed scan pipeline, the prototype implements the scenario brief:
+
+- **Working mode & sessions** — switch between personal and working context for an
+  organization you belong to (identity and primary QR never change); recorded as an
+  event with a notification (`/api/v2/mode/work`, `/api/v2/mode/personal`, `/api/v2/session`).
+- **Organizations & memberships** — seeded organizations linked to identities; working
+  mode requires a membership.
+- **SOS** — an escalated, high-priority request (`/api/v2/sos`), written to the journal
+  with a CRITICAL risk level and a notification.
+- **Notification center** — in-app notifications on decisions, SOS and mode changes
+  (`/api/v2/notifications`, statuses NEW / READ / ARCHIVED).
+- **Identity risk score** — NORMAL / MEDIUM / HIGH, surfaced in the profile.
+- **Guest identities + merge** — enter without registration (`/api/auth/guest`); on
+  registration the guest's whole history is re-pointed into the new identity, losing
+  nothing (`/api/v2/guest/merge`).
+- **Scaffolding** — a `Workflow` entity links to requests for future multi-step approval;
+  the policy checks (role / trust / working-hours / object type) live in `ValidationService`.
+
 ## API reference
 
 | Method | Path                     | Auth        | Purpose                              |
@@ -264,6 +284,14 @@ src/main/resources
 | POST   | `/api/v2/report`         | session     | File a governed issue report         |
 | GET    | `/api/v2/audit`          | session     | Read the global immutable journal    |
 | GET    | `/api/v2/audit/me`       | session     | Read the caller's own journal        |
+| POST   | `/api/v2/sos`            | session     | Raise an escalated SOS request       |
+| POST   | `/api/v2/mode/work`      | session     | Enter working mode (organization)    |
+| POST   | `/api/v2/mode/personal`  | session     | Return to personal mode              |
+| GET    | `/api/v2/session`        | session     | Current session context + orgs       |
+| GET    | `/api/v2/notifications`  | session     | List the caller's notifications      |
+| POST   | `/api/v2/notifications/{id}/read` | session | Mark a notification read        |
+| POST   | `/api/auth/guest`        | public      | Start a guest session                |
+| POST   | `/api/v2/guest/merge`    | session     | Merge a guest's history into account |
 | POST   | `/api/admin/qr/create`   | ROLE_ADMIN  | Mint a governed object + QR          |
 | GET    | `/api/admin/qr/list`     | ROLE_ADMIN  | List created objects                 |
 | GET    | `/api/health`            | public      | Liveness                             |

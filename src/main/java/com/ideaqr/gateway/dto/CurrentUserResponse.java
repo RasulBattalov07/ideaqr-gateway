@@ -30,6 +30,12 @@ public class CurrentUserResponse {
     private String primaryQrUid;
     private int trustLevel;
 
+    /** Identity-level risk score (NORMAL | MEDIUM | HIGH). */
+    private String riskScore;
+
+    /** True when this is a guest (unregistered) identity. */
+    private boolean guest;
+
     /** Business roles held by the identity (e.g. DOCTOR, CITIZEN). */
     private Set<String> roles;
 }
