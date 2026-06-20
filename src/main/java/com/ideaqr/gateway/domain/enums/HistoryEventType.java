@@ -23,5 +23,11 @@ public enum HistoryEventType {
     PROFILE_ACCESS_REQUESTED,
     PROFILE_ACCESS_CONFIRMED,
     PROFILE_ACCESS_REJECTED,
-    COMPLAINT_CREATED
+    COMPLAINT_CREATED,
+
+    // Object lifecycle transitions (OBJECT LIFECYCLE requirement) — appended so the
+    // object's full change-history is preserved and never deleted.
+    OBJECT_MODIFIED,
+    OBJECT_ARCHIVED,
+    OBJECT_TRANSFERRED
 }

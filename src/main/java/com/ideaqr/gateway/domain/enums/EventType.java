@@ -25,5 +25,14 @@ public enum EventType {
     WORKING_MODE_ACTIVATED,
     WORKING_MODE_DEACTIVATED,
     COMPLAINT_CREATED,
-    GUEST_MERGED
+    GUEST_MERGED,
+
+    // Object lifecycle + service events (EVENT ENGINE requirement). These let any
+    // module — goods, services, medicine, infrastructure, transport — record the
+    // same machine-readable facts without inventing its own event stream.
+    SERVICE_STARTED,
+    SERVICE_COMPLETED,
+    OBJECT_TRANSFERRED,
+    OBJECT_MODIFIED,
+    OBJECT_ARCHIVED
 }

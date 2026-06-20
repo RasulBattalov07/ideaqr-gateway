@@ -1,6 +1,7 @@
 package com.ideaqr.gateway.domain;
 
 import com.ideaqr.gateway.domain.enums.ObjectCategory;
+import com.ideaqr.gateway.domain.enums.ObjectStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -58,8 +59,29 @@ public class RegistryObject {
     @Column(name = "qr_uid")
     private UUID qrUid;
 
+    /**
+     * Lifecycle status (OBJECT LIFECYCLE requirement). Defaults to {@code ACTIVE}
+     * on creation; transitions are driven through the governance pipeline and
+     * recorded in History so the object's change-history is never lost.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private ObjectStatus status;
+
+    /**
+     * Trust Score (0–100) of the object itself — the brief states the score
+     * "относится к Identity или Object". Recomputed as the object accumulates
+     * interactions, confirmations and complaints.
+     */
+    @Column(name = "trust_score")
+    private Integer trustScore;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    /** Last lifecycle/data change — part of the object's digital continuity. */
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     @PrePersist
     void onCreate() {
@@ -68,6 +90,15 @@ public class RegistryObject {
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (status == null) {
+            status = ObjectStatus.ACTIVE;
+        }
+        if (trustScore == null) {
+            trustScore = 50;
+        }
+        if (updatedAt == null) {
+            updatedAt = createdAt;
         }
     }
 }

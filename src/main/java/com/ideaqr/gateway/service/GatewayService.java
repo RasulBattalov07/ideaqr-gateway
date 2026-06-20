@@ -56,6 +56,7 @@ public class GatewayService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final WorkflowRepository workflowRepository;
+    private final TrustScoreService trustScoreService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -116,6 +117,10 @@ public class GatewayService {
         eventService.record(evt, identity.getIdentityUid(), objectUid, interaction.getInteractionUid(),
                 "Скан объекта " + objectUid + " → " + verdict.outcome().name());
 
+        // Final pipeline stage (… → History → Trust Score): recompute the acting
+        // identity's score so the MVP demo can show it being recalculated live.
+        int trustScore = trustScoreService.refresh(identity);
+
         return GatewayResponse.builder()
                 .success(approved)
                 .outcome(verdict.outcome().name())
@@ -129,6 +134,7 @@ public class GatewayService {
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
                 .historyUid(history.getHistoryUid().toString())
+                .trustScore(trustScore)
                 .build();
     }
 
@@ -373,6 +379,9 @@ public class GatewayService {
         notificationService.notify(interaction.getIdentityUid(), "ACCESS_RESULT",
                 "Доступ к профилю «" + displayName(owner.getIdentityUid()) + "» подтверждён.");
 
+        // Confirming is a successful interaction → recompute the owner's Trust Score.
+        int trustScore = trustScoreService.refresh(owner);
+
         return GatewayResponse.builder()
                 .success(true)
                 .outcome(DecisionOutcome.APPROVED.name())
@@ -386,6 +395,7 @@ public class GatewayService {
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
                 .historyUid(history.getHistoryUid().toString())
+                .trustScore(trustScore)
                 .build();
     }
 

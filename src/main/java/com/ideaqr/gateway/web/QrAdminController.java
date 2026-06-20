@@ -55,6 +55,8 @@ public class QrAdminController {
             m.put("objectUid", obj.getObjectUid());
             m.put("displayName", obj.getDisplayName());
             m.put("category", obj.getCategory().name());
+            m.put("status", obj.getStatus() != null ? obj.getStatus().name() : null);
+            m.put("trustScore", obj.getTrustScore());
             m.put("qrUid", obj.getQrUid() != null ? obj.getQrUid().toString() : null);
             m.put("createdAt", obj.getCreatedAt() != null ? obj.getCreatedAt().format(TS) : null);
             m.put("qrImageDataUri", qrService.regenerateImageFor(obj.getObjectUid()));

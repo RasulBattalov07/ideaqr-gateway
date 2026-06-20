@@ -11,5 +11,7 @@ public enum RequestType {
     /** An emergency / SOS request (escalated priority). */
     SOS,
     /** Activating or ending working mode (a governed session change). */
-    WORKING_MODE
+    WORKING_MODE,
+    /** A lifecycle transition of an object (modify / archive / activate). */
+    OBJECT_LIFECYCLE
 }

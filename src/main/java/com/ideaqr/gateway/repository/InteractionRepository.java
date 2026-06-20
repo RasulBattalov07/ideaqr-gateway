@@ -23,4 +23,7 @@ public interface InteractionRepository extends JpaRepository<Interaction, UUID> 
     long countByIdentityUidAndStatus(UUID identityUid, InteractionStatus status);
 
     long countByInteractionType(String interactionType);
+
+    /** Interactions referencing a given object — feeds the object's Trust Score. */
+    long countByObjectUid(String objectUid);
 }

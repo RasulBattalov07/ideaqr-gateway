@@ -38,4 +38,11 @@ public class GatewayResponse {
     private String decisionUid;
     private String interactionUid;
     private String historyUid;
+
+    /**
+     * Trust Score (0–100) of the acting identity, recomputed as the final stage of
+     * the pipeline (… → History → <b>Trust Score</b>). Lets the demo show the score
+     * being recalculated on every governed interaction.
+     */
+    private Integer trustScore;
 }
