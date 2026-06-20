@@ -36,6 +36,7 @@ public class UserService {
     private final IdentityService identityService;
     private final QrService qrService;
     private final AuditService auditService;
+    private final TrustScoreService trustScoreService;
     private final PasswordEncoder passwordEncoder;
 
     // --- Profession keys -------------------------------------------------
@@ -43,6 +44,9 @@ public class UserService {
     public static final String PROFESSION_RETAIL_ADMIN = "RETAIL_ADMIN";
     public static final String PROFESSION_INSPECTOR = "INSPECTOR";
     public static final String PROFESSION_CITIZEN = "CITIZEN";
+    public static final String PROFESSION_PHARMACIST = "PHARMACIST";
+    public static final String PROFESSION_SELLER = "SELLER";
+    public static final String PROFESSION_SERVICE_OPERATOR = "SERVICE_OPERATOR";
 
     @Transactional
     public User register(RegistrationRequest request) {
@@ -51,7 +55,13 @@ public class UserService {
             throw new UsernameAlreadyExistsException("Имя пользователя «" + username + "» уже занято.");
         }
 
+        EmploymentStatus employment = parseEmployment(request.getEmploymentStatus());
         String professionKey = normalizeProfession(request.getProfession());
+        // Customer rule: an UNEMPLOYED person cannot hold a profession. Even if the
+        // client sends one, the server forces CITIZEN — never trust the client.
+        if (employment == EmploymentStatus.UNEMPLOYED) {
+            professionKey = PROFESSION_CITIZEN;
+        }
         ProfessionProfile profile = profileFor(professionKey);
 
         // 1. Provision the linked identity (Stage 2 layer).
@@ -68,7 +78,7 @@ public class UserService {
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .firstName(request.getFirstName().trim())
                 .lastName(request.getLastName().trim())
-                .employmentStatus(parseEmployment(request.getEmploymentStatus()))
+                .employmentStatus(employment)
                 .profession(professionKey)
                 .admin(profile.admin())
                 .identityUid(identity.getIdentityUid())
@@ -127,6 +137,7 @@ public class UserService {
         Set<String> roleNames = identity.getRoles().stream()
                 .map(Enum::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        int trustScore = trustScoreService.refresh(identity);
         return CurrentUserResponse.builder()
                 .authenticated(true)
                 .username(user.getUsername())
@@ -139,6 +150,7 @@ public class UserService {
                 .identityUid(identity.getIdentityUid().toString())
                 .primaryQrUid(identity.getPrimaryQrUid() != null ? identity.getPrimaryQrUid().toString() : null)
                 .trustLevel(identity.getTrustLevel())
+                .trustScore(trustScore)
                 .riskScore(identity.getRiskScore())
                 .guest(identity.getIdentityType() == IdentityType.GUEST)
                 .roles(roleNames)
@@ -164,6 +176,15 @@ public class UserService {
             case PROFESSION_INSPECTOR -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.INSPECTOR, RoleType.ENGINEER, RoleType.CITIZEN)),
                     IdentityService.TRUST_VERIFIED, false);
+            case PROFESSION_PHARMACIST -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.PHARMACIST, RoleType.CITIZEN)),
+                    IdentityService.TRUST_SPECIALIST, false);
+            case PROFESSION_SELLER -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.SELLER, RoleType.CITIZEN)),
+                    IdentityService.TRUST_CITIZEN, false);
+            case PROFESSION_SERVICE_OPERATOR -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.SERVICE_OPERATOR, RoleType.CITIZEN)),
+                    IdentityService.TRUST_CITIZEN, false);
             default -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.CITIZEN)),
                     IdentityService.TRUST_CITIZEN, false);
@@ -175,6 +196,9 @@ public class UserService {
             case PROFESSION_DOCTOR -> "Врач";
             case PROFESSION_RETAIL_ADMIN -> "Администратор торговли";
             case PROFESSION_INSPECTOR -> "Инспектор инфраструктуры";
+            case PROFESSION_PHARMACIST -> "Фармацевт";
+            case PROFESSION_SELLER -> "Продавец";
+            case PROFESSION_SERVICE_OPERATOR -> "Оператор услуг";
             case PROFESSION_CITIZEN -> "Гражданин";
             default -> "Гражданин";
         };
@@ -186,7 +210,9 @@ public class UserService {
         }
         String key = raw.trim().toUpperCase(Locale.ROOT);
         return switch (key) {
-            case PROFESSION_DOCTOR, PROFESSION_RETAIL_ADMIN, PROFESSION_INSPECTOR, PROFESSION_CITIZEN -> key;
+            case PROFESSION_DOCTOR, PROFESSION_RETAIL_ADMIN, PROFESSION_INSPECTOR,
+                 PROFESSION_PHARMACIST, PROFESSION_SELLER, PROFESSION_SERVICE_OPERATOR,
+                 PROFESSION_CITIZEN -> key;
             default -> PROFESSION_CITIZEN;
         };
     }

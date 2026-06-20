@@ -4,6 +4,7 @@ import com.ideaqr.gateway.domain.Organization;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.dto.RegistrationRequest;
 import com.ideaqr.gateway.repository.UserRepository;
+import com.ideaqr.gateway.service.ModuleService;
 import com.ideaqr.gateway.service.OrganizationService;
 import com.ideaqr.gateway.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -26,9 +27,17 @@ public class DataSeeder implements CommandLineRunner {
     private final UserRepository userRepository;
     private final UserService userService;
     private final OrganizationService organizationService;
+    private final ModuleService moduleService;
 
     @Override
     public void run(String... args) {
+        // Base MVP modules (spheres of interaction shown in the admin panel).
+        moduleService.ensureModule("USERS", "Пользователи", "Цифровые личности и их основные QR.");
+        moduleService.ensureModule("SERVICES", "Услуги и быт", "Бытовые услуги по заявке (Request → Decision → Interaction).");
+        moduleService.ensureModule("GOODS", "Товары", "Карточки товаров, происхождение, цены и отзывы.");
+        moduleService.ensureModule("MEDICINE", "Медицина", "Медицинские услуги и доступ к карте по разрешению.");
+        moduleService.ensureModule("INFRASTRUCTURE", "Инфраструктура", "Объекты инфраструктуры и доступ по политикам.");
+
         Organization hospital = organizationService.ensureOrganization("Городская больница", "MEDICAL");
         Organization grid = organizationService.ensureOrganization("АО «Астана-РЭК»", "INFRASTRUCTURE");
         Organization retail = organizationService.ensureOrganization("IDEAQR Retail", "RETAIL");

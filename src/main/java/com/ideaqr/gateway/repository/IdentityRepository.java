@@ -10,4 +10,6 @@ import java.util.UUID;
 public interface IdentityRepository extends JpaRepository<Identity, UUID> {
 
     List<Identity> findByIdentityType(IdentityType identityType);
+
+    long countByIdentityType(IdentityType identityType);
 }

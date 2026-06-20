@@ -17,5 +17,11 @@ public enum RoleType {
     RETAIL_ADMIN,
     OBJECT_OWNER,
     ORG_STAFF,
-    ADMIN
+    ADMIN,
+
+    // Specialised roles (minimal-access principle): each sees only what its
+    // function needs once the data owner has granted access.
+    PHARMACIST,       // prescriptions and appointments only — not the full medical card
+    SELLER,           // order / delivery data only
+    SERVICE_OPERATOR  // client service requests only
 }

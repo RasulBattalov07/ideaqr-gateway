@@ -1,5 +1,6 @@
 package com.ideaqr.gateway.domain;
 
+import com.ideaqr.gateway.domain.enums.InteractionStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,9 +37,23 @@ public class Interaction {
     @Column(name = "object_uid", length = 120)
     private String objectUid;
 
-    /** Type of interaction, e.g. SCAN, QR_CREATION, REPORT. */
+    /**
+     * For person-to-person scans: the identity whose primary QR was scanned (the
+     * "scanned" side). Lets a user see "who scanned me" without exposing the full
+     * audit. Null for object scans.
+     */
+    @Column(name = "target_identity_uid")
+    private UUID targetIdentityUid;
+
+    /** Type of interaction, e.g. SCAN, QR_CREATION, REPORT, PROFILE_SCAN. */
     @Column(name = "interaction_type", nullable = false, length = 40)
     private String interactionType;
+
+    /** Lifecycle: public scans are CONFIRMED; profile access starts PENDING. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 20)
+    @Builder.Default
+    private InteractionStatus status = InteractionStatus.CONFIRMED;
 
     @Column(name = "detail", length = 400)
     private String detail;

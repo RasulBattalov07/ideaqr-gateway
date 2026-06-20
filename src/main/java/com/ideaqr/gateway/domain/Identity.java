@@ -64,6 +64,15 @@ public class Identity {
     @Builder.Default
     private String riskScore = "NORMAL";
 
+    /**
+     * Trust Score (0–100) per the brief. Belongs to the Identity, not the account.
+     * Recomputed from interactions, confirmations, successful events and complaints
+     * by {@code TrustScoreService}; this column holds the last computed value.
+     */
+    @Column(name = "trust_score")
+    @Builder.Default
+    private Integer trustScore = 50;
+
     /** UUID of this identity's permanent primary QR (a {@code Qr} of type PRIMARY). */
     @Column(name = "primary_qr_uid")
     private UUID primaryQrUid;

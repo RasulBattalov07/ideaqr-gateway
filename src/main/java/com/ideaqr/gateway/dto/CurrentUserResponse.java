@@ -30,6 +30,9 @@ public class CurrentUserResponse {
     private String primaryQrUid;
     private int trustLevel;
 
+    /** Trust Score (0–100) belonging to the identity. */
+    private int trustScore;
+
     /** Identity-level risk score (NORMAL | MEDIUM | HIGH). */
     private String riskScore;
 

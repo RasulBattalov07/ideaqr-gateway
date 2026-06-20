@@ -17,5 +17,11 @@ public enum HistoryEventType {
     SOS_CREATED,
     GUEST_CREATED,
     GUEST_MERGED,
-    NOTIFICATION_CREATED
+    NOTIFICATION_CREATED,
+
+    // Person-to-person profile access + complaints.
+    PROFILE_ACCESS_REQUESTED,
+    PROFILE_ACCESS_CONFIRMED,
+    PROFILE_ACCESS_REJECTED,
+    COMPLAINT_CREATED
 }

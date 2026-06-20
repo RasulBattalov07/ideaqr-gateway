@@ -704,3 +704,83 @@ a { color: var(--primary); }
 }
 .guest-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: #9AAABB; font-size: 12.5px; }
 .guest-divider::before, .guest-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* ===================================================================
+   Stage 4 additions — registration hint, My QR, history, complaints,
+   admin statistics / analytics / modules, access requests
+   =================================================================== */
+
+/* Registration: profession hint when unemployed */
+.field-hint { font-size: 12px; color: var(--review); margin-top: 6px; }
+
+/* Incoming access requests ("Подтвердить доступ") */
+.access-requests:not(:empty) {
+    background: var(--primary-softer); border: 1px solid var(--primary-soft);
+    border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 14px;
+}
+.access-head { font-weight: 700; color: var(--ink); font-size: 13.5px; margin-bottom: 8px; }
+.access-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 8px 0; border-top: 1px solid var(--line-soft);
+}
+.access-meta { display: flex; flex-direction: column; }
+.access-meta span { font-size: 11.5px; color: var(--muted); }
+.access-actions { display: flex; gap: 8px; }
+
+/* My QR card + demonstration page */
+.myqr-card { max-width: 480px; margin: 0 auto; }
+.myqr-body { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.myqr-avatar {
+    width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 22px;
+    font-family: var(--font-display); margin-bottom: 10px;
+}
+.myqr-name { font-size: 18px; font-weight: 700; color: var(--ink); font-family: var(--font-display); }
+.myqr-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+.myqr-img { width: 240px; height: 240px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px; background: #fff; }
+.myqr-card .qr-uid { margin: 10px 0 14px; }
+
+.qr-demo-overlay {
+    position: fixed; inset: 0; z-index: 1000; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+}
+.qr-demo-overlay[hidden] { display: none; }
+.qr-demo-inner { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px; }
+.qr-demo-img { width: min(78vw, 420px); height: min(78vw, 420px); }
+.qr-demo-name { font-size: 26px; font-weight: 800; color: var(--ink); font-family: var(--font-display); }
+.qr-demo-back { font-size: 15px; }
+
+/* Statistics / analytics cards */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat-card {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 16px; text-align: center;
+}
+.stat-ico { font-size: 22px; margin-bottom: 6px; }
+.stat-val { font-size: 26px; font-weight: 800; color: var(--primary); font-family: var(--font-display); }
+.stat-label { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* Modules */
+.module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.module-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px; }
+.module-card.off { opacity: .62; }
+.mc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mc-name { font-weight: 700; color: var(--ink); }
+.mc-status { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.mc-status.on { background: var(--ok-soft); color: var(--ok); }
+.mc-status.off { background: var(--reject-soft); color: var(--reject); }
+.mc-code { font-size: 11.5px; color: var(--muted); margin-bottom: 8px; }
+.mc-desc { font-size: 12.5px; color: var(--text); margin-bottom: 12px; min-height: 34px; }
+
+/* Complaints */
+.cmp-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px; background: var(--surface-2); }
+.cmp-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cmp-subject { font-weight: 700; color: var(--ink); }
+.cmp-status { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text); }
+.cmp-status.s-new { background: var(--primary-soft); color: var(--primary); }
+.cmp-status.s-in_progress { background: var(--review-soft); color: var(--review); }
+.cmp-status.s-resolved { background: var(--ok-soft); color: var(--ok); }
+.cmp-status.s-rejected { background: var(--reject-soft); color: var(--reject); }
+.cmp-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.cmp-desc { font-size: 13px; color: var(--text); margin-top: 6px; }
+.cmp-status-sel { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12.5px; }

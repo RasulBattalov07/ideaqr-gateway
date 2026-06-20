@@ -16,6 +16,7 @@
     let citizenTab = 'terminal';
     let sessionInfo = null;
     let notifList = [];
+    let complaintPrefill = null;   // interactionUid pre-selected when filing from history
 
     const app = () => document.getElementById('app');
 
@@ -313,9 +314,15 @@
                             <select id="re-profession">
                                 <option value="CITIZEN">Гражданин</option>
                                 <option value="DOCTOR">Врач</option>
+                                <option value="PHARMACIST">Фармацевт</option>
                                 <option value="RETAIL_ADMIN">Администратор торговли</option>
+                                <option value="SELLER">Продавец</option>
+                                <option value="SERVICE_OPERATOR">Оператор услуг</option>
                                 <option value="INSPECTOR">Инспектор инфраструктуры</option>
                             </select>
+                            <div class="field-hint" id="re-profession-hint" hidden>
+                                Профессия доступна только трудоустроенным. Без трудоустройства — «Гражданин».
+                            </div>
                         </div>
                     </div>
                     <div class="field-error" id="register-error"></div>
@@ -349,6 +356,26 @@
 
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
+
+        // Customer rule: an unemployed person cannot choose a profession.
+        // Lock the select to "Гражданин" while "Не трудоустроен(а)" is selected.
+        const employmentSel = document.getElementById('re-employment');
+        const professionSel = document.getElementById('re-profession');
+        const professionHint = document.getElementById('re-profession-hint');
+        function syncProfessionLock() {
+            const unemployed = employmentSel.value === 'UNEMPLOYED';
+            if (unemployed) {
+                professionSel.value = 'CITIZEN';
+                professionSel.disabled = true;
+            } else {
+                professionSel.disabled = false;
+            }
+            if (professionHint) professionHint.hidden = !unemployed;
+        }
+        if (employmentSel && professionSel) {
+            employmentSel.addEventListener('change', syncProfessionLock);
+            syncProfessionLock();
+        }
 
         const creds = [
             { role: 'Администратор торговли', login: 'admin', pass: 'Admin123!', badge: 'admin' },
@@ -442,7 +469,12 @@
             </div>
             <div class="view-nav">
                 <button data-tab="manage" type="button">Управление</button>
-                <button data-tab="audit" type="button">Журнал системы</button>
+                <button data-tab="users" type="button">Пользователи</button>
+                <button data-tab="stats" type="button">Статистика</button>
+                <button data-tab="analytics" type="button">Аналитика</button>
+                <button data-tab="complaints" type="button">Жалобы</button>
+                <button data-tab="modules" type="button">Модули</button>
+                <button data-tab="audit" type="button">Аудит</button>
             </div>
             <div id="admin-body"></div>
         </div>`;
@@ -453,8 +485,15 @@
             b.addEventListener('click', () => { adminTab = b.dataset.tab; renderAdmin(); });
         });
 
-        if (adminTab === 'manage') renderAdminManage();
-        else renderAdminAudit();
+        switch (adminTab) {
+            case 'users': renderAdminUsers(); break;
+            case 'stats': renderAdminStats(); break;
+            case 'analytics': renderAdminAnalytics(); break;
+            case 'complaints': renderAdminComplaints(); break;
+            case 'modules': renderAdminModules(); break;
+            case 'audit': renderAdminAudit(); break;
+            default: renderAdminManage();
+        }
     }
 
     function renderAdminManage() {
@@ -699,6 +738,160 @@
     }
 
     // =============================================================
+    //  ADMIN: Users / Statistics / Analytics / Complaints / Modules
+    // =============================================================
+    function renderAdminUsers() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка пользователей…')}</section>`;
+        apiJson('/api/admin/users').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Пользователи системы (${data.length})</div>
+                <div class="table-scroll"><table class="audit-tbl">
+                    <thead><tr><th>Имя</th><th>Логин</th><th>Профессия</th><th>Занятость</th><th>Trust Score</th><th>Риск</th><th>Тип</th><th>Роли</th></tr></thead>
+                    <tbody>${data.map(u => `
+                        <tr>
+                            <td>${esc(u.fullName)}</td>
+                            <td class="mono">${esc(u.username)}</td>
+                            <td>${esc(u.professionLabel)}${u.admin ? ' <span class="atag info">админ</span>' : ''}</td>
+                            <td>${esc(u.employmentStatus === 'EMPLOYED' ? 'Трудоустроен' : 'Не трудоустроен')}</td>
+                            <td><strong>${esc(u.trustScore)}</strong> / 100</td>
+                            <td>${esc(u.riskScore || '—')}</td>
+                            <td>${esc(u.guest === 'GUEST' ? 'Гость' : 'Основная')}</td>
+                            <td>${esc((u.roles || []).join(', '))}</td>
+                        </tr>`).join('')}</tbody>
+                </table></div>
+            </section>`;
+        });
+    }
+
+    function statCard(label, value, ico) {
+        return `<div class="stat-card"><div class="stat-ico">${ico}</div>
+            <div class="stat-val">${esc(value)}</div><div class="stat-label">${esc(label)}</div></div>`;
+    }
+
+    function renderAdminStats() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка статистики…')}</section>`;
+        apiJson('/api/admin/stats').then(({ ok, data }) => {
+            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Нет данных.</div></section>`; return; }
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Статистика платформы</div>
+                <div class="stat-grid">
+                    ${statCard('Пользователи', data.users, '👤')}
+                    ${statCard('Гости', data.guests, '👥')}
+                    ${statCard('QR-коды', data.qrCodes, '▦')}
+                    ${statCard('Сканирования', data.scans, '📷')}
+                    ${statCard('Взаимодействия', data.interactions, '🔗')}
+                    ${statCard('Жалобы', data.complaints, '⚠')}
+                </div>
+            </section>`;
+        });
+    }
+
+    function renderAdminAnalytics() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка аналитики…')}</section>`;
+        apiJson('/api/admin/analytics').then(({ ok, data }) => {
+            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Нет данных.</div></section>`; return; }
+            const dist = data.professionDistribution || {};
+            const distRows = Object.keys(dist).map(k =>
+                `<tr><td>${esc(k)}</td><td style="text-align:right">${esc(dist[k])}</td></tr>`).join('');
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Аналитика</div>
+                <div class="stat-grid">
+                    ${statCard('Регистрации', data.registeredUsers, '📈')}
+                    ${statCard('Гостевые личности', data.guestIdentities, '👥')}
+                    ${statCard('Конверсия гостей', data.guestConversions, '🔄')}
+                    ${statCard('% конверсии', (data.guestConversionRate || 0) + '%', '✓')}
+                    ${statCard('Просмотры профилей', data.profileViews, '👁')}
+                    ${statCard('Запросы доступа', data.accessRequests, '🔐')}
+                    ${statCard('Доступ подтверждён', data.accessConfirmed, '🤝')}
+                    ${statCard('Всего взаимодействий', data.totalInteractions, '🔗')}
+                </div>
+                <div class="section-title" style="margin-top:18px">Популярные профили</div>
+                <div class="table-scroll"><table class="audit-tbl">
+                    <thead><tr><th>Профессия</th><th style="text-align:right">Кол-во</th></tr></thead>
+                    <tbody>${distRows || '<tr><td colspan="2" class="empty">Нет данных.</td></tr>'}</tbody>
+                </table></div>
+            </section>`;
+        });
+    }
+
+    function renderAdminComplaints() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка жалоб…')}</section>`;
+        apiJson('/api/admin/complaints').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+            const statuses = ['NEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Жалобы (${data.length})</div>
+                ${data.length === 0 ? '<div class="obj-empty">Жалоб нет.</div>' : `
+                <div class="table-scroll"><table class="audit-tbl">
+                    <thead><tr><th>Тема</th><th>Категория</th><th>Описание</th><th>Статус</th><th>Изменить</th></tr></thead>
+                    <tbody>${data.map(c => `
+                        <tr data-id="${esc(c.complaintUid)}">
+                            <td>${esc(c.subject)}</td>
+                            <td>${esc(c.category)}</td>
+                            <td>${esc(c.description || '—')}</td>
+                            <td>${esc(COMPLAINT_RU[c.status] || c.status)}</td>
+                            <td><select class="cmp-status-sel">
+                                ${statuses.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${esc(COMPLAINT_RU[s])}</option>`).join('')}
+                            </select></td>
+                        </tr>`).join('')}</tbody>
+                </table></div>`}
+            </section>`;
+            body.querySelectorAll('.cmp-status-sel').forEach(sel => {
+                sel.addEventListener('change', async () => {
+                    const id = sel.closest('tr').getAttribute('data-id');
+                    try {
+                        const { ok: o } = await apiJson(`/api/admin/complaints/${id}/status`,
+                            { method: 'POST', body: { status: sel.value } });
+                        toast(o ? 'Статус жалобы обновлён.' : 'Не удалось обновить.', o ? 'ok' : 'err');
+                    } catch (_) { toast('Ошибка обновления.', 'err'); }
+                });
+            });
+        });
+    }
+
+    function renderAdminModules() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка модулей…')}</section>`;
+        apiJson('/api/admin/modules').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Модули платформы</div>
+                <p class="muted" style="margin-bottom:14px">Каждый модуль — отдельная сфера взаимодействия. Любой модуль использует единую цепочку: Identity → Request → Decision → Interaction → Event → History.</p>
+                <div class="module-grid">${data.map(m => `
+                    <div class="module-card ${m.status === 'ACTIVE' ? '' : 'off'}" data-id="${esc(m.moduleUid)}">
+                        <div class="mc-top">
+                            <span class="mc-name">${esc(m.name)}</span>
+                            <span class="mc-status ${m.status === 'ACTIVE' ? 'on' : 'off'}">${m.status === 'ACTIVE' ? 'Активен' : 'Отключён'}</span>
+                        </div>
+                        <div class="mc-code mono">${esc(m.code)}</div>
+                        <div class="mc-desc">${esc(m.description || '')}</div>
+                        <button class="btn btn-ghost btn-sm mc-toggle" type="button">${m.status === 'ACTIVE' ? 'Отключить' : 'Включить'}</button>
+                    </div>`).join('')}</div>
+            </section>`;
+            body.querySelectorAll('.module-card').forEach(card => {
+                card.querySelector('.mc-toggle').addEventListener('click', async () => {
+                    const id = card.getAttribute('data-id');
+                    try {
+                        const { ok: o } = await apiJson(`/api/admin/modules/${id}/toggle`, { method: 'POST', body: {} });
+                        if (o) { toast('Статус модуля обновлён.', 'ok'); renderAdminModules(); }
+                        else toast('Не удалось обновить модуль.', 'err');
+                    } catch (_) { toast('Ошибка обновления модуля.', 'err'); }
+                });
+            });
+        });
+    }
+
+    // =============================================================
     //  CITIZEN VIEW
     // =============================================================
     function renderCitizen() {
@@ -719,6 +912,8 @@
                     <span class="idp-v gold">${esc(shortId(currentUser.primaryQrUid))}</span></div>
                 <div class="id-pill"><span class="idp-k">Уровень доверия</span>
                     <span class="idp-v">${esc(currentUser.trustLevel)} / 100</span></div>
+                <div class="id-pill"><span class="idp-k">Trust Score</span>
+                    <span class="idp-v gold">${esc(currentUser.trustScore != null ? currentUser.trustScore : '—')} / 100</span></div>
                 <div class="id-pill"><span class="idp-k">Роли</span>
                     <span class="idp-v">${esc((currentUser.roles || []).join(', '))}</span></div>
                 <div class="id-pill"><span class="idp-k">Риск</span>
@@ -743,9 +938,13 @@
             </div>
             <div id="cb-notif-panel" class="cb-notif-panel" hidden></div>
 
+            <div id="access-requests" class="access-requests"></div>
+
             <div class="view-nav">
                 <button data-tab="terminal" type="button">Терминал</button>
-                <button data-tab="audit" type="button">Мой журнал</button>
+                <button data-tab="myqr" type="button">Мой QR</button>
+                <button data-tab="history" type="button">Моя история</button>
+                <button data-tab="complaints" type="button">Жалобы</button>
             </div>
             <div id="citizen-body"></div>
         </div>`;
@@ -758,9 +957,13 @@
 
         wireContextBar();
         loadCitizenContext();
+        loadAccessRequests();
 
         if (citizenTab === 'terminal') renderCitizenTerminal();
-        else renderCitizenAudit();
+        else if (citizenTab === 'myqr') renderCitizenMyQr();
+        else if (citizenTab === 'history') renderCitizenHistory();
+        else if (citizenTab === 'complaints') renderCitizenComplaints();
+        else renderCitizenTerminal();
     }
 
     // ---- Citizen context: working mode, SOS, notifications ----
@@ -956,10 +1159,7 @@
 
     async function doScan(objectUid) {
         const cleaned = String(objectUid).trim();
-        if (cleaned.toUpperCase().startsWith('IDENTITY:')) {
-            toast('Это персональный QR личности, а не объект.', 'info');
-            return;
-        }
+        // Personal identity QR → governed profile-access request (owner confirms).
         const result = document.getElementById('scan-result');
         result.innerHTML = inlineLoad('Проверка прав доступа и контекста…');
         const body = { objectUid: cleaned };
@@ -1005,6 +1205,234 @@
         </section>`;
         document.getElementById('audit-refresh').addEventListener('click', () => loadAudit('/api/v2/audit/me'));
         loadAudit('/api/v2/audit/me');
+    }
+
+    // -------------------------------------------------------------
+    //  Citizen: incoming access requests ("Подтвердить доступ")
+    // -------------------------------------------------------------
+    const INTERACTION_RU = {
+        SCAN: 'Скан объекта', PROFILE_SCAN: 'Скан профиля',
+        REPORT: 'Обращение', SOS: 'SOS', QR_CREATION: 'Создание QR'
+    };
+    const ISTATUS_RU = { PENDING: 'Ожидает', CONFIRMED: 'Подтверждено', REJECTED: 'Отклонено' };
+    const COMPLAINT_RU = { NEW: 'Новая', IN_PROGRESS: 'В работе', RESOLVED: 'Решена', REJECTED: 'Отклонена' };
+
+    async function loadAccessRequests() {
+        const box = document.getElementById('access-requests');
+        if (!box) return;
+        try {
+            const { ok, data } = await apiJson('/api/v2/access/pending');
+            if (!ok || !Array.isArray(data) || data.length === 0) { box.innerHTML = ''; return; }
+            box.innerHTML = `
+                <div class="access-head">🔔 Запросы доступа к вашему профилю</div>
+                ${data.map(r => `
+                    <div class="access-row" data-id="${esc(r.interactionUid)}">
+                        <div class="access-meta"><strong>${esc(r.fromName)}</strong>
+                            <span>${esc(r.createdAt || '')}</span></div>
+                        <div class="access-actions">
+                            <button class="btn btn-primary btn-sm acc-confirm" type="button">Подтвердить доступ</button>
+                            <button class="btn btn-ghost btn-sm acc-reject" type="button">Отклонить</button>
+                        </div>
+                    </div>`).join('')}`;
+            box.querySelectorAll('.access-row').forEach(row => {
+                const id = row.getAttribute('data-id');
+                row.querySelector('.acc-confirm').addEventListener('click', () => decideAccess(id, 'confirm'));
+                row.querySelector('.acc-reject').addEventListener('click', () => decideAccess(id, 'reject'));
+            });
+        } catch (_) { box.innerHTML = ''; }
+    }
+
+    async function decideAccess(interactionUid, action) {
+        try {
+            const { ok, data } = await apiJson(`/api/v2/access/${interactionUid}/${action}`,
+                { method: 'POST', body: {} });
+            if (ok) toast(action === 'confirm' ? 'Доступ к профилю подтверждён.' : 'Доступ отклонён.',
+                action === 'confirm' ? 'ok' : 'info');
+            else toast((data && data.reason) || 'Не удалось обработать запрос.', 'err');
+        } catch (_) { toast('Ошибка обработки запроса.', 'err'); }
+        loadAccessRequests();
+        refreshNotifications();
+    }
+
+    // -------------------------------------------------------------
+    //  Citizen: "Мой QR" + demonstration page
+    // -------------------------------------------------------------
+    function renderCitizenMyQr() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка QR…')}</section>`;
+        apiJson('/api/v2/my-qr').then(({ ok, data }) => {
+            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить QR.</div></section>`; return; }
+            const initials = (((currentUser.firstName || '')[0] || '') + ((currentUser.lastName || '')[0] || '')).toUpperCase();
+            body.innerHTML = `
+            <section class="panel panel-pad myqr-card">
+                <div class="section-title">Мой QR</div>
+                <div class="myqr-body">
+                    <div class="myqr-avatar">${esc(initials)}</div>
+                    <div class="myqr-name">${esc(data.fullName)}</div>
+                    <div class="myqr-sub">Постоянный идентификатор личности</div>
+                    <img class="myqr-img" src="${esc(data.qrImageDataUri)}" alt="Мой QR-код">
+                    <div class="qr-uid">${esc(shortId(data.identityUid))}</div>
+                    <button class="btn btn-primary btn-block" id="qr-demo-btn" type="button">Демонстрировать</button>
+                    <p class="muted" style="margin-top:10px">QR — только идентификатор. Он не несёт ролей, прав или доверия.</p>
+                </div>
+            </section>`;
+            document.getElementById('qr-demo-btn').addEventListener('click', () => openQrDemo(data.fullName, data.qrImageDataUri));
+        });
+    }
+
+    function openQrDemo(name, dataUri) {
+        let overlay = document.getElementById('qr-demo-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'qr-demo-overlay';
+            overlay.className = 'qr-demo-overlay';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `
+            <div class="qr-demo-inner">
+                <img class="qr-demo-img" src="${esc(dataUri)}" alt="QR-код">
+                <div class="qr-demo-name">${esc(name)}</div>
+                <button class="btn btn-ghost qr-demo-back" id="qr-demo-back" type="button">← Назад</button>
+            </div>`;
+        overlay.hidden = false;
+        document.getElementById('qr-demo-back').addEventListener('click', () => { overlay.hidden = true; });
+    }
+
+    // -------------------------------------------------------------
+    //  Citizen: "Моя история" (я сканировал / кто сканировал меня)
+    // -------------------------------------------------------------
+    function renderCitizenHistory() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка истории…')}</section>`;
+        apiJson('/api/v2/history/me').then(({ ok, data }) => {
+            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить историю.</div></section>`; return; }
+            body.innerHTML = `
+            <div class="split split-wide">
+                <section class="panel panel-pad">
+                    <div class="section-title">Я сканировал</div>
+                    ${historyTable(data.scannedByMe, true)}
+                </section>
+                <section class="panel panel-pad">
+                    <div class="section-title">Кто сканировал меня</div>
+                    ${historyTable(data.scansOfMe, false)}
+                </section>
+            </div>
+            <p class="muted" style="margin-top:12px">Это ваша личная история. Полный аудит системы доступен только администратору.</p>`;
+            body.querySelectorAll('.hist-complain').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    complaintPrefill = btn.getAttribute('data-id');
+                    citizenTab = 'complaints';
+                    renderCitizen();
+                });
+            });
+        });
+    }
+
+    function historyTable(rows, allowComplain) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return `<div class="obj-empty">Записей пока нет.</div>`;
+        }
+        return `<div class="table-scroll"><table class="audit-tbl">
+            <thead><tr><th>Имя / объект</th><th>Тип</th><th>Статус</th><th>Дата</th>${allowComplain ? '<th></th>' : ''}</tr></thead>
+            <tbody>${rows.map(r => `
+                <tr>
+                    <td>${esc(r.name)}</td>
+                    <td>${esc(INTERACTION_RU[r.type] || r.type)}</td>
+                    <td>${esc(ISTATUS_RU[r.status] || r.status || '—')}</td>
+                    <td class="ts">${esc(r.createdAt || '—')}</td>
+                    ${allowComplain ? `<td><button class="btn btn-ghost btn-sm hist-complain" type="button" data-id="${esc(r.interactionUid)}">Пожаловаться</button></td>` : ''}
+                </tr>`).join('')}</tbody>
+        </table></div>`;
+    }
+
+    // -------------------------------------------------------------
+    //  Citizen: "Жалобы"
+    // -------------------------------------------------------------
+    function renderCitizenComplaints() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка…')}</section>`;
+        Promise.all([apiJson('/api/v2/history/me'), apiJson('/api/v2/complaints/me')]).then(([hist, mine]) => {
+            const interactions = [];
+            if (hist.ok && hist.data) {
+                (hist.data.scannedByMe || []).forEach(r => interactions.push(r));
+                (hist.data.scansOfMe || []).forEach(r => interactions.push(r));
+            }
+            const options = interactions.map(r =>
+                `<option value="${esc(r.interactionUid)}" ${complaintPrefill === r.interactionUid ? 'selected' : ''}>${esc((INTERACTION_RU[r.type] || r.type) + ' · ' + r.name + ' · ' + (r.createdAt || ''))}</option>`).join('');
+            const list = (mine.ok && Array.isArray(mine.data)) ? mine.data : [];
+            body.innerHTML = `
+            <div class="split split-wide">
+                <section class="panel panel-pad">
+                    <div class="section-title">Подать жалобу</div>
+                    <form id="complaint-form" class="form-grid">
+                        <div class="field">
+                            <label for="cmp-interaction">Взаимодействие</label>
+                            <select id="cmp-interaction">${options || '<option value="">Нет доступных взаимодействий</option>'}</select>
+                        </div>
+                        <div class="field">
+                            <label for="cmp-subject">Тема</label>
+                            <input id="cmp-subject" type="text" placeholder="Кратко о проблеме">
+                        </div>
+                        <div class="field">
+                            <label for="cmp-category">Категория</label>
+                            <select id="cmp-category">
+                                <option value="ОБЩАЯ">Общая</option>
+                                <option value="ДОСТУП">Доступ к данным</option>
+                                <option value="КАЧЕСТВО">Качество услуги</option>
+                                <option value="БЕЗОПАСНОСТЬ">Безопасность</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="cmp-desc">Описание</label>
+                            <textarea id="cmp-desc" placeholder="Подробности"></textarea>
+                        </div>
+                        <div class="field-error" id="cmp-error"></div>
+                        <button class="btn btn-primary btn-block" id="cmp-submit" type="submit">Отправить жалобу</button>
+                    </form>
+                </section>
+                <section class="panel panel-pad">
+                    <div class="section-title">Мои жалобы</div>
+                    <div id="cmp-list">${complaintList(list)}</div>
+                </section>
+            </div>`;
+            complaintPrefill = null;
+            document.getElementById('complaint-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const errEl = document.getElementById('cmp-error');
+                errEl.textContent = '';
+                const interactionUid = document.getElementById('cmp-interaction').value;
+                const subject = document.getElementById('cmp-subject').value.trim();
+                if (!interactionUid) { errEl.textContent = 'Нет взаимодействия для жалобы. Сначала отсканируйте объект.'; return; }
+                if (!subject) { errEl.textContent = 'Укажите тему жалобы.'; return; }
+                const payload = { interactionUid, subject,
+                    category: document.getElementById('cmp-category').value,
+                    description: document.getElementById('cmp-desc').value.trim() };
+                const btn = document.getElementById('cmp-submit');
+                btn.disabled = true; btn.textContent = 'Отправка…';
+                try {
+                    const { ok, data } = await apiJson('/api/v2/complaints', { method: 'POST', body: payload });
+                    if (!ok) throw new Error((data && data.message) || 'Не удалось отправить жалобу');
+                    toast('Жалоба зарегистрирована.', 'ok');
+                    renderCitizenComplaints();
+                } catch (err) {
+                    errEl.textContent = err.message;
+                    btn.disabled = false; btn.textContent = 'Отправить жалобу';
+                }
+            });
+        });
+    }
+
+    function complaintList(list) {
+        if (!list.length) return `<div class="obj-empty">Жалоб пока нет.</div>`;
+        return list.map(c => `
+            <div class="cmp-item">
+                <div class="cmp-top">
+                    <span class="cmp-subject">${esc(c.subject)}</span>
+                    <span class="cmp-status s-${esc((c.status || '').toLowerCase())}">${esc(COMPLAINT_RU[c.status] || c.status)}</span>
+                </div>
+                <div class="cmp-meta">${esc(c.category)} · ${esc(c.createdAt || '')}</div>
+                ${c.description ? `<div class="cmp-desc">${esc(c.description)}</div>` : ''}
+            </div>`).join('');
     }
 
     // -------------------------------------------------------------
