@@ -84,6 +84,7 @@ public class AdminController {
             m.put("professionLabel", userService.professionLabel(u.getProfession()));
             m.put("employmentStatus", u.getEmploymentStatus().name());
             m.put("admin", u.isAdmin());
+            m.put("blocked", u.isBlocked());
             m.put("identityUid", id.getIdentityUid().toString());
             m.put("trustLevel", id.getTrustLevel());
             m.put("trustScore", trustScoreService.compute(id));

@@ -34,5 +34,11 @@ public enum EventType {
     SERVICE_COMPLETED,
     OBJECT_TRANSFERRED,
     OBJECT_MODIFIED,
-    OBJECT_ARCHIVED
+    OBJECT_ARCHIVED,
+
+    // Administrator user-management actions.
+    USER_BLOCKED,
+    USER_UNBLOCKED,
+    USER_ROLE_CHANGED,
+    USER_PASSWORD_RESET
 }

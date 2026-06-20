@@ -56,6 +56,14 @@ public class User {
     @Column(name = "is_admin", nullable = false)
     private boolean admin;
 
+    /**
+     * Whether the account is blocked (banned) by an administrator. A blocked user
+     * cannot authenticate (Spring Security locks the account) and cannot make any
+     * authenticated API call (rejected at {@code AuthSupport}). Defaults to false.
+     */
+    @Column(name = "blocked", nullable = false)
+    private boolean blocked;
+
     /** Link to the Stage 2 identity layer (foreign key stored as a field). */
     @Column(name = "identity_uid", nullable = false)
     private UUID identityUid;

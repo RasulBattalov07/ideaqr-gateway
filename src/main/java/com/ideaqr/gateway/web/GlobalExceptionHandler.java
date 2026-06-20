@@ -1,6 +1,7 @@
 package com.ideaqr.gateway.web;
 
 import com.ideaqr.gateway.dto.ApiResponse;
+import com.ideaqr.gateway.exception.AccountBlockedException;
 import com.ideaqr.gateway.exception.UsernameAlreadyExistsException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -38,6 +39,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UsernameAlreadyExistsException.class)
     public ResponseEntity<ApiResponse> handleDuplicateUsername(UsernameAlreadyExistsException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /** A blocked account attempted an authenticated action → 403. */
+    @ExceptionHandler(AccountBlockedException.class)
+    public ResponseEntity<ApiResponse> handleBlocked(AccountBlockedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

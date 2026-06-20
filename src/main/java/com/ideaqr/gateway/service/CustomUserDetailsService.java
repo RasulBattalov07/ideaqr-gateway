@@ -30,12 +30,14 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         String authority = user.isAdmin() ? "ROLE_ADMIN" : "ROLE_USER";
 
+        // A blocked account is reported as locked, so Spring Security rejects the
+        // login attempt before the password is even checked (LockedException → 401).
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getUsername())
                 .password(user.getPasswordHash())
                 .authorities(List.of(new SimpleGrantedAuthority(authority)))
                 .accountExpired(false)
-                .accountLocked(false)
+                .accountLocked(user.isBlocked())
                 .credentialsExpired(false)
                 .disabled(false)
                 .build();

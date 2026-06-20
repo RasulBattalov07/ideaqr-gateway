@@ -29,5 +29,11 @@ public enum HistoryEventType {
     // object's full change-history is preserved and never deleted.
     OBJECT_MODIFIED,
     OBJECT_ARCHIVED,
-    OBJECT_TRANSFERRED
+    OBJECT_TRANSFERRED,
+
+    // Administrator user-management actions (append-only governance trail).
+    USER_BLOCKED,
+    USER_UNBLOCKED,
+    USER_ROLE_CHANGED,
+    USER_PASSWORD_RESET
 }

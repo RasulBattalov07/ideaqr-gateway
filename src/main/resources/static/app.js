@@ -745,25 +745,77 @@
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка пользователей…')}</section>`;
         apiJson('/api/admin/users').then(({ ok, data }) => {
             if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+            const me = currentUser ? currentUser.username : null;
             body.innerHTML = `
             <section class="panel panel-pad">
                 <div class="section-title">Пользователи системы (${data.length})</div>
+                <p class="muted" style="margin-bottom:14px">Блокировка, смена уровня доступа и сброс пароля. Заблокированный пользователь не может войти и выполнять запросы.</p>
                 <div class="table-scroll"><table class="audit-tbl">
-                    <thead><tr><th>Имя</th><th>Логин</th><th>Профессия</th><th>Занятость</th><th>Trust Score</th><th>Риск</th><th>Тип</th><th>Роли</th></tr></thead>
-                    <tbody>${data.map(u => `
+                    <thead><tr><th>Имя</th><th>Логин</th><th>Профессия</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
+                    <tbody>${data.map(u => {
+                        const isSelf = me && u.username === me;
+                        const statusBadge = u.blocked
+                            ? '<span class="atag bad">● Заблокирован</span>'
+                            : '<span class="atag ok">● Активен</span>';
+                        const adminBadge = u.admin ? ' <span class="atag admin">Админ</span>' : '';
+                        const blockBtn = u.blocked
+                            ? `<button class="btn btn-sm btn-ghost" data-act="unblock" data-u="${esc(u.username)}">Разблокировать</button>`
+                            : `<button class="btn btn-sm btn-danger" data-act="block" data-u="${esc(u.username)}" ${isSelf ? 'disabled title="Нельзя заблокировать себя"' : ''}>Заблокировать</button>`;
+                        const roleBtn = u.admin
+                            ? `<button class="btn btn-sm btn-ghost" data-act="demote" data-u="${esc(u.username)}" ${isSelf ? 'disabled title="Нельзя понизить себя"' : ''}>Снять админа</button>`
+                            : `<button class="btn btn-sm btn-gold" data-act="promote" data-u="${esc(u.username)}">Сделать админом</button>`;
+                        const pwBtn = `<button class="btn btn-sm btn-ghost" data-act="reset" data-u="${esc(u.username)}">Сброс пароля</button>`;
+                        return `
                         <tr>
-                            <td>${esc(u.fullName)}</td>
+                            <td>${esc(u.fullName)}${isSelf ? ' <span class="atag info">вы</span>' : ''}</td>
                             <td class="mono">${esc(u.username)}</td>
-                            <td>${esc(u.professionLabel)}${u.admin ? ' <span class="atag info">админ</span>' : ''}</td>
-                            <td>${esc(u.employmentStatus === 'EMPLOYED' ? 'Трудоустроен' : 'Не трудоустроен')}</td>
+                            <td>${esc(u.professionLabel)}</td>
+                            <td>${statusBadge}${adminBadge}</td>
                             <td><strong>${esc(u.trustScore)}</strong> / 100</td>
                             <td>${esc(u.riskScore || '—')}</td>
-                            <td>${esc(u.guest === 'GUEST' ? 'Гость' : 'Основная')}</td>
-                            <td>${esc((u.roles || []).join(', '))}</td>
-                        </tr>`).join('')}</tbody>
+                            <td><div class="um-actions">${blockBtn}${roleBtn}${pwBtn}</div></td>
+                        </tr>`;
+                    }).join('')}</tbody>
                 </table></div>
             </section>`;
+            body.querySelectorAll('.um-actions button[data-act]').forEach(btn => {
+                btn.addEventListener('click', () => handleUserAction(btn.getAttribute('data-act'), btn.getAttribute('data-u')));
+            });
         });
+    }
+
+    async function handleUserAction(act, username) {
+        const confirms = {
+            block: `Заблокировать пользователя «${username}»? Он не сможет войти и выполнять запросы.`,
+            demote: `Снять права администратора у «${username}»?`,
+            reset: `Сбросить пароль пользователя «${username}»? Будет выдан новый временный пароль.`
+        };
+        if (confirms[act] && !window.confirm(confirms[act])) return;
+
+        const routes = {
+            block: { path: `/api/admin/users/${encodeURIComponent(username)}/block`, body: undefined },
+            unblock: { path: `/api/admin/users/${encodeURIComponent(username)}/unblock`, body: undefined },
+            promote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: true } },
+            demote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: false } },
+            reset: { path: `/api/admin/users/${encodeURIComponent(username)}/reset-password`, body: undefined }
+        };
+        const route = routes[act];
+        if (!route) return;
+
+        try {
+            const { ok, data } = await apiJson(route.path, { method: 'POST', body: route.body });
+            if (!ok) { toast((data && data.message) || 'Не удалось выполнить действие.', 'err'); return; }
+            if (act === 'reset' && data && data.details && data.details.temporaryPassword) {
+                const tmp = data.details.temporaryPassword;
+                toast('Пароль сброшен. Временный пароль: ' + tmp, 'ok');
+                window.alert(`Временный пароль для «${username}»:\n\n${tmp}\n\nПередайте его пользователю — он показывается один раз.`);
+            } else {
+                toast((data && data.message) || 'Готово.', 'ok');
+            }
+            renderAdminUsers();
+        } catch (_) {
+            toast('Ошибка выполнения действия.', 'err');
+        }
     }
 
     function statCard(label, value, ico) {

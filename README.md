@@ -272,6 +272,27 @@ On top of the governed scan pipeline, the prototype implements the scenario brie
 - **Scaffolding** — a `Workflow` entity links to requests for future multi-step approval;
   the policy checks (role / trust / working-hours / object type) live in `ValidationService`.
 
+## Quick verification (terminal)
+
+A single self-checking script exercises the **whole** platform end-to-end —
+health, auth, registration, the admin read APIs, role-based authorization, QR
+generation, the object lifecycle, the citizen terminal (scan / report / SOS),
+the wallet, sessions / working mode, notifications, owner-approval access,
+complaints, guests, **and the user-management module** (block / unblock /
+change role / reset password).
+
+```bash
+# 1. start the app
+mvn spring-boot:run
+# 2. in another terminal — run every scenario and print a pass/fail tally
+bash scripts/smoke-test.sh
+# against a custom port:
+BASE_URL=http://localhost:8099 bash scripts/smoke-test.sh
+```
+
+All destructive actions run against a throwaway account the script registers at
+startup, so the demo accounts stay pristine and the script is re-runnable.
+
 ## API reference
 
 | Method | Path                     | Auth        | Purpose                              |
@@ -280,18 +301,34 @@ On top of the governed scan pipeline, the prototype implements the scenario brie
 | POST   | `/login`                 | public      | Form login (`username`, `password`)  |
 | POST   | `/logout`                | session     | Log out                              |
 | GET    | `/api/auth/me`           | session     | Current user profile                 |
+| POST   | `/api/auth/guest`        | public      | Start a guest session                |
+| POST   | `/api/v2/guest/merge`    | session     | Merge a guest's history into account |
 | POST   | `/api/v2/scan`           | session     | Scan an object through the pipeline  |
 | POST   | `/api/v2/report`         | session     | File a governed issue report         |
-| GET    | `/api/v2/audit`          | session     | Read the global immutable journal    |
-| GET    | `/api/v2/audit/me`       | session     | Read the caller's own journal        |
 | POST   | `/api/v2/sos`            | session     | Raise an escalated SOS request       |
-| POST   | `/api/v2/mode/work`      | session     | Enter working mode (organization)    |
-| POST   | `/api/v2/mode/personal`  | session     | Return to personal mode              |
+| GET    | `/api/v2/wallet`         | session     | QR Wallet — my QR / objects / requests / history |
+| GET    | `/api/v2/my-qr`          | session     | Personal primary-QR card             |
+| GET    | `/api/v2/history/me`     | session     | Personal scan history                |
+| GET    | `/api/v2/access/pending` | session     | Pending owner-approval requests      |
+| POST   | `/api/v2/access/{id}/confirm` | session | Confirm a profile-access request    |
+| POST   | `/api/v2/access/{id}/reject`  | session | Reject a profile-access request     |
+| GET    | `/api/v2/audit` · `/audit/me` | session | Global / own immutable journal      |
+| POST   | `/api/v2/mode/work` · `/mode/personal` | session | Enter / leave working mode |
 | GET    | `/api/v2/session`        | session     | Current session context + orgs       |
 | GET    | `/api/v2/notifications`  | session     | List the caller's notifications      |
 | POST   | `/api/v2/notifications/{id}/read` | session | Mark a notification read        |
-| POST   | `/api/auth/guest`        | public      | Start a guest session                |
-| POST   | `/api/v2/guest/merge`    | session     | Merge a guest's history into account |
+| POST   | `/api/v2/complaints`     | session     | File a complaint against an interaction |
+| GET    | `/api/v2/complaints/me`  | session     | List the caller's complaints         |
+| GET    | `/api/admin/stats` · `/analytics` | ROLE_ADMIN | Platform statistics / analytics |
+| GET    | `/api/admin/users`       | ROLE_ADMIN  | Full user list (with status flags)   |
+| GET    | `/api/admin/modules` · `/events` · `/complaints` | ROLE_ADMIN | Modules / event log / complaints |
+| POST   | `/api/admin/modules/{id}/toggle`   | ROLE_ADMIN | Enable / disable a module       |
+| POST   | `/api/admin/complaints/{id}/status` | ROLE_ADMIN | Update a complaint's status    |
 | POST   | `/api/admin/qr/create`   | ROLE_ADMIN  | Mint a governed object + QR          |
-| GET    | `/api/admin/qr/list`     | ROLE_ADMIN  | List created objects                 |
+| GET    | `/api/admin/qr/list`     | ROLE_ADMIN  | List created objects (status + trust)|
+| POST   | `/api/admin/objects/{uid}/activate` · `/modify` · `/archive` | ROLE_ADMIN | Object lifecycle transition |
+| POST   | `/api/admin/users/{username}/block`   | ROLE_ADMIN | **Block (ban) a user**          |
+| POST   | `/api/admin/users/{username}/unblock` | ROLE_ADMIN | **Unblock a user**              |
+| POST   | `/api/admin/users/{username}/role`    | ROLE_ADMIN | **Change access level** (`{"admin":true}` / `{"role":"USER"}`) |
+| POST   | `/api/admin/users/{username}/reset-password` | ROLE_ADMIN | **Reset to a temp password** |
 | GET    | `/api/health`            | public      | Liveness                             |

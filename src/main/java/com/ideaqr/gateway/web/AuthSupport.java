@@ -2,6 +2,7 @@ package com.ideaqr.gateway.web;
 
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.User;
+import com.ideaqr.gateway.exception.AccountBlockedException;
 import com.ideaqr.gateway.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -23,7 +24,13 @@ public class AuthSupport {
                 || "anonymousUser".equals(authentication.getName())) {
             throw new IllegalStateException("Требуется аутентификация");
         }
-        return userService.findByUsername(authentication.getName());
+        User user = userService.findByUsername(authentication.getName());
+        // Single chokepoint: a user blocked mid-session is rejected on the next
+        // request (every authenticated controller resolves the user through here).
+        if (user.isBlocked()) {
+            throw new AccountBlockedException("Аккаунт заблокирован администратором.");
+        }
+        return user;
     }
 
     public Identity requireIdentity(Authentication authentication) {
