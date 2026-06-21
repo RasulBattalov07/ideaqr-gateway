@@ -49,11 +49,11 @@ public class QrService {
                 .qrValue("IDENTITY:" + identity.getIdentityUid())
                 .qrType(QrType.PRIMARY)
                 .status(QrStatus.ACTIVE)
-                .ownerIdentityUid(identity.getIdentityUid())
+                .ownerIdentity(identity)
                 .build());
         assignmentRepository.save(Assignment.builder()
-                .qrUid(qr.getQrUid())
-                .identityUid(identity.getIdentityUid())
+                .qr(qr)
+                .identity(identity)
                 .assignmentRole("OWNER")
                 .build());
         return qr;
@@ -86,7 +86,7 @@ public class QrService {
                 .qrValue(objectUid)
                 .qrType(QrType.OBJECT)
                 .status(QrStatus.ACTIVE)
-                .ownerIdentityUid(admin.getIdentityUid())
+                .ownerIdentity(admin)
                 .build());
 
         RegistryObject object = registryObjectRepository.save(RegistryObject.builder()
@@ -99,8 +99,8 @@ public class QrService {
                 .build());
 
         assignmentRepository.save(Assignment.builder()
-                .qrUid(qr.getQrUid())
-                .identityUid(admin.getIdentityUid())
+                .qr(qr)
+                .identity(admin)
                 .assignmentRole("GOVERNOR")
                 .build());
 

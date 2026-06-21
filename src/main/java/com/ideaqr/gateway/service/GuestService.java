@@ -58,11 +58,15 @@ public class GuestService {
         }
 
         // Append-only alias instead of rewriting the guest's journal (audit 4.5).
+        // FK-safe (audit 3.6): the alias row's guest_identity_uid references a real,
+        // retained identity, and nothing is deleted — so the new foreign keys never
+        // produce a dangling row. The guest is suspended, not removed, which is exactly
+        // why the merge keeps working under strict referential integrity.
         long movedHistory = historyRepository.findByIdentityUid(guestIdentityUid).size();
         target.getLinkedGuestUids().add(guestIdentityUid);
         identityRepository.save(target);
 
-        // Retire the guest identity and burn the token (single use).
+        // Retire (not delete) the guest identity and burn the token (single use).
         guest.setStatus(IdentityStatus.SUSPENDED);
         guest.setMergeTokenHash(null);
         identityRepository.save(guest);

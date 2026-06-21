@@ -71,12 +71,24 @@ public class User {
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword;
 
-    /** Link to the Stage 2 identity layer (foreign key stored as a field). */
-    @Column(name = "identity_uid", nullable = false)
-    private UUID identityUid;
+    /**
+     * The governance subject this account belongs to. Modelled as a real
+     * {@code @ManyToOne} backed by a database foreign key (audit 3.6) instead of a
+     * loose UUID. Loaded lazily; {@link #getIdentityUid()} returns the FK value
+     * without initialising the proxy, so existing call sites are unaffected.
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "identity_uid", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_users_identity"))
+    private Identity identity;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    /** FK accessor that does not initialise the lazy {@link #identity} association. */
+    public UUID getIdentityUid() {
+        return identity != null ? identity.getIdentityUid() : null;
+    }
 
     @PrePersist
     void onCreate() {

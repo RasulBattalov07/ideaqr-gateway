@@ -105,7 +105,7 @@ public class UserService {
                 .employmentStatus(employment)
                 .profession(professionKey)
                 .admin(profile.admin())
-                .identityUid(identity.getIdentityUid())
+                .identity(identity)
                 .build();
         user = userRepository.save(user);
 
@@ -143,7 +143,7 @@ public class UserService {
                 .employmentStatus(EmploymentStatus.UNEMPLOYED)
                 .profession(PROFESSION_CITIZEN)
                 .admin(false)
-                .identityUid(identity.getIdentityUid())
+                .identity(identity)
                 .build();
         user = userRepository.save(user);
 

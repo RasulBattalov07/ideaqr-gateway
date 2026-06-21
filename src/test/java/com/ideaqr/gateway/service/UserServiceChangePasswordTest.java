@@ -1,5 +1,6 @@
 package com.ideaqr.gateway.service;
 
+import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.User;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,9 +37,11 @@ class UserServiceChangePasswordTest {
     @InjectMocks private UserService userService;
 
     private User user() {
+        Identity identity = Identity.builder().build();
+        identity.setIdentityUid(UUID.randomUUID());
         return User.builder()
                 .username("u").passwordHash("OLD_HASH").firstName("A").lastName("B")
-                .mustChangePassword(true).identityUid(UUID.randomUUID()).build();
+                .mustChangePassword(true).identity(identity).build();
     }
 
     @Test

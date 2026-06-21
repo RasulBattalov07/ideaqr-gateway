@@ -42,12 +42,19 @@ public class Qr {
     @Column(name = "status", nullable = false, length = 20)
     private QrStatus status;
 
-    /** Identity that owns / governs this QR. */
-    @Column(name = "owner_identity_uid", nullable = false)
-    private UUID ownerIdentityUid;
+    /** Identity that owns / governs this QR — real {@code @ManyToOne} + FK (audit 3.6). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "owner_identity_uid", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_qrs_owner_identity"))
+    private Identity ownerIdentity;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    /** FK accessor that does not initialise the lazy {@link #ownerIdentity} association. */
+    public UUID getOwnerIdentityUid() {
+        return ownerIdentity != null ? ownerIdentity.getIdentityUid() : null;
+    }
 
     @PrePersist
     void onCreate() {

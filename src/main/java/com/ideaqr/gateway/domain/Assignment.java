@@ -28,11 +28,17 @@ public class Assignment {
     @Column(name = "assignment_uid", nullable = false, updatable = false)
     private UUID assignmentUid;
 
-    @Column(name = "qr_uid", nullable = false)
-    private UUID qrUid;
+    /** The QR being assigned — real {@code @ManyToOne} + FK (audit 3.6). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "qr_uid", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_assignments_qr"))
+    private Qr qr;
 
-    @Column(name = "identity_uid", nullable = false)
-    private UUID identityUid;
+    /** The identity the QR is assigned to — real {@code @ManyToOne} + FK (audit 3.6). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "identity_uid", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_assignments_identity"))
+    private Identity identity;
 
     /** Free-form role of the assignment, e.g. OWNER or GOVERNOR. */
     @Column(name = "assignment_role", length = 40)
@@ -40,6 +46,16 @@ public class Assignment {
 
     @Column(name = "assigned_at", nullable = false, updatable = false)
     private LocalDateTime assignedAt;
+
+    /** FK accessor that does not initialise the lazy {@link #qr} association. */
+    public UUID getQrUid() {
+        return qr != null ? qr.getQrUid() : null;
+    }
+
+    /** FK accessor that does not initialise the lazy {@link #identity} association. */
+    public UUID getIdentityUid() {
+        return identity != null ? identity.getIdentityUid() : null;
+    }
 
     @PrePersist
     void onCreate() {

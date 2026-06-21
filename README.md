@@ -250,8 +250,8 @@ This build was hardened against an internal red-team audit. Highlights:
 - **Investor MVP.** All registry data (including the medical record) is **mock data**;
   no real personal data is stored.
 
-**Roadmap (not yet implemented):** real foreign keys, multi-tenant isolation, and a
-shared session / rate-limit store for multi-instance scale.
+**Roadmap (not yet implemented):** multi-tenant isolation and a shared session /
+rate-limit store for multi-instance scale.
 
 ---
 
