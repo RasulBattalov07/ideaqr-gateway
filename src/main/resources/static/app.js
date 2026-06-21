@@ -76,7 +76,7 @@
         )).filter(el => !el.disabled && el.offsetParent !== null);
     }
 
-    function showModal({ title, bodyHtml = '', actions = [], onBody, dismissValue = null }) {
+    function showModal({ title, bodyHtml = '', actions = [], onBody, dismissValue = null, dismissible = true }) {
         return new Promise((resolve) => {
             const prevFocus = document.activeElement;
             const overlay = document.createElement('div');
@@ -85,7 +85,7 @@
                 <div class="modal-card" role="dialog" aria-modal="true" aria-label="${esc(title)}">
                     <div class="modal-head">
                         <h3>${esc(title)}</h3>
-                        <button class="modal-x" type="button" aria-label="Закрыть">✕</button>
+                        ${dismissible ? '<button class="modal-x" type="button" aria-label="Закрыть">✕</button>' : ''}
                     </div>
                     <div class="modal-body">${bodyHtml}</div>
                     <div class="modal-actions"></div>
@@ -103,7 +103,7 @@
                 resolve(result);
             }
             function onKey(e) {
-                if (e.key === 'Escape') { e.preventDefault(); close(dismissValue); return; }
+                if (e.key === 'Escape' && dismissible) { e.preventDefault(); close(dismissValue); return; }
                 if (e.key !== 'Tab') return;
                 const items = focusables(card);
                 if (!items.length) return;
@@ -120,8 +120,11 @@
                 b.addEventListener('click', () => close(a.value));
                 actionsBox.appendChild(b);
             });
-            overlay.querySelector('.modal-x').addEventListener('click', () => close(dismissValue));
-            overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(dismissValue); });
+            const xBtn = overlay.querySelector('.modal-x');
+            if (xBtn) xBtn.addEventListener('click', () => close(dismissValue));
+            if (dismissible) {
+                overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(dismissValue); });
+            }
             document.addEventListener('keydown', onKey, true);
             document.body.appendChild(overlay);
             if (onBody) onBody(card, { close });
@@ -179,6 +182,77 @@
                 });
             }
         });
+    }
+
+    // Self-service password change (audit 1.7); when `forced` (after an admin reset,
+    // audit 4.9) the dialog cannot be dismissed until a new password is set.
+    function openChangePasswordModal({ forced = false } = {}) {
+        const intro = forced
+            ? '<p class="modal-text">Ваш пароль был сброшен администратором. Задайте новый пароль для продолжения.</p>'
+            : '';
+        const form = `
+            <form id="cpw-form" class="form-grid" style="gap:12px">
+                <div class="field">
+                    <label for="cpw-cur">Текущий пароль</label>
+                    <input id="cpw-cur" type="password" autocomplete="current-password">
+                </div>
+                <div class="field">
+                    <label for="cpw-new">Новый пароль</label>
+                    <input id="cpw-new" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры">
+                </div>
+                <div class="field">
+                    <label for="cpw-rep">Повторите новый пароль</label>
+                    <input id="cpw-rep" type="password" autocomplete="new-password">
+                </div>
+                <div class="field-error" id="cpw-err"></div>
+                <button class="btn btn-primary btn-block" id="cpw-submit" type="submit" data-autofocus>Сменить пароль</button>
+            </form>`;
+        return showModal({
+            title: forced ? 'Требуется смена пароля' : 'Смена пароля',
+            bodyHtml: intro + form,
+            dismissible: !forced,
+            dismissValue: false,
+            actions: forced ? [] : [{ label: 'Отмена', cls: 'btn-ghost', value: false }],
+            onBody: (card, { close }) => {
+                const formEl = card.querySelector('#cpw-form');
+                formEl.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const cur = card.querySelector('#cpw-cur').value;
+                    const nw = card.querySelector('#cpw-new').value;
+                    const rep = card.querySelector('#cpw-rep').value;
+                    const err = card.querySelector('#cpw-err');
+                    err.textContent = '';
+                    if (nw !== rep) { err.textContent = 'Новые пароли не совпадают.'; return; }
+                    if (nw.length < 12 || !/\d/.test(nw) || !/[A-Za-zА-Яа-яЁё]/.test(nw)) {
+                        err.textContent = 'Пароль: не менее 12 символов, буквы и цифры.'; return;
+                    }
+                    const btn = card.querySelector('#cpw-submit');
+                    btn.disabled = true; btn.textContent = 'Сохранение…';
+                    const { ok, data } = await apiJson('/api/auth/change-password',
+                        { method: 'POST', body: { currentPassword: cur, newPassword: nw } });
+                    if (!ok) {
+                        err.textContent = (data && data.message)
+                            || (data && data.details && Object.values(data.details)[0])
+                            || 'Не удалось сменить пароль.';
+                        btn.disabled = false; btn.textContent = 'Сменить пароль';
+                        return;
+                    }
+                    toast('Пароль изменён.', 'ok');
+                    close(true);
+                });
+            }
+        });
+    }
+
+    // After login / on boot: if the account must change its password, block the UI
+    // with the forced dialog until it's done, then refresh the profile.
+    let pwModalOpen = false;
+    async function enforcePasswordChange() {
+        if (pwModalOpen || !currentUser || !currentUser.mustChangePassword) return;
+        pwModalOpen = true;
+        const changed = await openChangePasswordModal({ forced: true });
+        pwModalOpen = false;
+        if (changed) { await loadMe(); route(); }
     }
 
     // Audit event labels + status class
@@ -379,8 +453,11 @@
                 <div class="uc-role">${esc(currentUser.professionLabel)}</div>
             </div>
             <div class="uc-avatar">${esc(initials.toUpperCase())}</div>
+            ${currentUser.guest ? '' : '<button class="btn btn-ghost btn-sm" id="change-pw-btn" type="button">Сменить пароль</button>'}
             <button class="btn btn-danger btn-sm" id="logout-btn" type="button">Выйти</button>`;
         document.getElementById('logout-btn').addEventListener('click', doLogout);
+        const cpwBtn = document.getElementById('change-pw-btn');
+        if (cpwBtn) cpwBtn.addEventListener('click', () => openChangePasswordModal());
     }
 
     // =============================================================
@@ -532,6 +609,7 @@
                 await doLogin(username, password);
                 toast('Вход выполнен. Добро пожаловать.', 'ok');
                 route();
+                enforcePasswordChange();
             } catch (err) {
                 errEl.textContent = err.message;
                 btn.disabled = false; btn.textContent = 'Войти';
@@ -2029,6 +2107,7 @@
 
         try { await loadMe(); } catch (_) { currentUser = null; }
         route();
+        enforcePasswordChange();
     }
 
     document.addEventListener('DOMContentLoaded', init);

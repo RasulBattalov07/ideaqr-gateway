@@ -39,6 +39,9 @@ public class CurrentUserResponse {
     /** True when this is a guest (unregistered) identity. */
     private boolean guest;
 
+    /** True when the account must set a new password before continuing (audit 4.9). */
+    private boolean mustChangePassword;
+
     /**
      * One-time merge token, returned ONLY when a guest session is first created.
      * The browser keeps it and presents it later to prove ownership of the guest

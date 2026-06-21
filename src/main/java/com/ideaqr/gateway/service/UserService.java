@@ -184,8 +184,30 @@ public class UserService {
                 .trustScore(trustScore)
                 .riskScore(identity.getRiskScore())
                 .guest(identity.getIdentityType() == IdentityType.GUEST)
+                .mustChangePassword(user.isMustChangePassword())
                 .roles(roleNames)
                 .build();
+    }
+
+    /**
+     * User-initiated password change (audit 1.7 / 4.9). Verifies the current password,
+     * stores the new BCrypt hash and clears any forced-change flag. The new password's
+     * strength is enforced by bean validation on {@code ChangePasswordRequest}.
+     */
+    @Transactional
+    public void changePassword(User user, String currentPassword, String newPassword) {
+        if (currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Текущий пароль указан неверно.");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Новый пароль должен отличаться от текущего.");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setMustChangePassword(false);
+        userRepository.save(user);
+
+        auditService.record(user.getIdentityUid(), null, HistoryEventType.USER_PASSWORD_CHANGED,
+                "Пользователь «" + user.getUsername() + "» сменил пароль.");
     }
 
     // ------------------------------------------------------------------

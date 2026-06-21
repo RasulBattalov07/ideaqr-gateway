@@ -64,6 +64,13 @@ public class User {
     @Column(name = "blocked", nullable = false)
     private boolean blocked;
 
+    /**
+     * Forces a password change on next use (audit 4.9). Set when an administrator
+     * resets the password to a temporary one; cleared once the user picks a new one.
+     */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
+
     /** Link to the Stage 2 identity layer (foreign key stored as a field). */
     @Column(name = "identity_uid", nullable = false)
     private UUID identityUid;

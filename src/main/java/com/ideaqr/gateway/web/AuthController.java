@@ -2,6 +2,7 @@ package com.ideaqr.gateway.web;
 
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.dto.ApiResponse;
+import com.ideaqr.gateway.dto.ChangePasswordRequest;
 import com.ideaqr.gateway.dto.CurrentUserResponse;
 import com.ideaqr.gateway.dto.RegistrationRequest;
 import com.ideaqr.gateway.service.UserService;
@@ -52,5 +53,17 @@ public class AuthController {
     public ResponseEntity<CurrentUserResponse> me(Authentication authentication) {
         User user = authSupport.requireUser(authentication);
         return ResponseEntity.ok(userService.buildCurrentUser(user));
+    }
+
+    /**
+     * Change the current user's own password (audit 1.7), also used to satisfy a
+     * forced change after an admin reset (audit 4.9). Requires the current password.
+     */
+    @PostMapping("/change-password")
+    public ResponseEntity<ApiResponse> changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                                                      Authentication authentication) {
+        User user = authSupport.requireUser(authentication);
+        userService.changePassword(user, request.getCurrentPassword(), request.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.ok("Пароль изменён."));
     }
 }

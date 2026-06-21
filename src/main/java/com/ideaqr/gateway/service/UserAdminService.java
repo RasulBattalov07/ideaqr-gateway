@@ -160,12 +160,16 @@ public class UserAdminService {
         User target = require(targetUsername);
         String tempPassword = generateTempPassword();
         target.setPasswordHash(passwordEncoder.encode(tempPassword));
+        // Force the user to choose a new password before doing anything else (audit 4.9).
+        target.setMustChangePassword(true);
         userRepository.save(target);
 
         String note = "Пароль пользователя «" + targetUsername + "» сброшен администратором «"
                 + actingAdminUsername + "».";
         auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_PASSWORD_RESET, note);
         eventService.record(EventType.USER_PASSWORD_RESET, target.getIdentityUid(), note);
+        // End active sessions so the temporary password must be used to log in afresh.
+        revokeSessions(targetUsername);
         return tempPassword;
     }
 
