@@ -7,6 +7,9 @@ import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.domain.enums.IdentityStatus;
 import com.ideaqr.gateway.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.session.SessionInformation;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +41,7 @@ public class UserAdminService {
     private final AuditService auditService;
     private final EventService eventService;
     private final PasswordEncoder passwordEncoder;
+    private final SessionRegistry sessionRegistry;
 
     /** Block (ban) an account. The target cannot log in or call the API afterwards. */
     @Transactional
@@ -59,6 +63,8 @@ public class UserAdminService {
                 + actingAdminUsername + "»" + (reason != null && !reason.isBlank() ? ": " + reason.trim() : ".");
         auditService.record(identity.getIdentityUid(), null, HistoryEventType.USER_BLOCKED, note);
         eventService.record(EventType.USER_BLOCKED, identity.getIdentityUid(), note);
+        // Kill any live session immediately so the ban takes effect now (audit 3.9).
+        revokeSessions(targetUsername);
         return target;
     }
 
@@ -86,7 +92,8 @@ public class UserAdminService {
     /**
      * Change the access level: {@code makeAdmin=true} promotes the user to the
      * governance panel (ROLE_ADMIN), {@code false} demotes them to ROLE_USER. The
-     * new authority applies on the user's next login (authorities are session-bound).
+     * user's active sessions are revoked so the change takes effect immediately
+     * (audit 3.9), not at their next login.
      */
     @Transactional
     public User setAdmin(String actingAdminUsername, String targetUsername, boolean makeAdmin) {
@@ -107,6 +114,9 @@ public class UserAdminService {
                 + " администратором «" + actingAdminUsername + "».";
         auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_ROLE_CHANGED, note);
         eventService.record(EventType.USER_ROLE_CHANGED, target.getIdentityUid(), note);
+        // Revoke active sessions so the new authority level applies immediately,
+        // not at next login (audit 3.9).
+        revokeSessions(targetUsername);
         return target;
     }
 
@@ -114,9 +124,8 @@ public class UserAdminService {
      * Assign a profession to a user — the privileged counterpart to public sign-up,
      * which can only ever create a CITIZEN (audit 4.1 / 4.2). Re-derives the identity's
      * business roles, trust level and the admin flag from the profession, so granting
-     * {@code DOCTOR} actually unlocks medical access for that account. The ROLE_ADMIN
-     * session authority still refreshes on the user's next login (authorities are
-     * session-bound).
+     * {@code DOCTOR} actually unlocks medical access for that account. The user's
+     * active sessions are revoked so the change applies immediately (audit 3.9).
      */
     @Transactional
     public User setProfession(String actingAdminUsername, String targetUsername, String professionKey) {
@@ -137,6 +146,7 @@ public class UserAdminService {
                 + userService.professionLabel(normalized) + "» администратором «" + actingAdminUsername + "».";
         auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_ROLE_CHANGED, note);
         eventService.record(EventType.USER_ROLE_CHANGED, target.getIdentityUid(), note);
+        revokeSessions(targetUsername);
         return target;
     }
 
@@ -171,6 +181,22 @@ public class UserAdminService {
     private void guardNotSelf(String actingAdminUsername, String targetUsername, String message) {
         if (actingAdminUsername != null && actingAdminUsername.equalsIgnoreCase(targetUsername)) {
             throw new IllegalStateException(message);
+        }
+    }
+
+    /**
+     * Immediately expire every active session of {@code username} (audit 3.9). The
+     * next request on an expired session is rejected, forcing re-authentication, so a
+     * ban or privilege change takes effect now instead of at the user's next login.
+     */
+    private void revokeSessions(String username) {
+        for (Object principal : sessionRegistry.getAllPrincipals()) {
+            String name = (principal instanceof UserDetails ud) ? ud.getUsername() : String.valueOf(principal);
+            if (username.equalsIgnoreCase(name)) {
+                for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
+                    info.expireNow();
+                }
+            }
         }
     }
 

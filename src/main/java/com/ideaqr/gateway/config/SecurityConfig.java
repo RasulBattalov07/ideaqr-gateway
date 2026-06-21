@@ -9,6 +9,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -18,6 +20,7 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 
 import java.io.IOException;
 
@@ -58,9 +61,26 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Tracks active authenticated sessions so an administrator can revoke them
+     * immediately on a privilege change (audit 3.9) — a demoted admin no longer keeps
+     * {@code ROLE_ADMIN} until their next login.
+     */
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    /** Publishes session lifecycle events so the {@link SessionRegistry} stays accurate. */
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   RateLimitingFilter rateLimitingFilter) throws Exception {
+                                                   RateLimitingFilter rateLimitingFilter,
+                                                   SessionRegistry sessionRegistry) throws Exception {
         CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfTokenRepository.setCookiePath("/");
         CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
@@ -93,7 +113,11 @@ public class SecurityConfig {
                         headers.contentSecurityPolicy(csp -> csp.policyDirectives(contentSecurityPolicy()));
                     }
                 })
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                .sessionManagement(sm -> sm
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        // Register sessions (unlimited concurrency) so they can be
+                        // revoked on demand when a user's privileges change (audit 3.9).
+                        .maximumSessions(-1).sessionRegistry(sessionRegistry))
                 .authorizeHttpRequests(auth -> {
                     // Public shell + self-hosted static assets.
                     auth.requestMatchers(

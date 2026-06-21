@@ -62,7 +62,7 @@ public class UserAdminController {
         String admin = authSupport.requireUser(authentication).getUsername();
         boolean makeAdmin = resolveMakeAdmin(body);
         User user = userAdminService.setAdmin(admin, username, makeAdmin);
-        return ResponseEntity.ok(ApiResponse.ok("Уровень доступа обновлён (применится при следующем входе пользователя).")
+        return ResponseEntity.ok(ApiResponse.ok("Уровень доступа обновлён. Активные сессии пользователя завершены.")
                 .with("username", user.getUsername())
                 .with("admin", user.isAdmin()));
     }
@@ -82,7 +82,7 @@ public class UserAdminController {
             throw new IllegalArgumentException("Укажите профессию.");
         }
         User user = userAdminService.setProfession(admin, username, profession);
-        return ResponseEntity.ok(ApiResponse.ok("Профессия обновлена (применится при следующем входе пользователя).")
+        return ResponseEntity.ok(ApiResponse.ok("Профессия обновлена. Активные сессии пользователя завершены.")
                 .with("username", user.getUsername())
                 .with("admin", user.isAdmin())
                 .with("profession", user.getProfession()));

@@ -6,6 +6,7 @@ import com.ideaqr.gateway.domain.enums.ObjectCategory;
 import com.ideaqr.gateway.domain.enums.RoleType;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalTime;
 import java.util.Set;
 
@@ -26,6 +27,17 @@ public class ValidationService {
     private static final int TRUST_MEDICAL = 70;
     private static final int TRUST_INFRA = 60;
 
+    /**
+     * Server clock used for the working-hours gate. Injected (not {@code LocalTime.now()})
+     * so the policy stays server-side and un-spoofable (audit 4.3) yet remains
+     * deterministically testable with a fixed clock.
+     */
+    private final Clock clock;
+
+    public ValidationService(Clock clock) {
+        this.clock = clock;
+    }
+
     /** Immutable verdict carrying everything a {@code Decision} needs. */
     public record Verdict(DecisionOutcome outcome, String reasonCode, String reason, String riskLevel) {}
 
@@ -38,7 +50,7 @@ public class ValidationService {
         int trust = identity.getTrustLevel();
         // Security (audit 4.3): the time gate uses the SERVER clock exclusively. There
         // is no client-supplied hour, so the working-hours policy cannot be spoofed.
-        int hour = LocalTime.now().getHour();
+        int hour = LocalTime.now(clock).getHour();
         boolean workingHours = hour >= WORK_START && hour < WORK_END;
 
         return switch (category) {
