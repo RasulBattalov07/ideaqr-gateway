@@ -196,7 +196,10 @@ to mobile with visible keyboard focus.
   profile; it is **hard-disabled and unreachable on the `prod` / `postgres` profiles**
   (audit 4.4). Path `/h2-console`; the DB password is taken from `H2_PASSWORD` (blank
   only for the throwaway local file DB, where the console is the sole access path).
-- Schema is managed with `ddl-auto=update` (preserved across restarts).
+- Schema is owned by **Flyway** migrations (`src/main/resources/db/migration`).
+  Hibernate runs with `ddl-auto=validate` — it never mutates the schema, only verifies
+  the entity model matches it and fails fast on drift. The same portable `V1` baseline
+  runs on both H2 and PostgreSQL; `baseline-on-migrate=true` adopts a pre-existing DB.
 - To start fresh, stop the app and delete the `./data` directory.
 
 ---
@@ -247,8 +250,8 @@ This build was hardened against an internal red-team audit. Highlights:
 - **Investor MVP.** All registry data (including the medical record) is **mock data**;
   no real personal data is stored.
 
-**Roadmap (not yet implemented):** versioned DB migrations (Flyway), real foreign keys,
-multi-tenant isolation, and a shared session / rate-limit store for multi-instance scale.
+**Roadmap (not yet implemented):** real foreign keys, multi-tenant isolation, and a
+shared session / rate-limit store for multi-instance scale.
 
 ---
 

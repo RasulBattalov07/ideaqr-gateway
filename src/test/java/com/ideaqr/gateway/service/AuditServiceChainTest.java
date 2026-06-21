@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.UUID;
 
@@ -16,9 +17,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Proves the "immutable journal" claim is real, not a comment (audit 4.5): appends
  * form an intact SHA-256 chain, and an out-of-band edit that bypasses the
  * application is detected by {@code verifyChain()}.
+ *
+ * <p>This slice builds its own schema from the entities (Flyway off, create-drop) so
+ * it stays independent of the migration pipeline, which the full-context tests cover.</p>
  */
 @DataJpaTest
 @Import(AuditService.class)
+@TestPropertySource(properties = {
+        "spring.flyway.enabled=false",
+        "spring.jpa.hibernate.ddl-auto=create-drop"
+})
 class AuditServiceChainTest {
 
     @Autowired

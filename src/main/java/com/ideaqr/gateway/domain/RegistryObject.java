@@ -46,9 +46,14 @@ public class RegistryObject {
     @Column(name = "display_name", nullable = false, length = 200)
     private String displayName;
 
-    /** Card payload as JSON (rendered by the client according to category). */
-    @Lob
-    @Column(name = "data_json", nullable = false)
+    /**
+     * Card payload as JSON (rendered by the client according to category). Stored as
+     * a portable sized text column rather than a {@code @Lob}: a LOB maps to {@code CLOB}
+     * on H2 but {@code OID} on PostgreSQL, which would force two divergent Flyway
+     * baselines. {@code varchar(16000)} validates identically on both and is far larger
+     * than any object card.
+     */
+    @Column(name = "data_json", nullable = false, length = 16000)
     private String dataJson;
 
     /** Identity that minted and governs this object. */

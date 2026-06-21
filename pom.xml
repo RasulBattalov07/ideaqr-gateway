@@ -47,6 +47,13 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Versioned, reproducible database migrations (Flyway). Core supports both
+             H2 and PostgreSQL in the Spring Boot 3.2 managed version. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
         <!-- File-based persistent H2 (default profile) -->
         <dependency>
             <groupId>com.h2database</groupId>
