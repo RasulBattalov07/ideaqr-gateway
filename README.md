@@ -83,8 +83,9 @@ docker run -p 8080:8080 ideaqr-gateway
 
 ## Demo accounts
 
-Seeded automatically on first run. On the login screen you can also click a demo
-account chip to auto-fill the form.
+Seeded automatically on first run. These are **throwaway local-demo credentials**:
+they are provisioned server-side, are **not printed on the login screen** (audit 1.3),
+and do not exist in a production deployment backed by a real database.
 
 | Username    | Password      | Person (RU)         | Interface        | Domain role |
 |-------------|---------------|---------------------|------------------|-------------|
@@ -191,8 +192,10 @@ to mobile with visible keyboard focus.
 ## Persistence & inspection
 
 - Default DB file: `./data/ideaqr.mv.db` (created on first run).
-- **H2 console:** http://localhost:8080/h2-console
-  JDBC URL `jdbc:h2:file:./data/ideaqr`, user `sa`, empty password.
+- **H2 console — local development only.** Enabled solely on the default (local)
+  profile; it is **hard-disabled and unreachable on the `prod` / `postgres` profiles**
+  (audit 4.4). Path `/h2-console`; the DB password is taken from `H2_PASSWORD` (blank
+  only for the throwaway local file DB, where the console is the sole access path).
 - Schema is managed with `ddl-auto=update` (preserved across restarts).
 - To start fresh, stop the app and delete the `./data` directory.
 
@@ -200,30 +203,52 @@ to mobile with visible keyboard focus.
 
 ## Deploying with PostgreSQL (e.g. Render)
 
-A `postgres` profile is included. Provide the standard datasource environment variables
-and activate the profile:
+Two production-ready profiles ship:
+
+- **`prod`** — the Render default (`render.yaml`). Hardened file-H2: console off,
+  security headers on, DB password required from `H2_PASSWORD` (a platform-generated
+  secret) — never a blank `sa`.
+- **`postgres`** — managed PostgreSQL. The JDBC URL is assembled from discrete vars
+  (Render exposes host/port/db individually):
 
 ```bash
 SPRING_PROFILES_ACTIVE=postgres
-SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
-SPRING_DATASOURCE_USERNAME=<user>
-SPRING_DATASOURCE_PASSWORD=<password>
+DB_HOST=<host>
+DB_PORT=5432
+DB_NAME=<db>
+DB_USERNAME=<user>
+DB_PASSWORD=<password>
 ```
 
 The server binds to `$PORT` automatically (defaults to 8080), which suits Render/Heroku.
 
 ---
 
-## Security notes & caveats
+## Security posture
 
-- **Investor MVP.** All registry data (including the medical record) is **mock data**
-  that simulates integration with external registries. No real personal data is stored.
-- **CSRF is disabled** to keep the JSON SPA + form-login flow simple for the demo. A
-  production build would enable CSRF tokens (or move to a stateless token scheme) and
-  serve the app over HTTPS.
-- Passwords are hashed with **BCrypt**; the session cookie is `JSESSIONID`.
-- The H2 console and verbose error bodies are development conveniences and should be
-  disabled in production.
+This build was hardened against an internal red-team audit. Highlights:
+
+- **No privilege from client input.** Public registration always creates a `CITIZEN`;
+  specialist/admin roles are granted only by a privileged path (server seeding or the
+  admin endpoint `POST /api/admin/users/{username}/profession`). A role change or ban
+  revokes the user's active sessions immediately, not at their next login.
+- **CSRF enabled** — a double-submit `XSRF-TOKEN` cookie echoed in the `X-XSRF-TOKEN`
+  header on every state-changing request. Passwords use **BCrypt**; session cookie is
+  `JSESSIONID`.
+- **Security headers** (on `prod`): Content-Security-Policy, `X-Frame-Options: DENY`,
+  Referrer-Policy, HSTS. The H2 console is unreachable in production.
+- **Immutable audit is real, not a label.** The history journal is append-only and
+  **hash-chained** (`prev_hash` → `entry_hash`); `GET /api/admin/audit/verify` proves
+  integrity and detects any out-of-band edit.
+- **Server-side time** drives the working-hours policy (never client-supplied).
+- **Rate limiting** on the public guest / register / login endpoints; password policy
+  is ≥ 12 chars with letters and digits.
+- Front-end assets (fonts, QR scanner) are **self-hosted** — no external CDN.
+- **Investor MVP.** All registry data (including the medical record) is **mock data**;
+  no real personal data is stored.
+
+**Roadmap (not yet implemented):** versioned DB migrations (Flyway), real foreign keys,
+multi-tenant isolation, and a shared session / rate-limit store for multi-instance scale.
 
 ---
 

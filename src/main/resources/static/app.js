@@ -913,13 +913,13 @@
                         const pwBtn = `<button class="btn btn-sm btn-ghost" data-act="reset" data-u="${esc(u.username)}">Сброс пароля</button>`;
                         return `
                         <tr>
-                            <td>${esc(u.fullName)}${isSelf ? ' <span class="atag info">вы</span>' : ''}</td>
-                            <td class="mono">${esc(u.username)}</td>
-                            <td>${esc(u.professionLabel)}</td>
-                            <td>${statusBadge}${adminBadge}</td>
-                            <td><strong>${esc(u.trustScore)}</strong> / 100</td>
-                            <td>${esc(u.riskScore || '—')}</td>
-                            <td><div class="um-actions">${blockBtn}${roleBtn}${pwBtn}</div></td>
+                            <td data-label="Имя">${esc(u.fullName)}${isSelf ? ' <span class="atag info">вы</span>' : ''}</td>
+                            <td class="mono" data-label="Логин">${esc(u.username)}</td>
+                            <td data-label="Профессия">${esc(u.professionLabel)}</td>
+                            <td data-label="Статус">${statusBadge}${adminBadge}</td>
+                            <td data-label="Trust Score"><strong>${esc(u.trustScore)}</strong> / 100</td>
+                            <td data-label="Риск">${esc(u.riskScore || '—')}</td>
+                            <td data-label="Действия"><div class="um-actions">${blockBtn}${roleBtn}${pwBtn}</div></td>
                         </tr>`;
                     }).join('')}</tbody>
                 </table></div>
@@ -1644,11 +1644,11 @@
                 ? `<tr><td colspan="5" class="empty">Событий пока нет.</td></tr>`
                 : rows.map(h => `
                 <tr>
-                    <td class="evt">${esc(EVENT_RU[h.eventType] || h.eventType || 'Событие')}</td>
-                    <td>${eventTag(h.eventType)}</td>
-                    <td class="mono">${esc(h.objectUid || '—')}</td>
-                    <td class="uuid">${esc(shortId(h.historyUid))}</td>
-                    <td class="ts">${esc(h.createdAt || '—')}</td>
+                    <td class="evt" data-label="Событие">${esc(EVENT_RU[h.eventType] || h.eventType || 'Событие')}</td>
+                    <td data-label="Статус">${eventTag(h.eventType)}</td>
+                    <td class="mono" data-label="Объект">${esc(h.objectUid || '—')}</td>
+                    <td class="uuid" data-label="ID записи">${esc(shortId(h.historyUid))}</td>
+                    <td class="ts" data-label="Время">${esc(h.createdAt || '—')}</td>
                 </tr>`).join('');
             const pager = document.getElementById('audit-pager');
             if (pager) {

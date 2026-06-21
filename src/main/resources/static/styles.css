@@ -665,6 +665,31 @@ a { color: var(--primary); }
     .page-head h2 { font-size: 20px; }
     .qr-result img { width: 180px; height: 180px; }
     .user-chip .uc-meta { display: none; }
+
+    /* Responsive card-tables (audit 2.2): on phones the wide Users (7 col) and
+       Audit (5 col) tables stop side-scrolling and become stacked label→value
+       cards — the pattern GOV.UK recommends instead of horizontal scroll. */
+    .table-scroll { overflow-x: visible; border: none; border-radius: 0; }
+    .audit-tbl, .audit-tbl tbody, .audit-tbl tr, .audit-tbl td { display: block; width: 100%; }
+    .audit-tbl thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .audit-tbl tr {
+        border: 1px solid var(--line); border-radius: var(--r-md);
+        margin-bottom: 10px; background: var(--surface); overflow: hidden;
+    }
+    .audit-tbl td {
+        display: flex; justify-content: space-between; align-items: center; gap: 14px;
+        padding: 10px 13px; text-align: right; border-bottom: 1px solid var(--line-soft);
+        white-space: normal;
+    }
+    .audit-tbl tr td:last-child { border-bottom: none; }
+    .audit-tbl td::before {
+        content: attr(data-label); flex: none; text-align: left;
+        color: var(--muted); font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .audit-tbl td.empty { justify-content: center; }
+    .audit-tbl td.empty::before { content: none; }
+    .audit-tbl .um-actions { justify-content: flex-end; }
 }
 
 @media (prefers-reduced-motion: reduce) {
