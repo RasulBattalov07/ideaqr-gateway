@@ -29,14 +29,16 @@ public class ValidationService {
     /** Immutable verdict carrying everything a {@code Decision} needs. */
     public record Verdict(DecisionOutcome outcome, String reasonCode, String reason, String riskLevel) {}
 
-    public Verdict decideAccess(Identity identity, ObjectCategory category, Integer contextHour, boolean known) {
+    public Verdict decideAccess(Identity identity, ObjectCategory category, boolean known) {
         if (category == null || category == ObjectCategory.UNKNOWN) {
             return new Verdict(REJECTED, "OBJECT_NOT_FOUND", "Объект не найден в реестре.", "MEDIUM");
         }
 
         Set<RoleType> roles = identity.getRoles();
         int trust = identity.getTrustLevel();
-        int hour = contextHour != null ? contextHour : LocalTime.now().getHour();
+        // Security (audit 4.3): the time gate uses the SERVER clock exclusively. There
+        // is no client-supplied hour, so the working-hours policy cannot be spoofed.
+        int hour = LocalTime.now().getHour();
         boolean workingHours = hour >= WORK_START && hour < WORK_END;
 
         return switch (category) {

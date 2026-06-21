@@ -65,6 +65,122 @@
         return `<div class="inline-load"><span class="il-dot"></span><span>${esc(text)}</span></div>`;
     }
 
+    // -------------------------------------------------------------
+    //  Modal dialogs — accessible replacements for native
+    //  prompt()/alert()/confirm() (audit 2.1): focus trap, Esc to
+    //  close, focus restored to the trigger, role="dialog".
+    // -------------------------------------------------------------
+    function focusables(root) {
+        return Array.from(root.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )).filter(el => !el.disabled && el.offsetParent !== null);
+    }
+
+    function showModal({ title, bodyHtml = '', actions = [], onBody, dismissValue = null }) {
+        return new Promise((resolve) => {
+            const prevFocus = document.activeElement;
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-card" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+                    <div class="modal-head">
+                        <h3>${esc(title)}</h3>
+                        <button class="modal-x" type="button" aria-label="Закрыть">✕</button>
+                    </div>
+                    <div class="modal-body">${bodyHtml}</div>
+                    <div class="modal-actions"></div>
+                </div>`;
+            const card = overlay.querySelector('.modal-card');
+            const actionsBox = overlay.querySelector('.modal-actions');
+            let settled = false;
+
+            function close(result) {
+                if (settled) return;
+                settled = true;
+                document.removeEventListener('keydown', onKey, true);
+                overlay.remove();
+                if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (_) { /* ignore */ } }
+                resolve(result);
+            }
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); close(dismissValue); return; }
+                if (e.key !== 'Tab') return;
+                const items = focusables(card);
+                if (!items.length) return;
+                const first = items[0], last = items[items.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+
+            actions.forEach(a => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'btn ' + (a.cls || 'btn-ghost');
+                b.textContent = a.label;
+                b.addEventListener('click', () => close(a.value));
+                actionsBox.appendChild(b);
+            });
+            overlay.querySelector('.modal-x').addEventListener('click', () => close(dismissValue));
+            overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(dismissValue); });
+            document.addEventListener('keydown', onKey, true);
+            document.body.appendChild(overlay);
+            if (onBody) onBody(card, { close });
+
+            const items = focusables(card);
+            const preferred = card.querySelector('[data-autofocus]')
+                || items.find(i => !i.classList.contains('modal-x')) || items[0];
+            if (preferred) preferred.focus();
+        });
+    }
+
+    function modalConfirm(message, { title = 'Подтверждение', confirmText = 'Подтвердить', danger = false } = {}) {
+        return showModal({
+            title,
+            bodyHtml: `<p class="modal-text">${esc(message)}</p>`,
+            dismissValue: false,
+            actions: [
+                { label: 'Отмена', cls: 'btn-ghost', value: false },
+                { label: confirmText, cls: danger ? 'btn-danger' : 'btn-primary', value: true }
+            ]
+        });
+    }
+
+    function modalAlert(message, { title = 'Сообщение', copyText = null } = {}) {
+        const copyBlock = copyText
+            ? `<div class="modal-copy"><code class="modal-copy-val">${esc(copyText)}</code>
+                 <button class="btn btn-sm btn-ghost modal-copy-btn" type="button">Копировать</button></div>`
+            : '';
+        return showModal({
+            title,
+            bodyHtml: `<p class="modal-text">${esc(message)}</p>${copyBlock}`,
+            dismissValue: true,
+            actions: [{ label: 'Закрыть', cls: 'btn-primary', value: true }],
+            onBody: (card) => {
+                const btn = card.querySelector('.modal-copy-btn');
+                if (btn) btn.addEventListener('click', async () => {
+                    try { await navigator.clipboard.writeText(copyText); btn.textContent = 'Скопировано ✓'; }
+                    catch (_) { btn.textContent = 'Скопируйте вручную'; }
+                });
+            }
+        });
+    }
+
+    function modalSelect(message, options, { title = 'Выбор' } = {}) {
+        const opts = options.map((o, i) =>
+            `<button class="modal-option" type="button" data-i="${i}">${esc(o.label)}</button>`).join('');
+        return showModal({
+            title,
+            bodyHtml: `<p class="modal-text">${esc(message)}</p><div class="modal-options">${opts}</div>`,
+            dismissValue: null,
+            actions: [{ label: 'Отмена', cls: 'btn-ghost', value: null }],
+            onBody: (card, { close }) => {
+                card.querySelectorAll('.modal-option').forEach(btn => {
+                    btn.addEventListener('click', () => close(options[Number(btn.dataset.i)].value));
+                });
+            }
+        });
+    }
+
     // Audit event labels + status class
     const EVENT_RU = {
         ACCESS_GRANTED: 'Доступ предоставлен',
@@ -99,11 +215,46 @@
         return labels[category] || category;
     }
 
+    // Server-side pagination controls (audit 3.1). `pageData` is the PageResponse
+    // envelope { content, page, size, totalElements, totalPages, hasNext, hasPrevious }.
+    function pagerHtml(pageData) {
+        if (!pageData || pageData.totalPages <= 1) return '';
+        return `<div class="pager">
+            <button class="btn btn-sm btn-ghost pager-prev" type="button" ${pageData.hasPrevious ? '' : 'disabled'}>← Назад</button>
+            <span class="pager-info">Стр. ${pageData.page + 1} из ${pageData.totalPages} · всего ${pageData.totalElements}</span>
+            <button class="btn btn-sm btn-ghost pager-next" type="button" ${pageData.hasNext ? '' : 'disabled'}>Вперёд →</button>
+        </div>`;
+    }
+
+    function bindPager(scope, pageData, onGo) {
+        if (!scope) return;
+        const prev = scope.querySelector('.pager-prev');
+        const next = scope.querySelector('.pager-next');
+        if (prev) prev.addEventListener('click', () => onGo(pageData.page - 1));
+        if (next) next.addEventListener('click', () => onGo(pageData.page + 1));
+    }
+
     // -------------------------------------------------------------
     //  API helpers
     // -------------------------------------------------------------
+    function getCookie(name) {
+        const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+        return match ? decodeURIComponent(match.pop()) : null;
+    }
+
+    // CSRF (audit 4.7): the server issues an XSRF-TOKEN cookie; echo it back in the
+    // X-XSRF-TOKEN header on every state-changing request so cookie-session POSTs
+    // cannot be forged cross-site.
+    function withCsrf(headers, method) {
+        if (method && method.toUpperCase() !== 'GET') {
+            const token = getCookie('XSRF-TOKEN');
+            if (token) headers['X-XSRF-TOKEN'] = token;
+        }
+        return headers;
+    }
+
     async function apiJson(path, { method = 'GET', body } = {}) {
-        const opts = { method, credentials: 'same-origin', headers: {} };
+        const opts = { method, credentials: 'same-origin', headers: withCsrf({}, method) };
         if (body !== undefined) {
             opts.headers['Content-Type'] = 'application/json';
             opts.body = JSON.stringify(body);
@@ -119,7 +270,7 @@
         const res = await fetch(path, {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: withCsrf({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'POST'),
             body: new URLSearchParams(params).toString()
         });
         const text = await res.text();
@@ -153,7 +304,12 @@
             const { ok, data } = await apiJson('/api/auth/guest', { method: 'POST', body: {} });
             if (!ok || !data) throw new Error((data && data.message) || 'Не удалось войти как гость');
             currentUser = data;
-            try { localStorage.setItem('ideaqr_guest_uid', data.identityUid); } catch (_) { /* ignore */ }
+            // Persist the guest UID + the one-time merge token issued to THIS browser.
+            // The token proves session ownership when merging later (audit 4.6).
+            try {
+                localStorage.setItem('ideaqr_guest_uid', data.identityUid);
+                if (data.mergeToken) localStorage.setItem('ideaqr_guest_token', data.mergeToken);
+            } catch (_) { /* ignore */ }
             toast('Вы вошли как гость. Действия будут записаны.', 'info');
             route();
         } catch (err) {
@@ -163,15 +319,21 @@
 
     // After a guest registers, transfer the guest history into the new identity.
     async function maybeMergeGuest() {
-        let guestUid = null;
-        try { guestUid = localStorage.getItem('ideaqr_guest_uid'); } catch (_) { /* ignore */ }
-        if (!guestUid || !currentUser || guestUid === currentUser.identityUid) return;
+        let guestUid = null, guestToken = null;
+        try {
+            guestUid = localStorage.getItem('ideaqr_guest_uid');
+            guestToken = localStorage.getItem('ideaqr_guest_token');
+        } catch (_) { /* ignore */ }
+        if (!guestUid || !guestToken || !currentUser || guestUid === currentUser.identityUid) return;
         try {
             const { ok, data } = await apiJson('/api/v2/guest/merge',
-                { method: 'POST', body: { guestIdentityUid: guestUid } });
+                { method: 'POST', body: { guestIdentityUid: guestUid, mergeToken: guestToken } });
             if (ok) toast((data && data.message) || 'История гостя перенесена.', 'ok');
         } catch (_) { /* ignore */ }
-        try { localStorage.removeItem('ideaqr_guest_uid'); } catch (_) { /* ignore */ }
+        try {
+            localStorage.removeItem('ideaqr_guest_uid');
+            localStorage.removeItem('ideaqr_guest_token');
+        } catch (_) { /* ignore */ }
     }
 
     // -------------------------------------------------------------
@@ -276,9 +438,10 @@
                     <div class="field-error" id="login-error"></div>
                     <button class="btn btn-primary btn-block" id="login-submit" type="submit">Войти</button>
 
-                    <div class="demo-creds">
-                        <div class="dc-label">Демонстрационные аккаунты</div>
-                        <div class="cred-grid" id="cred-grid"></div>
+                    <div class="demo-note">
+                        Демонстрационные аккаунты (администратор, врач, инспектор, гражданин)
+                        описаны в README проекта. В целях безопасности пароли не выводятся
+                        на экран входа.
                     </div>
                 </form>
 
@@ -299,7 +462,7 @@
                     </div>
                     <div class="field">
                         <label for="re-password">Пароль</label>
-                        <input id="re-password" type="password" autocomplete="new-password" placeholder="Не менее 6 символов">
+                        <input id="re-password" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры">
                     </div>
                     <div class="form-row">
                         <div class="field">
@@ -310,18 +473,12 @@
                             </select>
                         </div>
                         <div class="field">
-                            <label for="re-profession">Профессия</label>
-                            <select id="re-profession">
-                                <option value="CITIZEN">Гражданин</option>
-                                <option value="DOCTOR">Врач</option>
-                                <option value="PHARMACIST">Фармацевт</option>
-                                <option value="RETAIL_ADMIN">Администратор торговли</option>
-                                <option value="SELLER">Продавец</option>
-                                <option value="SERVICE_OPERATOR">Оператор услуг</option>
-                                <option value="INSPECTOR">Инспектор инфраструктуры</option>
-                            </select>
-                            <div class="field-hint" id="re-profession-hint" hidden>
-                                Профессия доступна только трудоустроенным. Без трудоустройства — «Гражданин».
+                            <label>Роль при регистрации</label>
+                            <div class="field-static">Гражданин</div>
+                            <div class="field-hint">
+                                Самостоятельная регистрация всегда создаёт роль «Гражданин».
+                                Специализированные роли (врач, инспектор, администратор)
+                                назначает администратор после проверки.
                             </div>
                         </div>
                     </div>
@@ -357,47 +514,10 @@
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
 
-        // Customer rule: an unemployed person cannot choose a profession.
-        // Lock the select to "Гражданин" while "Не трудоустроен(а)" is selected.
-        const employmentSel = document.getElementById('re-employment');
-        const professionSel = document.getElementById('re-profession');
-        const professionHint = document.getElementById('re-profession-hint');
-        function syncProfessionLock() {
-            const unemployed = employmentSel.value === 'UNEMPLOYED';
-            if (unemployed) {
-                professionSel.value = 'CITIZEN';
-                professionSel.disabled = true;
-            } else {
-                professionSel.disabled = false;
-            }
-            if (professionHint) professionHint.hidden = !unemployed;
-        }
-        if (employmentSel && professionSel) {
-            employmentSel.addEventListener('change', syncProfessionLock);
-            syncProfessionLock();
-        }
-
-        const creds = [
-            { role: 'Администратор торговли', login: 'admin', pass: 'Admin123!', badge: 'admin' },
-            { role: 'Врач', login: 'doctor', pass: 'Doctor123!', badge: 'user' },
-            { role: 'Инспектор', login: 'inspector', pass: 'Inspect123!', badge: 'user' },
-            { role: 'Гражданин', login: 'citizen', pass: 'Citizen123!', badge: 'user' }
-        ];
-        const grid = document.getElementById('cred-grid');
-        grid.innerHTML = creds.map((c, i) => `
-            <button class="cred-chip" type="button" data-i="${i}">
-                <div class="cc-role">${esc(c.role)}</div>
-                <div class="cc-login">${esc(c.login)} / ${esc(c.pass)}</div>
-                <span class="cc-badge ${c.badge}">${c.badge === 'admin' ? 'Админ' : 'Пользователь'}</span>
-            </button>`).join('');
-        grid.querySelectorAll('.cred-chip').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const c = creds[Number(btn.dataset.i)];
-                activate('login');
-                document.getElementById('li-username').value = c.login;
-                document.getElementById('li-password').value = c.pass;
-            });
-        });
+        // Self-service registration always provisions a CITIZEN (audit 4.1/4.2), so the
+        // employment selector no longer gates a profession picker — there isn't one.
+        // Demo account passwords are intentionally NOT printed on the login screen
+        // (audit 1.3); they live in the README for evaluators only.
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -428,7 +548,8 @@
                 username: document.getElementById('re-username').value.trim(),
                 password: document.getElementById('re-password').value,
                 employmentStatus: document.getElementById('re-employment').value,
-                profession: document.getElementById('re-profession').value
+                // Self-registration is always CITIZEN; the server enforces this regardless.
+                profession: 'CITIZEN'
             };
             if (!payload.firstName || !payload.lastName || !payload.username || !payload.password) {
                 errEl.textContent = 'Заполните все поля.'; return;
@@ -707,7 +828,7 @@
             if (data.length === 0) { list.innerHTML = `<div class="obj-empty">Пока нет созданных объектов.</div>`; return; }
             list.innerHTML = data.map(o => `
                 <div class="obj-item">
-                    <img src="${esc(o.qrImageDataUri)}" alt="QR ${esc(o.objectUid)}">
+                    <img src="${esc(o.qrImageUrl)}" alt="QR ${esc(o.objectUid)}" loading="lazy">
                     <div class="oi-body">
                         <div class="oi-name">${esc(o.displayName)}</div>
                         <div class="oi-uid">${esc(o.objectUid)}</div>
@@ -724,7 +845,10 @@
         <section class="panel panel-pad">
             <div class="audit-head">
                 <div class="section-title" style="margin-bottom:0">Неизменяемый журнал системы</div>
-                <button class="btn btn-ghost btn-sm" id="audit-refresh" type="button">Обновить</button>
+                <div class="audit-head-actions">
+                    <button class="btn btn-ghost btn-sm" id="audit-verify" type="button">Проверить целостность</button>
+                    <button class="btn btn-ghost btn-sm" id="audit-refresh" type="button">Обновить</button>
+                </div>
             </div>
             <div class="table-scroll">
                 <table class="audit-tbl">
@@ -732,27 +856,49 @@
                     <tbody id="audit-body"><tr><td colspan="5" class="empty">${'Загрузка…'}</td></tr></tbody>
                 </table>
             </div>
+            <div id="audit-pager"></div>
         </section>`;
         document.getElementById('audit-refresh').addEventListener('click', () => loadAudit('/api/v2/audit'));
+        document.getElementById('audit-verify').addEventListener('click', verifyAuditChain);
         loadAudit('/api/v2/audit');
+    }
+
+    // Surface the hash-chain integrity check (audit 4.5) so the "immutable journal"
+    // claim is demonstrable, not just asserted.
+    async function verifyAuditChain() {
+        try {
+            const { ok, data } = await apiJson('/api/admin/audit/verify');
+            if (!ok || !data) { toast('Не удалось проверить целостность журнала.', 'err'); return; }
+            if (data.valid) {
+                await modalAlert(`Хэш-цепочка журнала цела. Проверено записей: ${data.entriesChecked}.`,
+                    { title: 'Целостность подтверждена' });
+            } else {
+                await modalAlert(`Обнаружено нарушение цепочки на записи ${data.brokenAtHistoryUid}. `
+                    + `Журнал был изменён в обход системы.`, { title: 'Нарушение целостности' });
+            }
+        } catch (_) { toast('Ошибка проверки целостности.', 'err'); }
     }
 
     // =============================================================
     //  ADMIN: Users / Statistics / Analytics / Complaints / Modules
     // =============================================================
-    function renderAdminUsers() {
+    let adminUsersPage = 0;
+
+    function renderAdminUsers(page = adminUsersPage) {
+        adminUsersPage = page;
         const body = document.getElementById('admin-body');
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка пользователей…')}</section>`;
-        apiJson('/api/admin/users').then(({ ok, data }) => {
-            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+        apiJson(`/api/admin/users?page=${page}&size=25`).then(({ ok, data }) => {
+            if (!ok || !data || !Array.isArray(data.content)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+            const rows = data.content;
             const me = currentUser ? currentUser.username : null;
             body.innerHTML = `
             <section class="panel panel-pad">
-                <div class="section-title">Пользователи системы (${data.length})</div>
+                <div class="section-title">Пользователи системы (${data.totalElements})</div>
                 <p class="muted" style="margin-bottom:14px">Блокировка, смена уровня доступа и сброс пароля. Заблокированный пользователь не может войти и выполнять запросы.</p>
                 <div class="table-scroll"><table class="audit-tbl">
                     <thead><tr><th>Имя</th><th>Логин</th><th>Профессия</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
-                    <tbody>${data.map(u => {
+                    <tbody>${rows.map(u => {
                         const isSelf = me && u.username === me;
                         const statusBadge = u.blocked
                             ? '<span class="atag bad">● Заблокирован</span>'
@@ -777,10 +923,12 @@
                         </tr>`;
                     }).join('')}</tbody>
                 </table></div>
+                ${pagerHtml(data)}
             </section>`;
             body.querySelectorAll('.um-actions button[data-act]').forEach(btn => {
                 btn.addEventListener('click', () => handleUserAction(btn.getAttribute('data-act'), btn.getAttribute('data-u')));
             });
+            bindPager(body, data, p => renderAdminUsers(p));
         });
     }
 
@@ -790,7 +938,13 @@
             demote: `Снять права администратора у «${username}»?`,
             reset: `Сбросить пароль пользователя «${username}»? Будет выдан новый временный пароль.`
         };
-        if (confirms[act] && !window.confirm(confirms[act])) return;
+        if (confirms[act]) {
+            const ok = await modalConfirm(confirms[act], {
+                danger: act === 'block',
+                confirmText: act === 'block' ? 'Заблокировать' : 'Подтвердить'
+            });
+            if (!ok) return;
+        }
 
         const routes = {
             block: { path: `/api/admin/users/${encodeURIComponent(username)}/block`, body: undefined },
@@ -807,8 +961,9 @@
             if (!ok) { toast((data && data.message) || 'Не удалось выполнить действие.', 'err'); return; }
             if (act === 'reset' && data && data.details && data.details.temporaryPassword) {
                 const tmp = data.details.temporaryPassword;
-                toast('Пароль сброшен. Временный пароль: ' + tmp, 'ok');
-                window.alert(`Временный пароль для «${username}»:\n\n${tmp}\n\nПередайте его пользователю — он показывается один раз.`);
+                toast('Пароль сброшен.', 'ok');
+                await modalAlert('Временный пароль показывается один раз. Передайте его пользователю.',
+                    { title: 'Временный пароль · ' + username, copyText: tmp });
             } else {
                 toast((data && data.message) || 'Готово.', 'ok');
             }
@@ -1052,12 +1207,11 @@
                 const orgs = sessionInfo.organizations || [];
                 let orgUid = orgs.length ? orgs[0].organizationUid : null;
                 if (orgs.length > 1) {
-                    const names = orgs.map((o, i) => `${i + 1}. ${o.name} (${o.role})`).join('\n');
-                    const choice = window.prompt('Выберите организацию:\n' + names, '1');
-                    if (choice === null) return;
-                    const picked = orgs[parseInt(choice, 10) - 1];
-                    if (!picked) { toast('Организация не выбрана.', 'err'); return; }
-                    orgUid = picked.organizationUid;
+                    const options = orgs.map(o => ({ label: `${o.name} (${o.role})`, value: o.organizationUid }));
+                    const picked = await modalSelect('Выберите организацию для рабочего режима:', options,
+                        { title: 'Рабочий режим' });
+                    if (!picked) return;
+                    orgUid = picked;
                 }
                 const { ok, data } = await apiJson('/api/v2/mode/work',
                     { method: 'POST', body: orgUid ? { organizationUid: orgUid } : {} });
@@ -1070,7 +1224,9 @@
     }
 
     async function sendSOS() {
-        if (!window.confirm('Отправить SOS-сигнал? Будет создан приоритетный запрос.')) return;
+        const ok = await modalConfirm('Отправить SOS-сигнал? Будет создан приоритетный запрос.',
+            { title: 'SOS', confirmText: 'Отправить SOS', danger: true });
+        if (!ok) return;
         try {
             const { ok, data } = await apiJson('/api/v2/sos',
                 { method: 'POST', body: { message: 'SOS из терминала' } });
@@ -1147,16 +1303,6 @@
 
                 <div class="quick-label">Быстрые сценарии</div>
                 <div class="quick-chips" id="quick-chips"></div>
-
-                <div class="context-row">
-                    <label for="context-select">Контекст времени:</label>
-                    <select id="context-select">
-                        <option value="now">Текущее время</option>
-                        <option value="10">Рабочее — 10:00</option>
-                        <option value="23">Нерабочее — 23:00</option>
-                        <option value="3">Ночь — 03:00</option>
-                    </select>
-                </div>
             </section>
 
             <section class="panel panel-pad">
@@ -1203,20 +1349,13 @@
         document.getElementById('open-scanner').addEventListener('click', openScanner);
     }
 
-    function getContextHour() {
-        const v = document.getElementById('context-select');
-        if (!v || v.value === 'now') return null;
-        return parseInt(v.value, 10);
-    }
-
     async function doScan(objectUid) {
         const cleaned = String(objectUid).trim();
         // Personal identity QR → governed profile-access request (owner confirms).
         const result = document.getElementById('scan-result');
         result.innerHTML = inlineLoad('Проверка прав доступа и контекста…');
+        // No client-supplied time: the working-hours gate is evaluated server-side only (audit 4.3).
         const body = { objectUid: cleaned };
-        const ctx = getContextHour();
-        if (ctx !== null) body.contextHour = ctx;
         try {
             const { ok, data } = await apiJson('/api/v2/scan', { method: 'POST', body });
             if (!data || (!ok && !data.outcome)) throw new Error((data && data.message) || 'Ошибка сканирования');
@@ -1254,6 +1393,7 @@
                     <tbody id="audit-body"><tr><td colspan="5" class="empty">Загрузка…</td></tr></tbody>
                 </table>
             </div>
+            <div id="audit-pager"></div>
         </section>`;
         document.getElementById('audit-refresh').addEventListener('click', () => loadAudit('/api/v2/audit/me'));
         loadAudit('/api/v2/audit/me');
@@ -1490,18 +1630,19 @@
     // -------------------------------------------------------------
     //  Shared: audit table loader
     // -------------------------------------------------------------
-    async function loadAudit(path) {
+    async function loadAudit(path, page = 0) {
         const body = document.getElementById('audit-body');
         if (!body) return;
         try {
-            const { ok, data } = await apiJson(path);
-            if (!ok || !Array.isArray(data)) {
+            const sep = path.includes('?') ? '&' : '?';
+            const { ok, data } = await apiJson(`${path}${sep}page=${page}&size=50`);
+            if (!ok || !data || !Array.isArray(data.content)) {
                 body.innerHTML = `<tr><td colspan="5" class="empty">Не удалось загрузить журнал.</td></tr>`; return;
             }
-            if (data.length === 0) {
-                body.innerHTML = `<tr><td colspan="5" class="empty">Событий пока нет.</td></tr>`; return;
-            }
-            body.innerHTML = data.map(h => `
+            const rows = data.content;
+            body.innerHTML = rows.length === 0
+                ? `<tr><td colspan="5" class="empty">Событий пока нет.</td></tr>`
+                : rows.map(h => `
                 <tr>
                     <td class="evt">${esc(EVENT_RU[h.eventType] || h.eventType || 'Событие')}</td>
                     <td>${eventTag(h.eventType)}</td>
@@ -1509,6 +1650,11 @@
                     <td class="uuid">${esc(shortId(h.historyUid))}</td>
                     <td class="ts">${esc(h.createdAt || '—')}</td>
                 </tr>`).join('');
+            const pager = document.getElementById('audit-pager');
+            if (pager) {
+                pager.innerHTML = pagerHtml(data);
+                bindPager(pager, data, p => loadAudit(path, p));
+            }
         } catch (_) {
             body.innerHTML = `<tr><td colspan="5" class="empty">Ошибка подключения к журналу.</td></tr>`;
         }
@@ -1841,7 +1987,7 @@
         const overlay = document.getElementById('scanner-overlay');
         overlay.hidden = false;
         if (typeof Html5Qrcode === 'undefined') {
-            toast('Сканер недоступен (нет связи с CDN). Используйте ручной ввод.', 'err');
+            toast('Библиотека сканера не загрузилась. Используйте ручной ввод.', 'err');
             overlay.hidden = true;
             return;
         }

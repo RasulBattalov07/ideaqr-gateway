@@ -5,6 +5,7 @@ import com.ideaqr.gateway.dto.ApiResponse;
 import com.ideaqr.gateway.service.UserAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")  // method-level guard beyond the URL matcher (audit 3.8)
 public class UserAdminController {
 
     private final UserAdminService userAdminService;
@@ -63,6 +65,27 @@ public class UserAdminController {
         return ResponseEntity.ok(ApiResponse.ok("Уровень доступа обновлён (применится при следующем входе пользователя).")
                 .with("username", user.getUsername())
                 .with("admin", user.isAdmin()));
+    }
+
+    /**
+     * Assign a profession (and its derived roles / trust / admin flag) to a user.
+     * This is the privileged path that grants specialist or administrator access —
+     * public registration can only create a CITIZEN. Body: {@code {"profession": "DOCTOR"}}.
+     */
+    @PostMapping("/users/{username}/profession")
+    public ResponseEntity<ApiResponse> profession(@PathVariable String username,
+                                                  @RequestBody(required = false) Map<String, Object> body,
+                                                  Authentication authentication) {
+        String admin = authSupport.requireUser(authentication).getUsername();
+        String profession = str(body, "profession");
+        if (profession == null || profession.isBlank()) {
+            throw new IllegalArgumentException("Укажите профессию.");
+        }
+        User user = userAdminService.setProfession(admin, username, profession);
+        return ResponseEntity.ok(ApiResponse.ok("Профессия обновлена (применится при следующем входе пользователя).")
+                .with("username", user.getUsername())
+                .with("admin", user.isAdmin())
+                .with("profession", user.getProfession()));
     }
 
     @PostMapping("/users/{username}/reset-password")

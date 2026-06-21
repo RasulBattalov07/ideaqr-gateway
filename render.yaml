@@ -20,17 +20,26 @@ services:
     envVars:
       - key: JAVA_OPTS
         value: "-XX:MaxRAMPercentage=70.0 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
-      # Uncomment to use a managed Postgres instead of file-H2. The `postgres`
-      # profile reads DATABASE_URL / DB_USERNAME / DB_PASSWORD (see
-      # application-postgres.properties). DATABASE_URL must be a JDBC URL.
-      # - key: SPRING_PROFILES_ACTIVE
-      #   value: "postgres"
-      # - key: DATABASE_URL
-      #   value: "jdbc:postgresql://<host>:5432/<db>"
+      # Production profile: H2 web console hard-disabled, security headers on,
+      # DB password required from the environment (audit 4.4 / 4.10).
+      - key: SPRING_PROFILES_ACTIVE
+        value: "prod"
+      # Strong, platform-generated H2 password — never a blank `sa`.
+      - key: H2_PASSWORD
+        generateValue: true
+      # To use a managed Postgres instead of file-H2, switch SPRING_PROFILES_ACTIVE
+      # to "postgres" and provide DB_HOST / DB_PORT / DB_NAME / DB_USERNAME /
+      # DB_PASSWORD (see application-postgres.properties and the database block below).
+      # - key: DB_HOST
+      #   fromDatabase: { name: ideaqr-db, property: host }
+      # - key: DB_PORT
+      #   fromDatabase: { name: ideaqr-db, property: port }
+      # - key: DB_NAME
+      #   fromDatabase: { name: ideaqr-db, property: database }
       # - key: DB_USERNAME
-      #   value: "<user>"
+      #   fromDatabase: { name: ideaqr-db, property: user }
       # - key: DB_PASSWORD
-      #   value: "<password>"
+      #   fromDatabase: { name: ideaqr-db, property: password }
     disk:
       name: ideaqr-data
       mountPath: /app/data

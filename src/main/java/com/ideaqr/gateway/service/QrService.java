@@ -243,6 +243,15 @@ public class QrService {
     }
 
     private String pngDataUri(String text) {
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(pngBytes(text));
+    }
+
+    /**
+     * Encode {@code text} as a 320×320 PNG QR code. Output is deterministic for a
+     * given value, so callers (e.g. the cached {@code GET /api/qr/{uid}.png} endpoint)
+     * can safely cache it instead of re-encoding on every list render (audit 3.4).
+     */
+    public byte[] pngBytes(String text) {
         try {
             Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
             hints.put(EncodeHintType.MARGIN, 1);
@@ -251,7 +260,7 @@ public class QrService {
             BufferedImage image = MatrixToImageWriter.toBufferedImage(matrix);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "PNG", out);
-            return "data:image/png;base64," + Base64.getEncoder().encodeToString(out.toByteArray());
+            return out.toByteArray();
         } catch (Exception e) {
             throw new IllegalStateException("Не удалось сгенерировать QR-код", e);
         }

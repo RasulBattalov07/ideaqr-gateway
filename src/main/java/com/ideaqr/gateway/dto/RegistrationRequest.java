@@ -17,8 +17,11 @@ public class RegistrationRequest {
     @Size(min = 3, max = 60, message = "Имя пользователя: от 3 до 60 символов")
     private String username;
 
+    // Stronger policy than the old 6-char minimum (audit 4.9). BCrypt caps at 72 bytes.
     @NotBlank(message = "Укажите пароль")
-    @Size(min = 6, max = 72, message = "Пароль: от 6 до 72 символов")
+    @Size(min = 12, max = 72, message = "Пароль: не менее 12 символов")
+    @Pattern(regexp = "^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\\d).+$",
+            message = "Пароль должен содержать буквы и цифры")
     private String password;
 
     @NotBlank(message = "Укажите имя")

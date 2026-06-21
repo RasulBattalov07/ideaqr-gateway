@@ -43,25 +43,40 @@ public class GuestController {
     /** Public: provision a guest account and start an authenticated session. */
     @PostMapping("/api/auth/guest")
     public ResponseEntity<CurrentUserResponse> guest(HttpServletRequest request, HttpServletResponse response) {
-        User user = userService.createGuestAccount();
+        UserService.GuestAccount guestAccount = userService.createGuestAccount();
+        User user = guestAccount.user();
         UserDetails details = userDetailsService.loadUserByUsername(user.getUsername());
         Authentication auth = new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
+
+        // Rotate the session id on authentication to defeat session fixation (audit 4.10).
+        request.getSession(true);
+        request.changeSessionId();
+
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(auth);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
-        return ResponseEntity.ok(userService.buildCurrentUser(user));
+
+        // Hand the one-time merge token to this browser only; only its hash is stored.
+        CurrentUserResponse body = userService.buildCurrentUser(user);
+        body.setMergeToken(guestAccount.mergeToken());
+        return ResponseEntity.ok(body);
     }
 
-    /** Merge a guest identity's history into the currently authenticated identity. */
+    /**
+     * Merge a guest identity's history into the currently authenticated identity.
+     * Requires the one-time {@code mergeToken} that was issued to the guest's browser
+     * at creation — proof of ownership of the guest session (audit 4.6).
+     */
     @PostMapping("/api/v2/guest/merge")
     public ResponseEntity<ApiResponse> merge(@RequestBody Map<String, String> body, Authentication authentication) {
         Identity target = authSupport.requireIdentity(authentication);
         String raw = body != null ? body.get("guestIdentityUid") : null;
+        String mergeToken = body != null ? body.get("mergeToken") : null;
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("Не указан идентификатор гостевой личности.");
         }
-        int moved = guestService.merge(target, UUID.fromString(raw.trim()));
+        int moved = guestService.merge(target, UUID.fromString(raw.trim()), mergeToken);
         return ResponseEntity.ok(ApiResponse.ok("История гостя перенесена. Записей: " + moved).with("moved", moved));
     }
 }

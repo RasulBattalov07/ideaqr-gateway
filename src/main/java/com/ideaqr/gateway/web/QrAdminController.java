@@ -8,6 +8,7 @@ import com.ideaqr.gateway.service.QrService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,6 +31,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")  // method-level guard beyond the URL matcher (audit 3.8)
 public class QrAdminController {
 
     private final QrService qrService;
@@ -59,7 +61,8 @@ public class QrAdminController {
             m.put("trustScore", obj.getTrustScore());
             m.put("qrUid", obj.getQrUid() != null ? obj.getQrUid().toString() : null);
             m.put("createdAt", obj.getCreatedAt() != null ? obj.getCreatedAt().format(TS) : null);
-            m.put("qrImageDataUri", qrService.regenerateImageFor(obj.getObjectUid()));
+            // Cacheable URL instead of re-encoding a base64 PNG per row per load (audit 3.4).
+            m.put("qrImageUrl", "/api/qr/" + obj.getObjectUid() + ".png");
             summaries.add(m);
         }
         return ResponseEntity.ok(summaries);

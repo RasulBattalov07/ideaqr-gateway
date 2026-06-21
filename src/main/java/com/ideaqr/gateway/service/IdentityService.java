@@ -6,6 +6,7 @@ import com.ideaqr.gateway.domain.enums.IdentityStatus;
 import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.RoleType;
 import com.ideaqr.gateway.repository.IdentityRepository;
+import com.ideaqr.gateway.util.Hashing;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,19 +49,27 @@ public class IdentityService {
         return identity;
     }
 
+    /** A provisioned guest identity plus the one-time merge token for its browser. */
+    public record GuestProvision(Identity identity, String mergeToken) {}
+
     @Transactional
-    public Identity createGuestIdentity() {
+    public GuestProvision createGuestIdentity() {
+        // Issue a one-time, high-entropy merge token; only its hash is persisted.
+        // Presenting the matching token later proves ownership of this guest session
+        // and is the gate on merge (audit 4.6).
+        String mergeToken = Hashing.randomToken();
         Identity identity = Identity.builder()
                 .identityType(IdentityType.GUEST)
                 .status(IdentityStatus.ACTIVE)
                 .roles(new LinkedHashSet<>(Set.of(RoleType.CITIZEN)))
                 .trustLevel(TRUST_GUEST)
                 .riskScore("MEDIUM")
+                .mergeTokenHash(Hashing.sha256Hex(mergeToken))
                 .build();
         identity = identityRepository.save(identity);
         auditService.record(identity.getIdentityUid(), null, HistoryEventType.IDENTITY_CREATED,
                 "Создана гостевая личность.");
-        return identity;
+        return new GuestProvision(identity, mergeToken);
     }
 
     public Identity save(Identity identity) {
@@ -70,5 +79,10 @@ public class IdentityService {
     public Identity findById(UUID identityUid) {
         return identityRepository.findById(identityUid)
                 .orElseThrow(() -> new IllegalStateException("Личность не найдена: " + identityUid));
+    }
+
+    /** Batch-load identities by id (used to avoid N+1 in the admin user list — audit 3.2). */
+    public java.util.List<Identity> findAllByIds(java.util.Collection<UUID> ids) {
+        return identityRepository.findAllById(ids);
     }
 }

@@ -65,7 +65,9 @@ public class DataSeeder implements CommandLineRunner {
             request.setLastName(lastName);
             request.setEmploymentStatus(employmentStatus);
             request.setProfession(profession);
-            user = userService.register(request);
+            // Trusted server-side path: only DataSeeder may mint specialist/admin
+            // accounts. The public register() endpoint always yields CITIZEN (audit 4.1/4.2).
+            user = userService.provisionTrusted(request, profession);
             log.info("DataSeeder: provisioned demo account '{}'.", username);
         }
         if (user != null && org != null && workRole != null) {

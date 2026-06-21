@@ -6,11 +6,10 @@
     <meta name="theme-color" content="#0C6E8F">
     <title>IDEAQR · Цифровой шлюз доступа</title>
 
-    <!-- Manrope (display) · Golos Text (Cyrillic UI) · JetBrains Mono (codes). System fallbacks in CSS. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
+    <!-- Manrope (display) · Golos Text (Cyrillic UI) · JetBrains Mono (codes).
+         Self-hosted (audit 2.3): no external CDN, no privacy leak, works in closed
+         networks. System fallbacks remain in CSS. -->
+    <link rel="stylesheet" href="/assets/fonts/fonts.css">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -70,8 +69,8 @@
     <!-- Toast notifications. -->
     <div id="toasts" class="toasts" aria-live="polite"></div>
 
-    <!-- QR scanner library (loaded from CDN at runtime in the browser). -->
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- QR scanner library — self-hosted (audit 2.3): no dependency on unpkg.com. -->
+    <script src="/assets/html5-qrcode.min.js"></script>
     <script src="/app.js" defer></script>
 </body>
 </html>

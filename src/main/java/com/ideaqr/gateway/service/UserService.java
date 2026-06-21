@@ -48,17 +48,41 @@ public class UserService {
     public static final String PROFESSION_SELLER = "SELLER";
     public static final String PROFESSION_SERVICE_OPERATOR = "SERVICE_OPERATOR";
 
+    /**
+     * Public self-service registration. <b>Security (audit 4.1 / 4.2):</b> a public
+     * sign-up NEVER derives a privileged role from client input. Whatever profession
+     * the form sends, an anonymous registration always provisions a plain
+     * {@code CITIZEN}. Specialist and administrator roles are granted afterwards by a
+     * privileged path only — {@link #provisionTrusted} (server-side seeding) or an
+     * administrator via {@code POST /api/admin/users/{username}/profession}. This
+     * closes "register as admin" and "self-assign DOCTOR / INSPECTOR".
+     */
     @Transactional
     public User register(RegistrationRequest request) {
+        return provision(request, PROFESSION_CITIZEN, false);
+    }
+
+    /**
+     * Trusted account provisioning used by the server itself (e.g. {@code DataSeeder})
+     * to create the demo specialist / administrator accounts. This is the only way a
+     * non-citizen profession can be assigned at creation time and is never reachable
+     * from the public API.
+     */
+    @Transactional
+    public User provisionTrusted(RegistrationRequest request, String professionKey) {
+        return provision(request, normalizeProfession(professionKey), true);
+    }
+
+    private User provision(RegistrationRequest request, String requestedProfession, boolean trusted) {
         String username = request.getUsername().trim();
         if (userRepository.existsByUsername(username)) {
             throw new UsernameAlreadyExistsException("Имя пользователя «" + username + "» уже занято.");
         }
 
         EmploymentStatus employment = parseEmployment(request.getEmploymentStatus());
-        String professionKey = normalizeProfession(request.getProfession());
-        // Customer rule: an UNEMPLOYED person cannot hold a profession. Even if the
-        // client sends one, the server forces CITIZEN — never trust the client.
+        // Only a trusted caller may set a non-citizen profession. Public sign-ups are
+        // pinned to CITIZEN; an UNEMPLOYED person is CITIZEN regardless of the caller.
+        String professionKey = trusted ? requestedProfession : PROFESSION_CITIZEN;
         if (employment == EmploymentStatus.UNEMPLOYED) {
             professionKey = PROFESSION_CITIZEN;
         }
@@ -92,14 +116,19 @@ public class UserService {
         return user;
     }
 
+    /** A provisioned guest account plus the one-time merge token for its browser. */
+    public record GuestAccount(User user, String mergeToken) {}
+
     /**
      * Provision a guest account + guest identity (no registration). The guest can
      * scan and view; later, on registration, the guest's history can be merged into
-     * the new primary identity via {@link GuestService}.
+     * the new primary identity via {@link GuestService} — but only by presenting the
+     * returned one-time merge token (audit 4.6).
      */
     @Transactional
-    public User createGuestAccount() {
-        Identity identity = identityService.createGuestIdentity();
+    public GuestAccount createGuestAccount() {
+        IdentityService.GuestProvision provision = identityService.createGuestIdentity();
+        Identity identity = provision.identity();
         Qr primaryQr = qrService.createPrimaryQr(identity);
         identity.setPrimaryQrUid(primaryQr.getQrUid());
         identityService.save(identity);
@@ -120,7 +149,7 @@ public class UserService {
 
         auditService.record(identity.getIdentityUid(), null, HistoryEventType.GUEST_CREATED,
                 "Создан гостевой доступ «" + username + "».");
-        return user;
+        return new GuestAccount(user, provision.mergeToken());
     }
 
     public User findByUsername(String username) {
@@ -137,7 +166,9 @@ public class UserService {
         Set<String> roleNames = identity.getRoles().stream()
                 .map(Enum::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        int trustScore = trustScoreService.refresh(identity);
+        // SECURITY/PERF (audit 3.3): a GET must not write. Read the cached Trust Score
+        // computed by the last state change (scan / confirmation); never persist here.
+        int trustScore = trustScoreService.cachedOrCompute(identity);
         return CurrentUserResponse.builder()
                 .authenticated(true)
                 .username(user.getUsername())
@@ -204,7 +235,7 @@ public class UserService {
         };
     }
 
-    private String normalizeProfession(String raw) {
+    public String normalizeProfession(String raw) {
         if (raw == null || raw.isBlank()) {
             return PROFESSION_CITIZEN;
         }

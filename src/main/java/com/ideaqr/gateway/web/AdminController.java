@@ -7,7 +7,9 @@ import com.ideaqr.gateway.domain.PlatformModule;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.domain.enums.ComplaintStatus;
 import com.ideaqr.gateway.dto.ApiResponse;
+import com.ideaqr.gateway.dto.PageResponse;
 import com.ideaqr.gateway.repository.UserRepository;
+import com.ideaqr.gateway.service.AuditService;
 import com.ideaqr.gateway.service.ComplaintService;
 import com.ideaqr.gateway.service.EventService;
 import com.ideaqr.gateway.service.IdentityService;
@@ -16,7 +18,11 @@ import com.ideaqr.gateway.service.StatsService;
 import com.ideaqr.gateway.service.TrustScoreService;
 import com.ideaqr.gateway.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,6 +50,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")  // second line of defence beyond the URL matcher (audit 3.8)
 public class AdminController {
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -56,6 +63,7 @@ public class AdminController {
     private final IdentityService identityService;
     private final TrustScoreService trustScoreService;
     private final UserService userService;
+    private final AuditService auditService;
     private final AuthSupport authSupport;
 
     @GetMapping("/stats")
@@ -70,13 +78,26 @@ public class AdminController {
         return ResponseEntity.ok(statsService.analytics());
     }
 
-    /** Full user list — name, profession, identity, trust score, roles, risk. */
+    /**
+     * Paginated user list — name, profession, identity, trust score, roles, risk.
+     * Pagination (audit 3.1) bounds the result set; identities are batch-loaded and
+     * the Trust Score is read from its cached column rather than recomputed per row
+     * (audit 3.2 N+1 / 3.3 no work on GET). Query params: {@code ?page=0&size=25}.
+     */
     @GetMapping("/users")
-    public ResponseEntity<List<Map<String, Object>>> users(Authentication authentication) {
+    public ResponseEntity<PageResponse<Map<String, Object>>> users(
+            @PageableDefault(size = 25) Pageable pageable, Authentication authentication) {
         authSupport.requireUser(authentication);
+        Page<User> page = userRepository.findAll(pageable);
+
+        // One query for the page's identities instead of one per user.
+        List<UUID> identityUids = page.getContent().stream().map(User::getIdentityUid).toList();
+        Map<UUID, Identity> identities = identityService.findAllByIds(identityUids).stream()
+                .collect(Collectors.toMap(Identity::getIdentityUid, i -> i));
+
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (User u : userRepository.findAll()) {
-            Identity id = identityService.findById(u.getIdentityUid());
+        for (User u : page.getContent()) {
+            Identity id = identities.get(u.getIdentityUid());
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("username", u.getUsername());
             m.put("fullName", (u.getFirstName() + " " + u.getLastName()).trim());
@@ -85,16 +106,34 @@ public class AdminController {
             m.put("employmentStatus", u.getEmploymentStatus().name());
             m.put("admin", u.isAdmin());
             m.put("blocked", u.isBlocked());
-            m.put("identityUid", id.getIdentityUid().toString());
-            m.put("trustLevel", id.getTrustLevel());
-            m.put("trustScore", trustScoreService.compute(id));
-            m.put("riskScore", id.getRiskScore());
-            m.put("guest", id.getIdentityType().name());
-            m.put("roles", id.getRoles().stream().map(Enum::name).collect(Collectors.toList()));
+            m.put("identityUid", u.getIdentityUid().toString());
+            m.put("trustLevel", id != null ? id.getTrustLevel() : null);
+            m.put("trustScore", id != null ? trustScoreService.cachedOrCompute(id) : null);
+            m.put("riskScore", id != null ? id.getRiskScore() : null);
+            m.put("guest", id != null ? id.getIdentityType().name() : null);
+            m.put("roles", id != null
+                    ? id.getRoles().stream().map(Enum::name).collect(Collectors.toList())
+                    : List.of());
             m.put("createdAt", u.getCreatedAt() != null ? u.getCreatedAt().format(TS) : null);
             rows.add(m);
         }
-        return ResponseEntity.ok(rows);
+        return ResponseEntity.ok(PageResponse.of(page, rows));
+    }
+
+    /**
+     * Verify the integrity of the append-only journal's hash chain (audit 4.5).
+     * Makes the "immutable audit" claim demonstrable: returns whether the chain is
+     * intact, how many entries were checked, and the first broken link if any.
+     */
+    @GetMapping("/audit/verify")
+    public ResponseEntity<Map<String, Object>> verifyAudit(Authentication authentication) {
+        authSupport.requireUser(authentication);
+        AuditService.ChainVerification result = auditService.verifyChain();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("valid", result.valid());
+        m.put("entriesChecked", result.entriesChecked());
+        m.put("brokenAtHistoryUid", result.brokenAtHistoryUid());
+        return ResponseEntity.ok(m);
     }
 
     @GetMapping("/modules")

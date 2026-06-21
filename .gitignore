@@ -11,5 +11,11 @@ data/
 # OS / editor noise
 .DS_Store
 
+# IDE project files (workspace + shelved patches must never be published — audit 3.11)
+.idea/
+
+# Whole-source export artifact — easy way to accidentally leak the codebase (audit 4.10)
+IDEAQR_PROJECT_BUNDLE.txt
+
 # Customer requirement / patent source documents — kept local, NOT published to the remote
 zakazdar/

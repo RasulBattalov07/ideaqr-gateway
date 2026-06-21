@@ -39,6 +39,13 @@ public class CurrentUserResponse {
     /** True when this is a guest (unregistered) identity. */
     private boolean guest;
 
+    /**
+     * One-time merge token, returned ONLY when a guest session is first created.
+     * The browser keeps it and presents it later to prove ownership of the guest
+     * session during a history merge (audit 4.6). Never populated for normal logins.
+     */
+    private String mergeToken;
+
     /** Business roles held by the identity (e.g. DOCTOR, CITIZEN). */
     private Set<String> roles;
 }

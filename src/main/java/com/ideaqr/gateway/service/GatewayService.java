@@ -78,7 +78,7 @@ public class GatewayService {
                 .build());
 
         ValidationService.Verdict verdict = validationService.decideAccess(
-                identity, resolved.category(), request.getContextHour(), resolved.known());
+                identity, resolved.category(), resolved.known());
         boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
 
         Decision decision = decisionRepository.save(Decision.builder()

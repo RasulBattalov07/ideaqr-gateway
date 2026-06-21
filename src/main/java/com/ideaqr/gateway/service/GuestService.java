@@ -1,32 +1,32 @@
 package com.ideaqr.gateway.service;
 
-import com.ideaqr.gateway.domain.Decision;
-import com.ideaqr.gateway.domain.Event;
-import com.ideaqr.gateway.domain.History;
 import com.ideaqr.gateway.domain.Identity;
-import com.ideaqr.gateway.domain.Interaction;
-import com.ideaqr.gateway.domain.RequestRecord;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.domain.enums.IdentityStatus;
 import com.ideaqr.gateway.domain.enums.IdentityType;
-import com.ideaqr.gateway.repository.DecisionRepository;
-import com.ideaqr.gateway.repository.EventRepository;
 import com.ideaqr.gateway.repository.HistoryRepository;
 import com.ideaqr.gateway.repository.IdentityRepository;
-import com.ideaqr.gateway.repository.InteractionRepository;
-import com.ideaqr.gateway.repository.RequestRepository;
+import com.ideaqr.gateway.util.Hashing;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
 /**
- * Implements the guest → merge flow. A guest identity's whole history is re-pointed
- * to a registered identity (the schema stores relationships as flat UUIDs, so this
- * needs no cascades and nothing is lost), then the guest identity is retired and
- * the merge itself is recorded.
+ * Implements the guest → merge flow as an <b>append-only alias</b> (audit 4.5 / 4.6).
+ *
+ * <p>The old design rewrote the guest's journal rows (a direct violation of the
+ * immutability guarantee) and accepted any guest UID (an IDOR — anyone who learned a
+ * guest's UUID could steal its history). The new design:</p>
+ * <ul>
+ *   <li>requires the one-time <b>merge token</b> issued to the guest's browser at
+ *       creation, proving the caller owns that guest session;</li>
+ *   <li>records the guest UID as a soft alias on the target identity instead of
+ *       mutating any history — read paths union over the alias.</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -34,16 +34,12 @@ public class GuestService {
 
     private final IdentityRepository identityRepository;
     private final HistoryRepository historyRepository;
-    private final InteractionRepository interactionRepository;
-    private final RequestRepository requestRepository;
-    private final DecisionRepository decisionRepository;
-    private final EventRepository eventRepository;
     private final AuditService auditService;
     private final EventService eventService;
     private final NotificationService notificationService;
 
     @Transactional
-    public int merge(Identity target, UUID guestIdentityUid) {
+    public int merge(Identity target, UUID guestIdentityUid, String mergeToken) {
         if (guestIdentityUid.equals(target.getIdentityUid())) {
             throw new IllegalArgumentException("Нельзя объединить личность с самой собой.");
         }
@@ -53,43 +49,30 @@ public class GuestService {
             throw new IllegalArgumentException("Указанная личность не является гостевой.");
         }
 
-        int movedHistory = 0;
-        for (History h : historyRepository.findByIdentityUid(guestIdentityUid)) {
-            h.setIdentityUid(target.getIdentityUid());
-            historyRepository.save(h);
-            movedHistory++;
-        }
-        for (Interaction i : interactionRepository.findByIdentityUid(guestIdentityUid)) {
-            i.setIdentityUid(target.getIdentityUid());
-            interactionRepository.save(i);
-        }
-        // Re-point scans that targeted the guest's QR ("who scanned me").
-        for (Interaction i : interactionRepository.findByTargetIdentityUidOrderByCreatedAtDesc(guestIdentityUid)) {
-            i.setTargetIdentityUid(target.getIdentityUid());
-            interactionRepository.save(i);
-        }
-        for (RequestRecord r : requestRepository.findByIdentityUid(guestIdentityUid)) {
-            r.setIdentityUid(target.getIdentityUid());
-            requestRepository.save(r);
-        }
-        for (Decision d : decisionRepository.findByIdentityUid(guestIdentityUid)) {
-            d.setIdentityUid(target.getIdentityUid());
-            decisionRepository.save(d);
-        }
-        for (Event e : eventRepository.findByIdentityUid(guestIdentityUid)) {
-            e.setIdentityUid(target.getIdentityUid());
-            eventRepository.save(e);
+        // Ownership proof (audit 4.6): the caller must present the one-time token issued
+        // to this guest's browser. Knowing the guest UID is not sufficient.
+        String expected = guest.getMergeTokenHash();
+        if (mergeToken == null || expected == null
+                || !Hashing.constantTimeEquals(expected, Hashing.sha256Hex(mergeToken))) {
+            throw new AccessDeniedException("Недостаточно прав для объединения этой гостевой личности.");
         }
 
+        // Append-only alias instead of rewriting the guest's journal (audit 4.5).
+        long movedHistory = historyRepository.findByIdentityUid(guestIdentityUid).size();
+        target.getLinkedGuestUids().add(guestIdentityUid);
+        identityRepository.save(target);
+
+        // Retire the guest identity and burn the token (single use).
         guest.setStatus(IdentityStatus.SUSPENDED);
+        guest.setMergeTokenHash(null);
         identityRepository.save(guest);
 
         auditService.record(target.getIdentityUid(), null, HistoryEventType.GUEST_MERGED,
-                "История гостевой личности перенесена в основной профиль. Перенесено событий: " + movedHistory + ".");
+                "История гостевой личности связана с основным профилем. Событий перенесено: " + movedHistory + ".");
         eventService.record(EventType.GUEST_MERGED, target.getIdentityUid(),
                 "Объединение истории гостя (" + movedHistory + " событий).");
         notificationService.notify(target.getIdentityUid(), "GUEST_MERGE",
                 "История гостевого доступа перенесена в ваш профиль.");
-        return movedHistory;
+        return (int) movedHistory;
     }
 }

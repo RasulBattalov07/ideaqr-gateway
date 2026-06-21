@@ -6,7 +6,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -15,11 +14,17 @@ import java.util.UUID;
  * Append-only audit journal. The application only ever inserts rows here — it
  * never updates or deletes them. Every meaningful event in the pipeline lands
  * in this table, forming the immutable history of the platform.
+ *
+ * <p><b>Tamper-evidence (audit 4.5):</b> the entity is intentionally <i>setter-free</i>
+ * (rows are built once via the builder and never mutated), and each row carries a
+ * {@code prevHash}/{@code entryHash} forming a SHA-256 hash chain. Any after-the-fact
+ * edit or deletion breaks the chain and is detectable by
+ * {@code AuditService.verifyChain()}. The earlier guest-merge flow that rewrote rows
+ * has been replaced by an append-only alias (see {@code GuestService}).</p>
  */
 @Entity
 @Table(name = "histories")
 @Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -51,6 +56,14 @@ public class History {
 
     @Column(name = "description", length = 500)
     private String description;
+
+    /** SHA-256 of the preceding journal entry ({@code "GENESIS"} for the first row). */
+    @Column(name = "prev_hash", length = 64, updatable = false)
+    private String prevHash;
+
+    /** SHA-256 over this row's content + {@link #prevHash} — the chain link. */
+    @Column(name = "entry_hash", length = 64, updatable = false)
+    private String entryHash;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

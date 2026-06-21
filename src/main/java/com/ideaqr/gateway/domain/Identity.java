@@ -9,6 +9,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -52,6 +53,7 @@ public class Identity {
     @CollectionTable(name = "identity_roles", joinColumns = @JoinColumn(name = "identity_uid"))
     @Enumerated(EnumType.STRING)
     @Column(name = "role", length = 30)
+    @BatchSize(size = 64)  // load roles for a page of identities in a few IN queries (audit 3.2)
     @Builder.Default
     private Set<RoleType> roles = new LinkedHashSet<>();
 
@@ -76,6 +78,27 @@ public class Identity {
     /** UUID of this identity's permanent primary QR (a {@code Qr} of type PRIMARY). */
     @Column(name = "primary_qr_uid")
     private UUID primaryQrUid;
+
+    /**
+     * Guest identities merged into this (primary) identity. Rather than rewriting the
+     * guest's append-only history rows (which would violate immutability — audit 4.5),
+     * a merge records the guest UID here as a soft alias; read paths union over it.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "identity_linked_guests", joinColumns = @JoinColumn(name = "identity_uid"))
+    @Column(name = "guest_identity_uid")
+    @BatchSize(size = 64)
+    @Builder.Default
+    private Set<UUID> linkedGuestUids = new LinkedHashSet<>();
+
+    /**
+     * SHA-256 of the one-time merge token issued to a GUEST identity's browser at
+     * creation. A merge must present the matching token, proving the caller owns the
+     * guest session — this closes the IDOR where any known guest UID could be claimed
+     * (audit 4.6). Cleared once the guest has been merged.
+     */
+    @Column(name = "merge_token_hash", length = 64)
+    private String mergeTokenHash;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

@@ -6,6 +6,7 @@ import com.ideaqr.gateway.exception.UsernameAlreadyExistsException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -45,6 +46,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccountBlockedException.class)
     public ResponseEntity<ApiResponse> handleBlocked(AccountBlockedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /**
+     * Authorization denial → 403. Covers method-security ({@code @PreAuthorize}) and
+     * the guest-merge ownership check, surfaced as clean JSON rather than a 500.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse> handleAccessDenied(AccessDeniedException ex) {
+        String message = ex.getMessage() != null ? ex.getMessage() : "Недостаточно прав для выполнения операции.";
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(message));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

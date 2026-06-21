@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.util.LinkedHashSet;
 
 /**
  * Administrator user-management operations: block / unblock an account, change a
@@ -33,6 +34,7 @@ public class UserAdminService {
 
     private final UserRepository userRepository;
     private final IdentityService identityService;
+    private final UserService userService;
     private final AuditService auditService;
     private final EventService eventService;
     private final PasswordEncoder passwordEncoder;
@@ -103,6 +105,36 @@ public class UserAdminService {
         String role = makeAdmin ? "ADMIN" : "USER";
         String note = "Роль пользователя «" + targetUsername + "» изменена на " + role
                 + " администратором «" + actingAdminUsername + "».";
+        auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_ROLE_CHANGED, note);
+        eventService.record(EventType.USER_ROLE_CHANGED, target.getIdentityUid(), note);
+        return target;
+    }
+
+    /**
+     * Assign a profession to a user — the privileged counterpart to public sign-up,
+     * which can only ever create a CITIZEN (audit 4.1 / 4.2). Re-derives the identity's
+     * business roles, trust level and the admin flag from the profession, so granting
+     * {@code DOCTOR} actually unlocks medical access for that account. The ROLE_ADMIN
+     * session authority still refreshes on the user's next login (authorities are
+     * session-bound).
+     */
+    @Transactional
+    public User setProfession(String actingAdminUsername, String targetUsername, String professionKey) {
+        User target = require(targetUsername);
+        String normalized = userService.normalizeProfession(professionKey);
+        UserService.ProfessionProfile profile = userService.profileFor(normalized);
+
+        Identity identity = identityService.findById(target.getIdentityUid());
+        identity.setRoles(new LinkedHashSet<>(profile.roles()));
+        identity.setTrustLevel(profile.trustLevel());
+        identityService.save(identity);
+
+        target.setProfession(normalized);
+        target.setAdmin(profile.admin());
+        userRepository.save(target);
+
+        String note = "Профессия пользователя «" + targetUsername + "» изменена на «"
+                + userService.professionLabel(normalized) + "» администратором «" + actingAdminUsername + "».";
         auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_ROLE_CHANGED, note);
         eventService.record(EventType.USER_ROLE_CHANGED, target.getIdentityUid(), note);
         return target;
