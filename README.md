@@ -47,6 +47,8 @@ Stage 3 puts a real identity and access layer on top of it:
 | QR codes     | ZXing 3.5.3 (server-side PNG, returned as data URI) |
 | Frontend     | Vanilla JS SPA + `html5-qrcode` (camera)            |
 | Boilerplate  | Lombok                                              |
+| Sessions     | Spring Session JDBC (persisted in the shared DB)    |
+| Rate limiting| Bucket4j (token bucket; per-IP + per-user)          |
 
 ---
 
@@ -228,6 +230,9 @@ to mobile with visible keyboard focus.
   Hibernate runs with `ddl-auto=validate` — it never mutates the schema, only verifies
   the entity model matches it and fails fast on drift. The same portable `V1` baseline
   runs on both H2 and PostgreSQL; `baseline-on-migrate=true` adopts a pre-existing DB.
+- **HTTP sessions are stored in the database** via Spring Session JDBC — the
+  `SPRING_SESSION` / `SPRING_SESSION_ATTRIBUTES` tables (created by migration `V5`),
+  so sessions are shared across instances and survive a restart.
 - To start fresh, stop the app and delete the `./data` directory.
 
 ---
@@ -272,8 +277,11 @@ This build was hardened against an internal red-team audit. Highlights:
   **hash-chained** (`prev_hash` → `entry_hash`); `GET /api/admin/audit/verify` proves
   integrity and detects any out-of-band edit.
 - **Server-side time** drives the working-hours policy (never client-supplied).
-- **Rate limiting** on the public guest / register / login endpoints; password policy
-  is ≥ 12 chars with letters and digits.
+- **Rate limiting** (Bucket4j token buckets): hard per-IP limits on the public
+  `/login`, `/api/auth/register` and `/api/auth/guest` endpoints (brute-force / guest
+  flood), plus a baseline per-user ceiling on the rest of `/api/**`. Over the limit it
+  returns `429` with a `Retry-After`; thresholds are tunable via `app.rate-limit.*`
+  without a rebuild. Password policy is ≥ 12 chars with letters and digits.
 - Front-end assets (fonts, QR scanner) are **self-hosted** — no external CDN.
 - **Investor MVP.** All registry data (including the medical record) is **mock data**;
   no real personal data is stored.
@@ -284,8 +292,13 @@ This build was hardened against an internal red-team audit. Highlights:
   or write another's rows. Each organisation is its own tenant; citizens/guests share
   a public tenant.
 
-**Roadmap (not yet implemented):** a shared session / rate-limit store for
-multi-instance horizontal scale.
+- **Horizontal-scale ready** (audit 3.7): HTTP sessions live in the shared database
+  (**Spring Session JDBC**), so any instance serves any request and a restart no longer
+  logs users out. Session revocation (above) is backed by this shared store, so a ban
+  or role change applies across every replica.
+
+**Roadmap (not yet implemented):** a *distributed* rate-limit store (e.g. Redis) so the
+public ceilings are enforced cluster-wide rather than per node.
 
 ---
 
