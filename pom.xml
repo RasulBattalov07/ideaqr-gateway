@@ -47,6 +47,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- AOP: enables the per-request tenant filter around repository calls (audit 5.3) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- Versioned, reproducible database migrations (Flyway). Core supports both
              H2 and PostgreSQL in the Spring Boot 3.2 managed version. -->
         <dependency>

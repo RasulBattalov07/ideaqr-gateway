@@ -3,6 +3,8 @@ package com.ideaqr.gateway.domain;
 import com.ideaqr.gateway.domain.enums.IdentityStatus;
 import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.RoleType;
+import com.ideaqr.gateway.tenant.TenantListener;
+import com.ideaqr.gateway.tenant.TenantScoped;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,6 +12,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -31,11 +36,19 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Identity {
+@EntityListeners(TenantListener.class)
+// Global definition of the tenant-isolation filter used by all TenantScoped entities.
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = UUID.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+public class Identity implements TenantScoped {
 
     @Id
     @Column(name = "identity_uid", nullable = false, updatable = false)
     private UUID identityUid;
+
+    /** Owning tenant (organisation) — enforces hard SaaS isolation (audit 5.3). */
+    @Column(name = "tenant_id")
+    private UUID tenantId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "identity_type", nullable = false, length = 20)

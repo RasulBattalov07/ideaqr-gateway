@@ -250,8 +250,14 @@ This build was hardened against an internal red-team audit. Highlights:
 - **Investor MVP.** All registry data (including the medical record) is **mock data**;
   no real personal data is stored.
 
-**Roadmap (not yet implemented):** multi-tenant isolation and a shared session /
-rate-limit store for multi-instance scale.
+- **Multi-tenant isolation** (audit 5.3): a `tenant_id` discriminator on the
+  customer-data tables, with a Hibernate filter that scopes every read and a listener
+  that stamps every write from the request's tenant — one organisation can never read
+  or write another's rows. Each organisation is its own tenant; citizens/guests share
+  a public tenant.
+
+**Roadmap (not yet implemented):** a shared session / rate-limit store for
+multi-instance horizontal scale.
 
 ---
 

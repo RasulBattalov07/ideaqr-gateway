@@ -2,12 +2,15 @@ package com.ideaqr.gateway.domain;
 
 import com.ideaqr.gateway.domain.enums.RequestStatus;
 import com.ideaqr.gateway.domain.enums.RequestType;
+import com.ideaqr.gateway.tenant.TenantListener;
+import com.ideaqr.gateway.tenant.TenantScoped;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.Filter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -26,11 +29,17 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RequestRecord {
+@EntityListeners(TenantListener.class)
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+public class RequestRecord implements TenantScoped {
 
     @Id
     @Column(name = "request_uid", nullable = false, updatable = false)
     private UUID requestUid;
+
+    /** Owning tenant (organisation) — enforces hard SaaS isolation (audit 5.3). */
+    @Column(name = "tenant_id")
+    private UUID tenantId;
 
     /** Identity that initiated the request. */
     @Column(name = "identity_uid", nullable = false)

@@ -2,12 +2,15 @@ package com.ideaqr.gateway.domain;
 
 import com.ideaqr.gateway.domain.enums.ObjectCategory;
 import com.ideaqr.gateway.domain.enums.ObjectStatus;
+import com.ideaqr.gateway.tenant.TenantListener;
+import com.ideaqr.gateway.tenant.TenantScoped;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.Filter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -29,11 +32,17 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RegistryObject {
+@EntityListeners(TenantListener.class)
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+public class RegistryObject implements TenantScoped {
 
     @Id
     @Column(name = "registry_uid", nullable = false, updatable = false)
     private UUID registryUid;
+
+    /** Owning tenant (organisation) — enforces hard SaaS isolation (audit 5.3). */
+    @Column(name = "tenant_id")
+    private UUID tenantId;
 
     /** Public object identifier encoded into the QR (e.g. RETAIL_3F9A1C2D). */
     @Column(name = "object_uid", nullable = false, length = 120)

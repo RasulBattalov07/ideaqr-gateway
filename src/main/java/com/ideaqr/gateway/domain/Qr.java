@@ -2,12 +2,15 @@ package com.ideaqr.gateway.domain;
 
 import com.ideaqr.gateway.domain.enums.QrStatus;
 import com.ideaqr.gateway.domain.enums.QrType;
+import com.ideaqr.gateway.tenant.TenantListener;
+import com.ideaqr.gateway.tenant.TenantScoped;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.Filter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -24,11 +27,17 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Qr {
+@EntityListeners(TenantListener.class)
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+public class Qr implements TenantScoped {
 
     @Id
     @Column(name = "qr_uid", nullable = false, updatable = false)
     private UUID qrUid;
+
+    /** Owning tenant (organisation) — enforces hard SaaS isolation (audit 5.3). */
+    @Column(name = "tenant_id")
+    private UUID tenantId;
 
     /** Encoded payload — the object UID, or IDENTITY:&lt;uuid&gt; for primary QRs. */
     @Column(name = "qr_value", nullable = false, length = 200)

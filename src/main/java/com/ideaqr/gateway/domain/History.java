@@ -1,11 +1,14 @@
 package com.ideaqr.gateway.domain;
 
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
+import com.ideaqr.gateway.tenant.TenantListener;
+import com.ideaqr.gateway.tenant.TenantScoped;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Filter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -28,11 +31,17 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class History {
+@EntityListeners(TenantListener.class)
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+public class History implements TenantScoped {
 
     @Id
     @Column(name = "history_uid", nullable = false, updatable = false)
     private UUID historyUid;
+
+    /** Owning tenant — stamped once at insert; the journal stays append-only (audit 5.3). */
+    @Column(name = "tenant_id", updatable = false)
+    private UUID tenantId;
 
     @Column(name = "identity_uid", nullable = false)
     private UUID identityUid;
@@ -67,6 +76,16 @@ public class History {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    /**
+     * Tenant setter used only by {@link TenantListener} at insert time. The journal is
+     * otherwise setter-free; tenant_id is never mutated after the row is written, so the
+     * hash chain (which excludes tenant_id) is unaffected.
+     */
+    @Override
+    public void setTenantId(UUID tenantId) {
+        this.tenantId = tenantId;
+    }
 
     @PrePersist
     void onCreate() {

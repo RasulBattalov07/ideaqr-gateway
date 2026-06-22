@@ -7,10 +7,13 @@ import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.service.ModuleService;
 import com.ideaqr.gateway.service.OrganizationService;
 import com.ideaqr.gateway.service.UserService;
+import com.ideaqr.gateway.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 /**
  * Seeds demo organizations, the four demo accounts and their memberships on first
@@ -65,10 +68,19 @@ public class DataSeeder implements CommandLineRunner {
             request.setLastName(lastName);
             request.setEmploymentStatus(employmentStatus);
             request.setProfession(profession);
-            // Trusted server-side path: only DataSeeder may mint specialist/admin
-            // accounts. The public register() endpoint always yields CITIZEN (audit 4.1/4.2).
-            user = userService.provisionTrusted(request, profession);
-            log.info("DataSeeder: provisioned demo account '{}'.", username);
+            // Stamp every row created for this account with the org's tenant (audit 5.3),
+            // so each demo organisation becomes its own isolated tenant. Citizens with no
+            // organisation fall to the public tenant.
+            UUID tenant = org != null ? org.getOrganizationUid() : TenantContext.PUBLIC_TENANT;
+            TenantContext.setTenantId(tenant);
+            try {
+                // Trusted server-side path: only DataSeeder may mint specialist/admin
+                // accounts. The public register() endpoint always yields CITIZEN (audit 4.1/4.2).
+                user = userService.provisionTrusted(request, profession);
+            } finally {
+                TenantContext.clear();
+            }
+            log.info("DataSeeder: provisioned demo account '{}' in tenant {}.", username, tenant);
         }
         if (user != null && org != null && workRole != null) {
             organizationService.ensureMembership(user.getIdentityUid(), org.getOrganizationUid(), workRole);
