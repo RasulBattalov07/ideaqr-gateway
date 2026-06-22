@@ -9,7 +9,6 @@ import com.ideaqr.gateway.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -194,17 +193,15 @@ public class UserAdminService {
 
     /**
      * Immediately expire every active session of {@code username} (audit 3.9). The
-     * next request on an expired session is rejected, forcing re-authentication, so a
-     * ban or privilege change takes effect now instead of at the user's next login.
+     * registry is backed by the shared Spring Session store, so the sessions are
+     * looked up by principal name and marked expired in the database — the next
+     * request on <em>any</em> replica is then rejected and forced to re-authenticate.
+     * A ban or privilege change therefore takes effect now and cluster-wide, instead
+     * of at the user's next login.
      */
     private void revokeSessions(String username) {
-        for (Object principal : sessionRegistry.getAllPrincipals()) {
-            String name = (principal instanceof UserDetails ud) ? ud.getUsername() : String.valueOf(principal);
-            if (username.equalsIgnoreCase(name)) {
-                for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
-                    info.expireNow();
-                }
-            }
+        for (SessionInformation info : sessionRegistry.getAllSessions(username, false)) {
+            info.expireNow();
         }
     }
 

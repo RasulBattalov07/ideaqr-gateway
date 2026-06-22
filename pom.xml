@@ -20,6 +20,7 @@
     <properties>
         <java.version>17</java.version>
         <zxing.version>3.5.3</zxing.version>
+        <bucket4j.version>8.19.0</bucket4j.version>
     </properties>
 
     <dependencies>
@@ -39,6 +40,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Spring Session backed by JDBC (audit 3.7): HTTP sessions live in the
+             shared relational database instead of per-node Tomcat memory, so any
+             instance can serve any request and a restart no longer logs users out.
+             This is the prerequisite for running more than one replica. Version is
+             managed by the Spring Boot BOM. -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-jdbc</artifactId>
         </dependency>
 
         <!-- Bean validation for registration / QR-creation payloads -->
@@ -84,6 +95,15 @@
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
             <version>${zxing.version}</version>
+        </dependency>
+
+        <!-- Bucket4j (audit 4.8 / 4.9): token-bucket rate limiting for the abuse-prone
+             public endpoints and a baseline ceiling for authenticated API traffic. The
+             _jdk17 artifact is the current coordinate for Java 17+ builds. -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+            <version>${bucket4j.version}</version>
         </dependency>
 
         <!-- Lombok: removes entity/DTO boilerplate; processed at compile time by Maven -->

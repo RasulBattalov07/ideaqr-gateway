@@ -1,6 +1,7 @@
 package com.ideaqr.gateway.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -10,17 +11,17 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
-import org.springframework.security.web.session.HttpSessionEventPublisher;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
+import org.springframework.session.security.SpringSessionBackedSessionRegistry;
 
 import java.io.IOException;
 
@@ -50,6 +51,7 @@ import jakarta.servlet.http.HttpServletResponse;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@EnableConfigurationProperties(RateLimitProperties.class)
 public class SecurityConfig {
 
     /** True only on the local dev profile; the prod/postgres profiles set it false. */
@@ -64,17 +66,18 @@ public class SecurityConfig {
     /**
      * Tracks active authenticated sessions so an administrator can revoke them
      * immediately on a privilege change (audit 3.9) — a demoted admin no longer keeps
-     * {@code ROLE_ADMIN} until their next login.
+     * {@code ROLE_ADMIN} until their next request.
+     *
+     * <p>Backed by the shared Spring Session store rather than per-node memory, so
+     * {@code expireNow()} marks the session expired in the database and takes effect
+     * on <em>every</em> replica's next request — not just the node that issued it
+     * (audit 3.7 + 3.9). This also means no {@code HttpSessionEventPublisher} is needed:
+     * Spring Session, not the servlet container, is the source of truth for sessions.</p>
      */
     @Bean
-    public SessionRegistry sessionRegistry() {
-        return new SessionRegistryImpl();
-    }
-
-    /** Publishes session lifecycle events so the {@link SessionRegistry} stays accurate. */
-    @Bean
-    public HttpSessionEventPublisher httpSessionEventPublisher() {
-        return new HttpSessionEventPublisher();
+    public <S extends Session> SpringSessionBackedSessionRegistry<S> sessionRegistry(
+            FindByIndexNameSessionRepository<S> sessionRepository) {
+        return new SpringSessionBackedSessionRegistry<>(sessionRepository);
     }
 
     @Bean
@@ -95,7 +98,11 @@ public class SecurityConfig {
                         // The dev H2 console posts its own forms; exclude it from CSRF.
                         .ignoringRequestMatchers("/h2-console/**"))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
-                .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
+                // Throttle as early as possible — before CSRF/auth processing — so a
+                // flood is rejected with minimal work (audit 4.8 / 4.9). It still runs
+                // after SecurityContextHolderFilter, so the authenticated tier can key
+                // its bucket by username.
+                .addFilterBefore(rateLimitingFilter, CsrfFilter.class)
                 .headers(headers -> {
                     headers.frameOptions(frame -> {
                         if (h2ConsoleEnabled) {
