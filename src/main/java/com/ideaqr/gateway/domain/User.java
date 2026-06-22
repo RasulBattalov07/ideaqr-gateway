@@ -69,6 +69,14 @@ public class User implements TenantScoped {
     @Column(name = "blocked", nullable = false)
     private boolean blocked;
 
+    /** When the account was blocked (null while active). */
+    @Column(name = "blocked_at")
+    private LocalDateTime blockedAt;
+
+    /** Admin-supplied reason for the block, surfaced in the User Management table. */
+    @Column(name = "blocked_reason", length = 300)
+    private String blockedReason;
+
     /**
      * Forces a password change on next use (audit 4.9). Set when an administrator
      * resets the password to a temporary one; cleared once the user picks a new one.

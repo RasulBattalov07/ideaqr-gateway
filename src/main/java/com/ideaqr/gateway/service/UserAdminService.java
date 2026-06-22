@@ -52,6 +52,8 @@ public class UserAdminService {
             throw new IllegalStateException("Пользователь уже заблокирован.");
         }
         target.setBlocked(true);
+        target.setBlockedAt(java.time.LocalDateTime.now());
+        target.setBlockedReason(reason != null && !reason.isBlank() ? reason.trim() : null);
         userRepository.save(target);
 
         // Reflect the ban in the governance layer too.
@@ -76,6 +78,8 @@ public class UserAdminService {
             throw new IllegalStateException("Пользователь не заблокирован.");
         }
         target.setBlocked(false);
+        target.setBlockedAt(null);
+        target.setBlockedReason(null);
         userRepository.save(target);
 
         Identity identity = identityService.findById(target.getIdentityUid());

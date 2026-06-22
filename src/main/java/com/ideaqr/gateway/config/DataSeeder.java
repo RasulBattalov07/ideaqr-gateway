@@ -47,6 +47,10 @@ public class DataSeeder implements CommandLineRunner {
 
         seed("admin", "Admin123!", "Аружан", "Сапарова", "EMPLOYED",
                 UserService.PROFESSION_RETAIL_ADMIN, retail, "RETAIL_ADMIN");
+        // A regular employee in the admin's own tenant, so the User Management module
+        // has someone to block / change role / manage (admins are tenant-scoped).
+        seed("seller", "Seller123!", "Ербол", "Нурлан", "EMPLOYED",
+                UserService.PROFESSION_SELLER, retail, "SELLER");
         seed("doctor", "Doctor123!", "Санжар", "Ким", "EMPLOYED",
                 UserService.PROFESSION_DOCTOR, hospital, "DOCTOR");
         seed("inspector", "Inspect123!", "Гульнара", "Ахметова", "EMPLOYED",

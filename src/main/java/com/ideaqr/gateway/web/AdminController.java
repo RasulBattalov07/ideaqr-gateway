@@ -106,6 +106,8 @@ public class AdminController {
             m.put("employmentStatus", u.getEmploymentStatus().name());
             m.put("admin", u.isAdmin());
             m.put("blocked", u.isBlocked());
+            m.put("blockedReason", u.getBlockedReason());
+            m.put("blockedAt", u.getBlockedAt() != null ? u.getBlockedAt().format(TS) : null);
             m.put("identityUid", u.getIdentityUid().toString());
             m.put("trustLevel", id != null ? id.getTrustLevel() : null);
             m.put("trustScore", id != null ? trustScoreService.cachedOrCompute(id) : null);

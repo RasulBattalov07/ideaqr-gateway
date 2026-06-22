@@ -973,19 +973,25 @@
             body.innerHTML = `
             <section class="panel panel-pad">
                 <div class="section-title">Пользователи системы (${data.totalElements})</div>
-                <p class="muted" style="margin-bottom:14px">Блокировка, смена уровня доступа и сброс пароля. Заблокированный пользователь не может войти и выполнять запросы.</p>
+                <p class="muted" style="margin-bottom:14px">Блокировка, изменение роли, уровень доступа и сброс пароля. Показаны только пользователи вашей организации (изоляция тенантов). Заблокированный пользователь не может войти и выполнять запросы.</p>
                 <div class="table-scroll"><table class="audit-tbl">
-                    <thead><tr><th>Имя</th><th>Логин</th><th>Профессия</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
+                    <thead><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
                     <tbody>${rows.map(u => {
                         const isSelf = me && u.username === me;
+                        const specialist = ['DOCTOR', 'INSPECTOR', 'PHARMACIST'].includes(u.profession);
+                        const profBadge = `<span class="atag role${specialist ? ' specialist' : ''}">${esc(u.professionLabel)}</span>`;
                         const statusBadge = u.blocked
-                            ? '<span class="atag bad">● Заблокирован</span>'
+                            ? `<span class="atag bad"${u.blockedReason ? ` title="Причина: ${esc(u.blockedReason)}"` : ''}>● Заблокирован</span>`
                             : '<span class="atag ok">● Активен</span>';
                         const adminBadge = u.admin ? ' <span class="atag admin">Админ</span>' : '';
+                        const blockNote = (u.blocked && (u.blockedReason || u.blockedAt))
+                            ? `<div class="um-block-reason">${u.blockedReason ? esc(u.blockedReason) : 'Без указания причины'}${u.blockedAt ? ' · ' + esc(u.blockedAt) : ''}</div>`
+                            : '';
                         const blockBtn = u.blocked
                             ? `<button class="btn btn-sm btn-ghost" data-act="unblock" data-u="${esc(u.username)}">Разблокировать</button>`
                             : `<button class="btn btn-sm btn-danger" data-act="block" data-u="${esc(u.username)}" ${isSelf ? 'disabled title="Нельзя заблокировать себя"' : ''}>Заблокировать</button>`;
-                        const roleBtn = u.admin
+                        const roleChangeBtn = `<button class="btn btn-sm btn-ghost" data-act="role-change" data-u="${esc(u.username)}" data-prof="${esc(u.profession)}" ${isSelf ? 'disabled title="Нельзя менять свою роль"' : ''}>Изменить роль</button>`;
+                        const adminBtn = u.admin
                             ? `<button class="btn btn-sm btn-ghost" data-act="demote" data-u="${esc(u.username)}" ${isSelf ? 'disabled title="Нельзя понизить себя"' : ''}>Снять админа</button>`
                             : `<button class="btn btn-sm btn-gold" data-act="promote" data-u="${esc(u.username)}">Сделать админом</button>`;
                         const pwBtn = `<button class="btn btn-sm btn-ghost" data-act="reset" data-u="${esc(u.username)}">Сброс пароля</button>`;
@@ -993,49 +999,63 @@
                         <tr>
                             <td data-label="Имя">${esc(u.fullName)}${isSelf ? ' <span class="atag info">вы</span>' : ''}</td>
                             <td class="mono" data-label="Логин">${esc(u.username)}</td>
-                            <td data-label="Профессия">${esc(u.professionLabel)}</td>
-                            <td data-label="Статус">${statusBadge}${adminBadge}</td>
+                            <td data-label="Роль">${profBadge}</td>
+                            <td data-label="Статус">${statusBadge}${adminBadge}${blockNote}</td>
                             <td data-label="Trust Score"><strong>${esc(u.trustScore)}</strong> / 100</td>
                             <td data-label="Риск">${esc(u.riskScore || '—')}</td>
-                            <td data-label="Действия"><div class="um-actions">${blockBtn}${roleBtn}${pwBtn}</div></td>
+                            <td data-label="Действия"><div class="um-actions">${blockBtn}${roleChangeBtn}${adminBtn}${pwBtn}</div></td>
                         </tr>`;
                     }).join('')}</tbody>
                 </table></div>
                 ${pagerHtml(data)}
             </section>`;
             body.querySelectorAll('.um-actions button[data-act]').forEach(btn => {
-                btn.addEventListener('click', () => handleUserAction(btn.getAttribute('data-act'), btn.getAttribute('data-u')));
+                btn.addEventListener('click', () => handleUserAction(
+                    btn.getAttribute('data-act'), btn.getAttribute('data-u'), btn.getAttribute('data-prof')));
             });
             bindPager(body, data, p => renderAdminUsers(p));
         });
     }
 
-    async function handleUserAction(act, username) {
-        const confirms = {
-            block: `Заблокировать пользователя «${username}»? Он не сможет войти и выполнять запросы.`,
-            demote: `Снять права администратора у «${username}»?`,
-            reset: `Сбросить пароль пользователя «${username}»? Будет выдан новый временный пароль.`
-        };
-        if (confirms[act]) {
-            const ok = await modalConfirm(confirms[act], {
-                danger: act === 'block',
-                confirmText: act === 'block' ? 'Заблокировать' : 'Подтвердить'
-            });
-            if (!ok) return;
+    async function handleUserAction(act, username, profession) {
+        let path;
+        let bodyData;
+
+        if (act === 'block') {
+            const result = await modalBlockUser(username);
+            if (!result.ok) return;
+            path = `/api/admin/users/${encodeURIComponent(username)}/block`;
+            bodyData = { reason: result.reason || undefined };
+        } else if (act === 'role-change') {
+            const picked = await modalChangeRole(username, profession);
+            if (!picked || picked === profession) return;
+            path = `/api/admin/users/${encodeURIComponent(username)}/profession`;
+            bodyData = { profession: picked };
+        } else {
+            const confirms = {
+                unblock: `Разблокировать пользователя «${username}»?`,
+                promote: `Сделать «${username}» администратором? Доступ к панели управления применится сразу.`,
+                demote: `Снять права администратора у «${username}»? Активные сессии будут завершены.`,
+                reset: `Сбросить пароль пользователя «${username}»? Будет выдан новый временный пароль, а текущие сессии завершены.`
+            };
+            if (confirms[act]) {
+                const ok = await modalConfirm(confirms[act], { confirmText: 'Подтвердить' });
+                if (!ok) return;
+            }
+            const routes = {
+                unblock: { path: `/api/admin/users/${encodeURIComponent(username)}/unblock`, body: undefined },
+                promote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: true } },
+                demote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: false } },
+                reset: { path: `/api/admin/users/${encodeURIComponent(username)}/reset-password`, body: undefined }
+            };
+            const route = routes[act];
+            if (!route) return;
+            path = route.path;
+            bodyData = route.body;
         }
 
-        const routes = {
-            block: { path: `/api/admin/users/${encodeURIComponent(username)}/block`, body: undefined },
-            unblock: { path: `/api/admin/users/${encodeURIComponent(username)}/unblock`, body: undefined },
-            promote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: true } },
-            demote: { path: `/api/admin/users/${encodeURIComponent(username)}/role`, body: { admin: false } },
-            reset: { path: `/api/admin/users/${encodeURIComponent(username)}/reset-password`, body: undefined }
-        };
-        const route = routes[act];
-        if (!route) return;
-
         try {
-            const { ok, data } = await apiJson(route.path, { method: 'POST', body: route.body });
+            const { ok, data } = await apiJson(path, { method: 'POST', body: bodyData });
             if (!ok) { toast((data && data.message) || 'Не удалось выполнить действие.', 'err'); return; }
             if (act === 'reset' && data && data.details && data.details.temporaryPassword) {
                 const tmp = data.details.temporaryPassword;
@@ -1049,6 +1069,59 @@
         } catch (_) {
             toast('Ошибка выполнения действия.', 'err');
         }
+    }
+
+    // Block dialog with an optional reason (User Management module).
+    function modalBlockUser(username) {
+        return showModal({
+            title: 'Блокировка пользователя',
+            bodyHtml: `
+                <p class="modal-text">Заблокировать «${esc(username)}»? Он не сможет войти и выполнять запросы; активные сессии будут немедленно завершены.</p>
+                <div class="field" style="margin-top:12px">
+                    <label for="block-reason">Причина (необязательно)</label>
+                    <input id="block-reason" type="text" maxlength="300" placeholder="например, нарушение правил">
+                </div>`,
+            dismissValue: { ok: false },
+            onBody: (card, { close }) => {
+                const box = card.querySelector('.modal-actions');
+                box.innerHTML = `
+                    <button class="btn btn-ghost" type="button" id="bl-cancel">Отмена</button>
+                    <button class="btn btn-danger" type="button" id="bl-ok" data-autofocus>Заблокировать</button>`;
+                card.querySelector('#bl-cancel').addEventListener('click', () => close({ ok: false }));
+                card.querySelector('#bl-ok').addEventListener('click', () =>
+                    close({ ok: true, reason: card.querySelector('#block-reason').value.trim() }));
+            }
+        });
+    }
+
+    // Role / profession change dialog. Specialist and admin roles unlock protected data.
+    function modalChangeRole(username, currentProfession) {
+        const professions = [
+            ['CITIZEN', 'Гражданин'], ['SELLER', 'Продавец'], ['SERVICE_OPERATOR', 'Оператор услуг'],
+            ['PHARMACIST', 'Фармацевт'], ['DOCTOR', 'Врач'],
+            ['INSPECTOR', 'Инспектор инфраструктуры'], ['RETAIL_ADMIN', 'Администратор торговли']
+        ];
+        const options = professions.map(([value, label]) =>
+            `<option value="${value}" ${value === currentProfession ? 'selected' : ''}>${esc(label)}</option>`).join('');
+        return showModal({
+            title: 'Изменить роль пользователя',
+            bodyHtml: `
+                <p class="modal-text">Назначить роль для «${esc(username)}». Роли врача, инспектора и администратора открывают доступ к защищённым данным — назначайте только после проверки.</p>
+                <div class="field" style="margin-top:12px">
+                    <label for="role-select">Профессия / роль</label>
+                    <select id="role-select">${options}</select>
+                </div>`,
+            dismissValue: null,
+            onBody: (card, { close }) => {
+                const box = card.querySelector('.modal-actions');
+                box.innerHTML = `
+                    <button class="btn btn-ghost" type="button" id="rl-cancel">Отмена</button>
+                    <button class="btn btn-primary" type="button" id="rl-ok" data-autofocus>Назначить роль</button>`;
+                card.querySelector('#rl-cancel').addEventListener('click', () => close(null));
+                card.querySelector('#rl-ok').addEventListener('click', () =>
+                    close(card.querySelector('#role-select').value));
+            }
+        });
     }
 
     function statCard(label, value, ico) {

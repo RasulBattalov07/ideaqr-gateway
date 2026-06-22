@@ -87,12 +87,17 @@ Seeded automatically on first run. These are **throwaway local-demo credentials*
 they are provisioned server-side, are **not printed on the login screen** (audit 1.3),
 and do not exist in a production deployment backed by a real database.
 
-| Username    | Password      | Person (RU)         | Interface        | Domain role |
-|-------------|---------------|---------------------|------------------|-------------|
-| `admin`     | `Admin123!`   | Аружан Сапарова     | Admin panel      | Retail admin |
-| `doctor`    | `Doctor123!`  | Санжар Ким          | Citizen terminal | Doctor      |
-| `inspector` | `Inspect123!` | Гульнара Ахметова   | Citizen terminal | Inspector   |
-| `citizen`   | `Citizen123!` | Дамир Оспанов       | Citizen terminal | Citizen     |
+| Username    | Password      | Person (RU)         | Interface        | Domain role  | Tenant     |
+|-------------|---------------|---------------------|------------------|--------------|------------|
+| `admin`     | `Admin123!`   | Аружан Сапарова     | Admin panel      | Retail admin | Retail     |
+| `seller`    | `Seller123!`  | Ербол Нурлан        | Citizen terminal | Seller       | Retail     |
+| `doctor`    | `Doctor123!`  | Санжар Ким          | Citizen terminal | Doctor       | Hospital   |
+| `inspector` | `Inspect123!` | Гульнара Ахметова   | Citizen terminal | Inspector    | Power grid |
+| `citizen`   | `Citizen123!` | Дамир Оспанов       | Citizen terminal | Citizen      | Public     |
+
+Each organisation is its own **tenant** (audit 5.3): `admin` (Retail) manages only
+`admin` + `seller`; `doctor` / `inspector` / `citizen` belong to other tenants and are
+invisible to the retail admin.
 
 Profession → access profile mapping:
 
@@ -143,6 +148,29 @@ The **administrator** can also create brand-new objects from the panel (the brie
 "Adidas Black T-Shirt" flow). A created object runs the full `QR_CREATION` pipeline and
 returns a **real, scannable QR PNG**; scanning that code in the terminal resolves the
 object you just created.
+
+---
+
+## Admin: User Management (try it)
+
+Log in as **`admin`** and open the **«Пользователи»** tab. Because admins are
+tenant-scoped, you will see only **`admin`** and **`seller`** (your Retail tenant) — not
+`doctor`, `inspector` or `citizen`. Try, on the `seller` row:
+
+1. **Изменить роль** → pick *Врач* / *Инспектор* / *Администратор торговли*. The role
+   badge updates and the new business roles take effect immediately (sessions are
+   refreshed). This is the controlled way specialist roles are granted — public sign-up
+   can never self-assign them.
+2. **Заблокировать** → optionally enter a reason. The status turns to a red
+   **● Заблокирован** badge with the reason + timestamp; the seller's live session ends
+   and a login attempt as `seller` is now refused (HTTP 401). **Разблокировать** reverses it.
+3. **Сделать админом / Снять админа** → toggles access to the governance panel.
+4. **Сброс пароля** → issues a one-time temporary password (shown once, copyable) and
+   forces the user to set a new one on next login.
+
+Cross-tenant safety: trying to manage a user from another organisation (e.g. `doctor`)
+returns *"user not found"* — the tenant filter makes other tenants' rows physically
+invisible, so one customer can never touch another's accounts.
 
 ---
 
