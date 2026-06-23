@@ -17,6 +17,7 @@
     let sessionInfo = null;
     let notifList = [];
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
+    let pendingRegister = false;   // open the Registration tab after a guest converts
 
     const app = () => document.getElementById('app');
 
@@ -587,6 +588,8 @@
         }
         tabLogin.addEventListener('click', () => activate('login'));
         tabRegister.addEventListener('click', () => activate('register'));
+        // A converting guest lands straight on the Registration tab.
+        if (pendingRegister) { activate('register'); pendingRegister = false; }
 
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
@@ -910,12 +913,71 @@
                     <div class="oi-body">
                         <div class="oi-name">${esc(o.displayName)}</div>
                         <div class="oi-uid">${esc(o.objectUid)}</div>
-                        <div class="oi-meta">${esc(categoryLabel(o.category))} · ${esc(o.createdAt || '')}</div>
+                        <div class="oi-meta">${esc(categoryLabel(o.category))} · Владелец ${esc(shortId(o.ownerIdentityUid))} · ${esc(o.createdAt || '')}</div>
                     </div>
+                    <button class="btn btn-ghost btn-sm obj-transfer" type="button"
+                        data-uid="${esc(o.objectUid)}" data-owner="${esc(o.ownerIdentityUid || '')}">Передать владельца</button>
                 </div>`).join('');
+            list.querySelectorAll('.obj-transfer').forEach(btn => {
+                btn.addEventListener('click', () => transferOwner(btn.dataset.uid, btn.dataset.owner));
+            });
         } catch (_) {
             list.innerHTML = `<div class="obj-empty">Ошибка загрузки списка.</div>`;
         }
+    }
+
+    // -------------------------------------------------------------
+    //  Admin: transfer object ownership (Identity → Identity)
+    //  Object is not re-created; its history is preserved (OBJECT_TRANSFERRED).
+    // -------------------------------------------------------------
+    async function transferOwner(objectUid, currentOwnerUid) {
+        // Build an owner picker from the admin user list (each row carries identityUid).
+        let users = [];
+        try {
+            const { ok, data } = await apiJson('/api/admin/users?page=0&size=100');
+            if (ok && data && Array.isArray(data.content)) users = data.content;
+        } catch (_) { /* fall back to manual UID entry */ }
+        const picked = await modalTransferOwner(objectUid, users, currentOwnerUid);
+        if (!picked) return;
+        try {
+            const { ok, data } = await apiJson(`/api/admin/objects/${encodeURIComponent(objectUid)}/transfer`,
+                { method: 'POST', body: { newOwnerIdentityUid: picked.uid, note: picked.note || undefined } });
+            if (!ok) { toast((data && data.message) || 'Не удалось передать объект.', 'err'); return; }
+            toast('Объект передан новому владельцу. История сохранена.', 'ok');
+            loadAdminObjects();
+        } catch (_) { toast('Ошибка передачи объекта.', 'err'); }
+    }
+
+    function modalTransferOwner(objectUid, users, currentOwnerUid) {
+        const opts = users
+            .filter(u => u.identityUid && u.identityUid !== currentOwnerUid)
+            .map(u => `<option value="${esc(u.identityUid)}">${esc(u.fullName)} · ${esc(u.username)}</option>`).join('');
+        const ownerField = opts
+            ? `<select id="to-owner">${opts}</select>`
+            : `<input id="to-owner" type="text" placeholder="Identity UID нового владельца">`;
+        return showModal({
+            title: 'Передать владельца объекта',
+            bodyHtml: `
+                <p class="modal-text">Объект <code>${esc(objectUid)}</code> будет закреплён за новой
+                личностью. Объект не пересоздаётся — передача фиксируется в неизменяемом журнале
+                как <strong>OBJECT_TRANSFERRED</strong>, история сохраняется.</p>
+                <div class="field" style="margin-top:14px"><label for="to-owner">Новый владелец</label>${ownerField}</div>
+                <div class="field" style="margin-top:10px"><label for="to-note">Примечание</label>
+                    <input id="to-note" type="text" placeholder="например, продажа / передача"></div>`,
+            dismissValue: null,
+            onBody: (card, { close }) => {
+                const box = card.querySelector('.modal-actions');
+                box.innerHTML = `
+                    <button class="btn btn-ghost" type="button" id="to-cancel">Отмена</button>
+                    <button class="btn btn-primary" type="button" id="to-ok" data-autofocus>Передать владельца</button>`;
+                card.querySelector('#to-cancel').addEventListener('click', () => close(null));
+                card.querySelector('#to-ok').addEventListener('click', () => {
+                    const uid = card.querySelector('#to-owner').value.trim();
+                    if (!uid) { toast('Укажите нового владельца.', 'err'); return; }
+                    close({ uid, note: card.querySelector('#to-note').value.trim() });
+                });
+            }
+        });
     }
 
     function renderAdminAudit() {
@@ -1436,7 +1498,7 @@
             if (panel) panel.hidden = !panel.hidden;
         });
         const guestReg = document.getElementById('guest-register-btn');
-        if (guestReg) guestReg.addEventListener('click', doLogout);
+        if (guestReg) guestReg.addEventListener('click', startGuestRegistration);
     }
 
     function renderCitizenTerminal() {
@@ -1523,12 +1585,52 @@
         const approved = data.outcome === 'APPROVED';
         let cardHtml = '';
         if (approved && data.data) cardHtml = renderCardByCategory(data.category, data.data, data.objectUid);
+        const tierHtml = (approved && data.accessTier) ? accessTierHtml(data.accessTier) : '';
+        const ctaHtml = data.registrationRequired ? guestCtaHtml(data.cta) : '';
         result.innerHTML = `
             ${verdictHtml(data.outcome, data.reason, data.riskLevel)}
             <div class="pipeline" id="scan-pipeline"></div>
-            <div id="card-slot" class="mt-md">${cardHtml}</div>`;
+            <div id="card-slot" class="mt-md">${tierHtml}${cardHtml}${ctaHtml}</div>`;
         animatePipeline(document.getElementById('scan-pipeline'), data, data.outcome);
         wireReportButtons();
+        const ctaBtn = document.getElementById('guest-cta-btn');
+        if (ctaBtn) ctaBtn.addEventListener('click', startGuestRegistration);
+    }
+
+    // Visibility tier (Scenario #1 / ПУБЛИЧНАЯ СТРАНИЦА): a guest receives only the
+    // PUBLIC projection of a card; a registered identity gets the FULL card. The access
+    // decision is identical for both — only the amount of data differs — so we label it
+    // honestly rather than hiding the difference.
+    function accessTierHtml(tier) {
+        const pub = tier === 'PUBLIC';
+        return `<div class="tier-ribbon ${pub ? 'public' : 'full'}">
+            <span class="tr-ico">${pub ? '◐' : '●'}</span>
+            <span>${pub ? 'Публичный просмотр — расширенные данные скрыты' : 'Полный доступ к карточке'}</span>
+        </div>`;
+    }
+
+    function guestCtaHtml(text) {
+        return `<div class="guest-cta">
+            <div class="gc-glow"></div>
+            <div class="gc-body">
+                <div class="gc-title">Откройте полную карточку</div>
+                <div class="gc-text">${esc(text || 'Для продолжения взаимодействия необходимо зарегистрироваться.')}</div>
+                <ul class="gc-list">
+                    <li>Цена, скидки и акции</li>
+                    <li>Отзывы и рейтинг</li>
+                    <li>История движения и поставщик</li>
+                </ul>
+            </div>
+            <button class="btn btn-gold" id="guest-cta-btn" type="button">Зарегистрироваться</button>
+        </div>`;
+    }
+
+    // Guest → registration. The guest UID + one-time merge token were stored at guest
+    // login; after the new account is created maybeMergeGuest() folds the guest history
+    // in. Logging out returns to the auth screen, where we open the Registration tab.
+    function startGuestRegistration() {
+        pendingRegister = true;
+        doLogout();
     }
 
     function renderCitizenAudit() {
@@ -1930,9 +2032,9 @@
             ${vitals.length ? `<div class="dc-section"><h4>Динамика давления и пульса</h4>
                 <div class="chart-wrap">${vitalsChart(vitals)}
                 <div class="chart-legend">
-                    <span class="legend-item"><span class="legend-swatch" style="background:#0C6E8F"></span>Систолическое</span>
-                    <span class="legend-item"><span class="legend-swatch" style="background:#E0A82E"></span>Диастолическое</span>
-                    <span class="legend-item"><span class="legend-swatch" style="background:#C23A37"></span>Пульс</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:#3CC9E8"></span>Систолическое</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:#F3CC73"></span>Диастолическое</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:#F2706B"></span>Пульс</span>
                 </div></div></div>` : ''}
             ${visits.length ? `<div class="dc-section"><h4>История посещений</h4>
                 <table class="tbl"><thead><tr><th>Дата</th><th>Клиника</th><th>Причина</th><th>Врач</th></tr></thead><tbody>${visitRows}</tbody></table></div>` : ''}
@@ -1948,7 +2050,7 @@
         const W = 560, H = 200, padL = 38, padR = 14, padT = 14, padB = 26;
         const innerW = W - padL - padR, innerH = H - padT - padB;
         const keys = ['systolic', 'diastolic', 'pulse'];
-        const colors = { systolic: '#0C6E8F', diastolic: '#E0A82E', pulse: '#C23A37' };
+        const colors = { systolic: '#3CC9E8', diastolic: '#F3CC73', pulse: '#F2706B' };
         const all = [];
         series.forEach(d => keys.forEach(k => { if (typeof d[k] === 'number') all.push(d[k]); }));
         if (all.length === 0) return '';
@@ -1963,15 +2065,15 @@
         for (let g = 0; g <= 3; g++) {
             const yy = padT + innerH * g / 3;
             const val = Math.round(max - (max - min) * g / 3);
-            grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#DBE5EE" stroke-width="1"/>`;
-            grid += `<text x="${padL - 6}" y="${yy + 3}" text-anchor="end" font-size="9" fill="#9AAABB">${val}</text>`;
+            grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>`;
+            grid += `<text x="${padL - 6}" y="${yy + 3}" text-anchor="end" font-size="9" fill="rgba(226,238,247,0.42)">${val}</text>`;
         }
         const lines = keys.map(k => {
             const pts = series.map((d, i) => `${xFor(i).toFixed(1)},${yFor(d[k]).toFixed(1)}`).join(' ');
             const dots = series.map((d, i) => `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(d[k]).toFixed(1)}" r="2.6" fill="${colors[k]}"/>`).join('');
             return `<polyline points="${pts}" fill="none" stroke="${colors[k]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
         }).join('');
-        const labels = series.map((d, i) => `<text x="${xFor(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9.5" fill="#9AAABB">${esc(d.label)}</text>`).join('');
+        const labels = series.map((d, i) => `<text x="${xFor(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9.5" fill="rgba(226,238,247,0.42)">${esc(d.label)}</text>`).join('');
         return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="График показателей">${grid}${lines}${labels}</svg>`;
     }
 
@@ -1984,6 +2086,12 @@
         const rating = d.rating != null ? `
             <div class="rating-row"><span class="stars">${stars(d.rating)}</span>
             <span>${esc(d.rating)} ${d.reviews != null ? '· ' + esc(d.reviews) + ' отзывов' : ''}</span></div>` : '';
+        // Guest projection (Scenario #1) strips price/reviews server-side — guard the
+        // price block so a hidden price never renders as "0 ₸".
+        const priceBlock = d.price != null
+            ? `<div class="price-block"><span class="price-now">${esc(fmtPrice(d.price, d.currency))}</span></div>` : '';
+        const headerMeta = (priceBlock || rating)
+            ? `<div class="dc-section">${priceBlock}${rating}</div>` : '';
         const sizeRows = sizes.map(s => {
             const stock = Number(s.stock || 0);
             let cls = 'in', label = 'В наличии (' + stock + ')';
@@ -2007,10 +2115,7 @@
         return `
         <div class="card data-card fade-in">
             ${cardHead(d.productName || 'Товар', (d.brand ? d.brand + ' · ' : '') + 'Артикул: ' + (d.sku || objectUid), 'RETAIL')}
-            <div class="dc-section">
-                <div class="price-block"><span class="price-now">${esc(fmtPrice(d.price, d.currency))}</span></div>
-                ${rating}
-            </div>
+            ${headerMeta}
             ${d.description ? `<div class="dc-section"><p>${esc(d.description)}</p></div>` : ''}
             ${sizes.length ? `<div class="dc-section"><h4>Размеры и наличие</h4>
                 <table class="tbl"><thead><tr><th>Размер</th><th style="text-align:right">Наличие</th></tr></thead><tbody>${sizeRows}</tbody></table></div>` : ''}
@@ -2023,9 +2128,9 @@
 
     function ecoCard(d, objectUid) {
         const fill = Number(d.fillLevel != null ? d.fillLevel : 0);
-        let gaugeColor = '#1E875A';
-        if (fill >= 80) gaugeColor = '#C23A37';
-        else if (fill >= 50) gaugeColor = '#A9760F';
+        let gaugeColor = '#45D49A';
+        if (fill >= 80) gaugeColor = '#F2706B';
+        else if (fill >= 50) gaugeColor = '#E7B454';
         const waste = Array.isArray(d.wasteTypes) ? d.wasteTypes : [];
         const sched = Array.isArray(d.pickupSchedule) ? d.pickupSchedule : [];
         const schedHtml = sched.map(s => `<div class="sched-item"><span class="sd-day">${esc(s.day)}</span><span class="sd-time">${esc(s.time)}</span></div>`).join('');

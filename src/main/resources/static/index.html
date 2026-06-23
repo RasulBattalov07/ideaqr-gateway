@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0C6E8F">
+    <meta name="theme-color" content="#081420">
     <title>IDEAQR · Цифровой шлюз доступа</title>
 
     <!-- Manrope (display) · Golos Text (Cyrillic UI) · JetBrains Mono (codes).
@@ -13,6 +13,33 @@
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+    <!-- Ambient Kazakh koshkar-müiz (ram's-horn) ornament. Purely decorative, inline
+         SVG (CSP-safe — no external assets), fixed behind all content at low opacity. -->
+    <div class="kz-deco" aria-hidden="true">
+        <svg class="kz-tr" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M100 60C70 60 58 86 82 96 96 102 96 80 86 82"/>
+            <path d="M100 60C130 60 142 86 118 96 104 102 104 80 114 82"/>
+            <path d="M100 140C70 140 58 114 82 104 96 98 96 120 86 118"/>
+            <path d="M100 140C130 140 142 114 118 104 104 98 104 120 114 118"/>
+            <path d="M60 100C60 70 86 58 96 82 102 96 80 96 82 86"/>
+            <path d="M60 100C60 130 86 142 96 118 102 104 80 104 82 114"/>
+            <path d="M140 100C140 70 114 58 104 82 98 96 120 96 118 86"/>
+            <path d="M140 100C140 130 114 142 104 118 98 104 120 104 118 114"/>
+            <circle cx="100" cy="100" r="6"/>
+        </svg>
+        <svg class="kz-bl" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M100 60C70 60 58 86 82 96 96 102 96 80 86 82"/>
+            <path d="M100 60C130 60 142 86 118 96 104 102 104 80 114 82"/>
+            <path d="M100 140C70 140 58 114 82 104 96 98 96 120 86 118"/>
+            <path d="M100 140C130 140 142 114 118 104 104 98 104 120 114 118"/>
+            <path d="M60 100C60 70 86 58 96 82 102 96 80 96 82 86"/>
+            <path d="M60 100C60 130 86 142 96 118 102 104 80 104 82 114"/>
+            <path d="M140 100C140 70 114 58 104 82 98 96 120 96 118 86"/>
+            <path d="M140 100C140 130 114 142 104 118 98 104 120 104 118 114"/>
+            <circle cx="100" cy="100" r="6"/>
+        </svg>
+    </div>
+
     <!-- Product banner. Honest positioning (audit 2.7 / 5.4): this is a demo of a
          governed-access + immutable-audit layer, NOT an official state system. -->
     <div class="gov-banner">

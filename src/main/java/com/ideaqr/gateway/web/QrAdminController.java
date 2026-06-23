@@ -59,6 +59,8 @@ public class QrAdminController {
             m.put("category", obj.getCategory().name());
             m.put("status", obj.getStatus() != null ? obj.getStatus().name() : null);
             m.put("trustScore", obj.getTrustScore());
+            // Current owner — drives the "Передать владельца" action in the admin panel.
+            m.put("ownerIdentityUid", obj.getOwnerIdentityUid() != null ? obj.getOwnerIdentityUid().toString() : null);
             m.put("qrUid", obj.getQrUid() != null ? obj.getQrUid().toString() : null);
             m.put("createdAt", obj.getCreatedAt() != null ? obj.getCreatedAt().format(TS) : null);
             // Cacheable URL instead of re-encoding a base64 PNG per row per load (audit 3.4).
