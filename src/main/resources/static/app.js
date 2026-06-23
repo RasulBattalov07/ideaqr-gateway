@@ -7,6 +7,14 @@
 (() => {
     'use strict';
 
+    // Apply the persisted theme as early as possible. CSP (script-src 'self') forbids an
+    // inline <head> script, so this deferred module is the earliest safe entry point.
+    try {
+        if (localStorage.getItem('ideaqr_theme') === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+    } catch (_) { /* ignore */ }
+
     // -------------------------------------------------------------
     //  State
     // -------------------------------------------------------------
@@ -428,6 +436,24 @@
             txt.textContent = 'нет связи со шлюзом';
         }
     }
+
+    // -------------------------------------------------------------
+    //  Theme (dark default · light opt-in, persisted per browser)
+    // -------------------------------------------------------------
+    function currentTheme() {
+        return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    }
+    function syncThemeIcon() {
+        const ico = document.getElementById('themeIco');
+        if (ico) ico.textContent = currentTheme() === 'light' ? '☾' : '☀';
+    }
+    function applyTheme(theme) {
+        if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        else document.documentElement.removeAttribute('data-theme');
+        try { localStorage.setItem('ideaqr_theme', theme); } catch (_) { /* ignore */ }
+        syncThemeIcon();
+    }
+    function toggleTheme() { applyTheme(currentTheme() === 'light' ? 'dark' : 'light'); }
 
     // -------------------------------------------------------------
     //  Routing
@@ -2279,6 +2305,10 @@
     async function init() {
         const closeBtn = document.getElementById('scanner-close');
         if (closeBtn) closeBtn.addEventListener('click', closeScanner);
+
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+        syncThemeIcon();
 
         checkHealth();
         setInterval(checkHealth, 30000);

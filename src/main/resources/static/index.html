@@ -46,6 +46,9 @@
         <div class="gov-banner-inner">
             <span class="gov-flag" aria-hidden="true"></span>
             <span class="gov-banner-text">IDEAQR · Управляемый доступ и неизменяемый аудит · демонстрационная версия</span>
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="Переключить тему" title="Светлая / тёмная тема">
+                <span id="themeIco" aria-hidden="true">☀</span>
+            </button>
             <span class="gov-conn" id="healthPill">
                 <span class="gov-dot" id="healthDot"></span>
                 <span id="healthText">подключение…</span>
@@ -89,7 +92,15 @@
                 <h3>Сканирование QR-кода</h3>
                 <button id="scanner-close" class="icon-btn" type="button" aria-label="Закрыть">✕</button>
             </div>
-            <div id="reader" class="reader"></div>
+            <div class="reader-frame">
+                <div id="reader" class="reader"></div>
+                <!-- Animated targeting overlay (decorative; sits above the camera feed). -->
+                <div class="scan-frame" aria-hidden="true">
+                    <span class="scan-beam"></span>
+                    <span class="corner tl"></span><span class="corner tr"></span>
+                    <span class="corner bl"></span><span class="corner br"></span>
+                </div>
+            </div>
             <p class="scanner-hint">Наведите камеру на QR-код объекта</p>
         </div>
     </div>
