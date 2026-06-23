@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Administrator control of the <b>OBJECT LIFECYCLE</b> ({@code ACTIVE → MODIFIED
@@ -55,6 +56,24 @@ public class ObjectAdminController {
         Identity admin = authSupport.requireIdentity(authentication);
         return respond(objectLifecycleService.archive(admin, objectUid, note(body)),
                 "Объект архивирован.");
+    }
+
+    /** Reassign an object to a new owner (sale / handover) — history is preserved. */
+    @PostMapping("/objects/{objectUid}/transfer")
+    public ResponseEntity<ApiResponse> transfer(@PathVariable String objectUid,
+                                                @RequestBody(required = false) Map<String, Object> body,
+                                                Authentication authentication) {
+        Identity admin = authSupport.requireIdentity(authentication);
+        Object newOwner = body != null ? body.get("newOwnerIdentityUid") : null;
+        if (newOwner == null || newOwner.toString().isBlank()) {
+            throw new IllegalArgumentException("Не указан новый владелец объекта (newOwnerIdentityUid).");
+        }
+        RegistryObject object = objectLifecycleService.transfer(
+                admin, objectUid, UUID.fromString(newOwner.toString().trim()), note(body));
+        return ResponseEntity.ok(ApiResponse.ok("Объект передан новому владельцу.")
+                .with("objectUid", object.getObjectUid())
+                .with("status", object.getStatus().name())
+                .with("ownerIdentityUid", object.getOwnerIdentityUid()));
     }
 
     private ResponseEntity<ApiResponse> respond(RegistryObject object, String message) {

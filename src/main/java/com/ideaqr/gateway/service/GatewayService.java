@@ -10,12 +10,14 @@ import com.ideaqr.gateway.domain.Workflow;
 import com.ideaqr.gateway.domain.enums.DecisionOutcome;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
+import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.InteractionStatus;
 import com.ideaqr.gateway.domain.enums.RequestStatus;
 import com.ideaqr.gateway.domain.enums.RequestType;
 import com.ideaqr.gateway.dto.GatewayResponse;
 import com.ideaqr.gateway.dto.ReportRequest;
 import com.ideaqr.gateway.dto.ScanRequest;
+import com.ideaqr.gateway.util.PublicCard;
 import com.ideaqr.gateway.repository.DecisionRepository;
 import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
@@ -81,6 +83,28 @@ public class GatewayService {
                 identity, resolved.category(), resolved.known());
         boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
 
+        // Tiered visibility (Scenario #1 / ПУБЛИЧНАЯ СТРАНИЦА): the access *decision* is
+        // identical for everyone, but a GUEST only ever receives the public projection of
+        // the card (name / image / short description / rating). A registered identity gets
+        // the full payload; sensitive fields (price, reviews, history, supplier) are
+        // stripped for guests by PublicCard's default-deny whitelist.
+        boolean guest = identity.getIdentityType() == IdentityType.GUEST;
+        Object payload = null;
+        String accessTier = null;
+        boolean registrationRequired = false;
+        String cta = null;
+        if (approved) {
+            if (guest) {
+                payload = PublicCard.project(resolved.data());
+                accessTier = "PUBLIC";
+                registrationRequired = true;
+                cta = "Для продолжения взаимодействия необходимо зарегистрироваться.";
+            } else {
+                payload = resolved.data();
+                accessTier = "FULL";
+            }
+        }
+
         Decision decision = decisionRepository.save(Decision.builder()
                 .requestUid(req.getRequestUid())
                 .identityUid(identity.getIdentityUid())
@@ -95,7 +119,8 @@ public class GatewayService {
                 .requestUid(req.getRequestUid())
                 .objectUid(objectUid)
                 .interactionType("SCAN")
-                .detail("Сканирование объекта " + objectUid + " → " + verdict.outcome().name())
+                .detail("Сканирование объекта " + objectUid + " → " + verdict.outcome().name()
+                        + (approved ? " [" + accessTier + "]" : ""))
                 .build());
 
         req.setStatus(approved ? RequestStatus.PROCESSED : RequestStatus.FAILED);
@@ -128,13 +153,16 @@ public class GatewayService {
                 .riskLevel(verdict.riskLevel())
                 .category(resolved.category().name())
                 .objectUid(objectUid)
-                .data(approved ? resolved.data() : null)
+                .data(payload)
                 .identityUid(identity.getIdentityUid().toString())
                 .requestUid(req.getRequestUid().toString())
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
                 .historyUid(history.getHistoryUid().toString())
                 .trustScore(trustScore)
+                .accessTier(accessTier)
+                .registrationRequired(registrationRequired)
+                .cta(cta)
                 .build();
     }
 

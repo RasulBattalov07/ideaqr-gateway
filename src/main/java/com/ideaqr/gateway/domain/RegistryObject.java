@@ -69,6 +69,16 @@ public class RegistryObject implements TenantScoped {
     @Column(name = "created_by_identity_uid", nullable = false)
     private UUID createdByIdentityUid;
 
+    /**
+     * Current owner of the object (FINAL ТЗ — {@code Object.ownerIdentityId}). Kept
+     * distinct from {@link #createdByIdentityUid}: ownership can change (sale / handover)
+     * via {@code ObjectLifecycleService.transfer(...)} without re-minting the object, so
+     * its UUID, QR and full History are preserved. Defaults to the creator on first
+     * persist; backfilled for existing rows by Flyway V6.
+     */
+    @Column(name = "owner_identity_uid")
+    private UUID ownerIdentityUid;
+
     /** The governed QR backing this object. */
     @Column(name = "qr_uid")
     private UUID qrUid;
@@ -107,6 +117,9 @@ public class RegistryObject implements TenantScoped {
         }
         if (status == null) {
             status = ObjectStatus.ACTIVE;
+        }
+        if (ownerIdentityUid == null) {
+            ownerIdentityUid = createdByIdentityUid;
         }
         if (trustScore == null) {
             trustScore = 50;

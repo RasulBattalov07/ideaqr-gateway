@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Drives the <b>OBJECT LIFECYCLE</b> ({@code CREATED → ACTIVE → MODIFIED →
@@ -68,6 +69,77 @@ public class ObjectLifecycleService {
         return transition(actor, objectUid, ObjectStatus.ARCHIVED,
                 HistoryEventType.OBJECT_ARCHIVED, EventType.OBJECT_ARCHIVED,
                 "Объект архивирован", note);
+    }
+
+    /**
+     * Transfer ownership of an object to a new identity (FINAL ТЗ — "Изменяется
+     * владелец объекта... история объекта должна полностью сохраняться"; Расулу —
+     * продажа автомобиля). The object is <b>not</b> re-created: only its
+     * {@code ownerIdentityUid} changes, the status moves to {@code MODIFIED}, and the
+     * transfer is appended to the immutable journal as {@code OBJECT_TRANSFERRED}, so the
+     * object keeps an unbroken chain of custody. Routed through the same governance
+     * pipeline as every other interaction.
+     */
+    @Transactional
+    public RegistryObject transfer(Identity actor, String objectUid, UUID newOwnerIdentityUid, String note) {
+        if (newOwnerIdentityUid == null) {
+            throw new IllegalArgumentException("Не указан новый владелец объекта.");
+        }
+        RegistryObject object = registryObjectRepository.findByObjectUid(objectUid)
+                .orElseThrow(() -> new IllegalArgumentException("Объект не найден: " + objectUid));
+        if (object.getStatus() == ObjectStatus.ARCHIVED) {
+            throw new IllegalStateException("Нельзя передать архивированный объект.");
+        }
+        if (newOwnerIdentityUid.equals(object.getOwnerIdentityUid())) {
+            throw new IllegalArgumentException("Объект уже принадлежит указанному владельцу.");
+        }
+
+        String detail = "Передача владельца объекта"
+                + (note != null && !note.isBlank() ? ": " + note.trim() : "");
+
+        // Identity → Request → Decision → Interaction (the governed chain).
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(actor.getIdentityUid())
+                .objectUid(objectUid)
+                .requestType(RequestType.OBJECT_LIFECYCLE)
+                .status(RequestStatus.PENDING)
+                .build());
+
+        Decision decision = decisionRepository.save(Decision.builder()
+                .requestUid(req.getRequestUid())
+                .identityUid(actor.getIdentityUid())
+                .outcome(DecisionOutcome.APPROVED)
+                .reasonCode("OBJECT_TRANSFER")
+                .reason(detail)
+                .riskLevel("LOW")
+                .build());
+
+        Interaction interaction = interactionRepository.save(Interaction.builder()
+                .identityUid(actor.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .objectUid(objectUid)
+                .targetIdentityUid(newOwnerIdentityUid)
+                .interactionType("OBJECT_TRANSFER")
+                .detail(detail.length() > 380 ? detail.substring(0, 380) : detail)
+                .build());
+
+        req.setStatus(RequestStatus.PROCESSED);
+        requestRepository.save(req);
+
+        // Reassign ownership in place (no re-mint); status → MODIFIED; refresh Trust Score.
+        object.setOwnerIdentityUid(newOwnerIdentityUid);
+        object.setStatus(ObjectStatus.MODIFIED);
+        object.setUpdatedAt(LocalDateTime.now());
+        object.setTrustScore(computeObjectTrust(objectUid));
+        registryObjectRepository.save(object);
+
+        // Event → History (immutable chain of custody — история не теряется).
+        auditService.record(actor.getIdentityUid(), objectUid, HistoryEventType.OBJECT_TRANSFERRED, detail,
+                req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+        eventService.record(EventType.OBJECT_TRANSFERRED, actor.getIdentityUid(), objectUid,
+                interaction.getInteractionUid(), detail);
+
+        return object;
     }
 
     // ------------------------------------------------------------------

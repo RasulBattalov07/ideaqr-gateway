@@ -45,4 +45,17 @@ public class GatewayResponse {
      * being recalculated on every governed interaction.
      */
     private Integer trustScore;
+
+    /**
+     * Visibility tier of the returned {@link #data}: {@code PUBLIC} for the guest
+     * projection (name / image / short description / rating only) or {@code FULL} for a
+     * registered identity. Present only on an approved access.
+     */
+    private String accessTier;
+
+    /** True when the viewer is a guest and must register to unlock the full card. */
+    private boolean registrationRequired;
+
+    /** Localized call-to-action shown to guests (Scenario #1 / ГОСТЕВОЙ ДОСТУП). */
+    private String cta;
 }
