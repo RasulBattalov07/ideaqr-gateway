@@ -1,5 +1,6 @@
 package com.ideaqr.gateway.domain;
 
+import com.ideaqr.gateway.domain.enums.EventSource;
 import com.ideaqr.gateway.domain.enums.EventType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -56,6 +57,11 @@ public class Event {
     @Column(name = "summary", length = 300)
     private String summary;
 
+    /** Origin channel of the event (Document 22 — Event Source). Defaults to SYSTEM. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", length = 20)
+    private EventSource source;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -66,6 +72,9 @@ public class Event {
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (source == null) {
+            source = EventSource.SYSTEM;
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.ideaqr.gateway.service;
 
 import com.ideaqr.gateway.domain.Event;
+import com.ideaqr.gateway.domain.enums.EventSource;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.repository.EventRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,12 +27,20 @@ public class EventService {
 
     @Transactional
     public Event record(EventType type, UUID identityUid, String objectUid, UUID interactionUid, String summary) {
+        return record(type, identityUid, objectUid, interactionUid, summary, EventSource.SYSTEM);
+    }
+
+    /** Record an event with an explicit origin channel (Document 22 — Event Source). */
+    @Transactional
+    public Event record(EventType type, UUID identityUid, String objectUid, UUID interactionUid,
+                        String summary, EventSource source) {
         return eventRepository.save(Event.builder()
                 .eventType(type)
                 .identityUid(identityUid)
                 .objectUid(objectUid)
                 .interactionUid(interactionUid)
                 .summary(summary)
+                .source(source)
                 .build());
     }
 

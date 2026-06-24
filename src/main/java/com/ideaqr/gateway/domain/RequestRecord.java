@@ -45,6 +45,15 @@ public class RequestRecord implements TenantScoped {
     @Column(name = "identity_uid", nullable = false)
     private UUID identityUid;
 
+    /**
+     * Organisation the request is governed under — an EXPLICIT element of the golden
+     * pipeline (Identifier → Identity/Object → Role → <b>Organization</b> → Request → …).
+     * Resolved from the actor's organisation membership; {@code null} when the actor is a
+     * citizen/guest acting personally.
+     */
+    @Column(name = "organization_uid")
+    private UUID organizationUid;
+
     /** The target object UID (e.g. PATIENT_7291, RETAIL_ADIDAS_SHIRT). */
     @Column(name = "object_uid", length = 120)
     private String objectUid;

@@ -1117,7 +1117,7 @@
             body.innerHTML = `
             <section class="panel panel-pad">
                 <div class="section-title">Пользователи системы (${data.totalElements})</div>
-                <p class="muted" style="margin-bottom:14px">Блокировка, изменение роли, уровень доступа и сброс пароля. Показаны только пользователи вашей организации (изоляция тенантов). Заблокированный пользователь не может войти и выполнять запросы.</p>
+                <p class="muted" style="margin-bottom:14px">Блокировка, изменение роли, уровень доступа и сброс пароля. Все пользователи платформы (режим супер-администратора). Заблокированный пользователь не может войти и выполнять запросы.</p>
                 <div class="table-scroll"><table class="audit-tbl">
                     <thead><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
                     <tbody>${rows.map(u => {

@@ -4,10 +4,13 @@ import com.ideaqr.gateway.domain.Decision;
 import com.ideaqr.gateway.domain.History;
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.Interaction;
+import com.ideaqr.gateway.domain.Organization;
 import com.ideaqr.gateway.domain.RequestRecord;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.domain.Workflow;
+import com.ideaqr.gateway.domain.enums.DataClassification;
 import com.ideaqr.gateway.domain.enums.DecisionOutcome;
+import com.ideaqr.gateway.domain.enums.EventSource;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.domain.enums.IdentityType;
@@ -60,6 +63,7 @@ public class GatewayService {
     private final NotificationService notificationService;
     private final WorkflowRepository workflowRepository;
     private final TrustScoreService trustScoreService;
+    private final OrganizationService organizationService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -73,15 +77,21 @@ public class GatewayService {
 
         RegistryClient.Resolved resolved = registryClient.resolve(objectUid);
 
+        // Golden pipeline: Identifier → Identity/Object → Role → ORGANIZATION → Request → …
+        // Resolve and stamp the organisation the actor is governed under (Doc 22 / pipeline).
+        Organization actingOrg = organizationService.resolveActingOrganization(identity.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+
         RequestRecord req = requestRepository.save(RequestRecord.builder()
                 .identityUid(identity.getIdentityUid())
+                .organizationUid(organizationUid)
                 .objectUid(objectUid)
                 .requestType(RequestType.ACCESS)
                 .status(RequestStatus.PENDING)
                 .build());
 
         ValidationService.Verdict verdict = validationService.decideAccess(
-                identity, resolved.category(), resolved.known());
+                identity, resolved.category(), resolved.known(), organizationUid);
         boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
 
         // Tiered visibility (Scenario #1 / ПУБЛИЧНАЯ СТРАНИЦА): the access *decision* is
@@ -141,7 +151,7 @@ public class GatewayService {
             case REVIEW -> EventType.DECISION_REVIEW;
         };
         eventService.record(evt, identity.getIdentityUid(), objectUid, interaction.getInteractionUid(),
-                "Скан объекта " + objectUid + " → " + verdict.outcome().name());
+                "Скан объекта " + objectUid + " → " + verdict.outcome().name(), EventSource.QR_SCAN);
 
         // Final pipeline stage (… → History → Trust Score): recompute the acting
         // identity's score so the MVP demo can show it being recalculated live.
@@ -153,9 +163,13 @@ public class GatewayService {
                 .reason(verdict.reason())
                 .riskLevel(verdict.riskLevel())
                 .category(resolved.category().name())
+                .dataClassification(DataClassification.forCategory(resolved.category()).name())
+                .policy(validationService.governingPolicy(resolved.category()))
                 .objectUid(objectUid)
                 .data(payload)
                 .identityUid(identity.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
                 .requestUid(req.getRequestUid().toString())
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
@@ -173,8 +187,12 @@ public class GatewayService {
         RegistryClient.Resolved resolved = registryClient.resolve(objectUid);
         String reason = "Обращение по объекту принято и зарегистрировано.";
 
+        Organization actingOrg = organizationService.resolveActingOrganization(identity.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+
         RequestRecord req = requestRepository.save(RequestRecord.builder()
                 .identityUid(identity.getIdentityUid())
+                .organizationUid(organizationUid)
                 .objectUid(objectUid)
                 .requestType(RequestType.REPORT_ISSUE)
                 .status(RequestStatus.PENDING)
@@ -214,6 +232,8 @@ public class GatewayService {
                 .category(resolved.category().name())
                 .objectUid(objectUid)
                 .identityUid(identity.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
                 .requestUid(req.getRequestUid().toString())
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
@@ -226,8 +246,12 @@ public class GatewayService {
         String obj = objectUid != null && !objectUid.isBlank() ? objectUid.trim() : null;
         String reason = "SOS-запрос принят. Приоритет повышен, ответственные лица уведомлены.";
 
+        Organization actingOrg = organizationService.resolveActingOrganization(identity.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+
         RequestRecord req = requestRepository.save(RequestRecord.builder()
                 .identityUid(identity.getIdentityUid())
+                .organizationUid(organizationUid)
                 .objectUid(obj)
                 .requestType(RequestType.SOS)
                 .status(RequestStatus.PROCESSED)
@@ -274,6 +298,8 @@ public class GatewayService {
                 .riskLevel("CRITICAL")
                 .objectUid(obj)
                 .identityUid(identity.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
                 .requestUid(req.getRequestUid().toString())
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
@@ -324,8 +350,10 @@ public class GatewayService {
         }
 
         String reason = "Запрос доступа к профилю отправлен. Ожидается подтверждение владельца.";
+        Organization scannerOrg = organizationService.resolveActingOrganization(scanner.getIdentityUid());
         RequestRecord req = requestRepository.save(RequestRecord.builder()
                 .identityUid(scanner.getIdentityUid())
+                .organizationUid(scannerOrg != null ? scannerOrg.getOrganizationUid() : null)
                 .objectUid(qrValue)
                 .requestType(RequestType.ACCESS)
                 .status(RequestStatus.REVIEW)

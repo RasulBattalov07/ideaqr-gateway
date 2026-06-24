@@ -32,8 +32,24 @@ public class GatewayResponse {
     /** Category-specific card payload; present only on an approved access. */
     private Object data;
 
-    // --- Governance chain (Identity → Request → Decision → Interaction → History) ---
+    /**
+     * Data sensitivity of the object (Document 22 — Data Classification):
+     * PUBLIC | RESTRICTED | CONFIDENTIAL | SECRET.
+     */
+    private String dataClassification;
+
+    /** The governing {@code Policy} code that drove the decision (Document 22 — Policy catalog). */
+    private String policy;
+
+    // --- Golden pipeline chain ---
+    //  Identifier → Identity/Object → Role → Organization → Request → Decision →
+    //  Interaction → Event → History → Audit
     private String identityUid;
+
+    /** Explicit Organization element of the pipeline — the org the request is governed under. */
+    private String organizationUid;
+    private String organizationName;
+
     private String requestUid;
     private String decisionUid;
     private String interactionUid;

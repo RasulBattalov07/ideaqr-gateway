@@ -51,4 +51,19 @@ public class OrganizationService {
     public Organization find(UUID organizationUid) {
         return organizationUid == null ? null : organizationRepository.findById(organizationUid).orElse(null);
     }
+
+    /**
+     * The organisation an identity acts under for the governance pipeline — the explicit
+     * <b>Organization</b> element (Identifier → Identity/Object → Role → Organization →
+     * Request → …). Resolves to the identity's first ACTIVE membership, or {@code null}
+     * when it is a citizen/guest acting personally. Pure data resolution: new
+     * organisations and memberships need no code change (платформенный принцип).
+     */
+    public Organization resolveActingOrganization(UUID identityUid) {
+        return membershipsOf(identityUid).stream()
+                .filter(m -> m.getStatus() == null || "ACTIVE".equalsIgnoreCase(m.getStatus()))
+                .findFirst()
+                .map(m -> find(m.getOrganizationUid()))
+                .orElse(null);
+    }
 }

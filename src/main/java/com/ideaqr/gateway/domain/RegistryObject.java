@@ -1,5 +1,6 @@
 package com.ideaqr.gateway.domain;
 
+import com.ideaqr.gateway.domain.enums.DataClassification;
 import com.ideaqr.gateway.domain.enums.ObjectCategory;
 import com.ideaqr.gateway.domain.enums.ObjectStatus;
 import com.ideaqr.gateway.tenant.TenantListener;
@@ -51,6 +52,16 @@ public class RegistryObject implements TenantScoped {
     @Enumerated(EnumType.STRING)
     @Column(name = "category", nullable = false, length = 20)
     private ObjectCategory category;
+
+    /**
+     * Data sensitivity level (Document 22 — Data Classification). Auto-derived from
+     * {@link #category} on first persist when unset, so every object carries an explicit
+     * level without callers having to set it. Foundation only — field-level enforcement
+     * is a future phase.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "data_level", length = 20)
+    private DataClassification dataLevel;
 
     @Column(name = "display_name", nullable = false, length = 200)
     private String displayName;
@@ -120,6 +131,9 @@ public class RegistryObject implements TenantScoped {
         }
         if (ownerIdentityUid == null) {
             ownerIdentityUid = createdByIdentityUid;
+        }
+        if (dataLevel == null) {
+            dataLevel = DataClassification.forCategory(category);
         }
         if (trustScore == null) {
             trustScore = 50;
