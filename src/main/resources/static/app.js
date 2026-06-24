@@ -1584,10 +1584,13 @@
         </div>`;
 
         const quick = [
-            { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'товар · общедоступно (Сценарий №1)' },
-            { name: 'Медкарта пациента №1024', code: 'PATIENT_1024', tag: 'требуется врач + рабочее время' },
-            { name: 'Офис №1205 · недвижимость', code: 'REALTY_OFFICE_1205', tag: 'коммерческая недвижимость' },
-            { name: 'Вызов мастера · услуга', code: 'SERVICE_MASTER_CALL', tag: 'бытовая услуга по заявке' }
+            { name: 'Кроссовки Nike Air Force 1', code: 'RETAIL_NIKE_AF1', tag: 'товар · конверсия гостя' },
+            { name: 'Рецепт №5521', code: 'MED_RX_5521', tag: 'медицина · врач / фармацевт' },
+            { name: 'Вынос мусора (услуга)', code: 'SERVICE_TRASH_PICKUP', tag: 'услуга · Request→Decision→Interaction' },
+            { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'авто · передача владельца' },
+            { name: 'Умный замок · офис AITU', code: 'LOCK_OFFICE_AITU', tag: 'инфраструктура · доступ по роли' },
+            { name: 'Студбилет AITU', code: 'DOC_STUDENT_AITU', tag: 'документ · образование' },
+            { name: 'Цифровая визитка', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'личность · Owner Approval + Trust Score' }
         ];
         const chipBox = document.getElementById('quick-chips');
         chipBox.innerHTML = quick.map((q, i) => `

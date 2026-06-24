@@ -75,6 +75,13 @@ class ValidationServiceTest {
     }
 
     @Test
+    void medicalApprovedForPharmacistDuringWorkingHours() {
+        var verdict = new ValidationService(DAYTIME)
+                .decideAccess(identity(Set.of(RoleType.PHARMACIST, RoleType.CITIZEN), 85), ObjectCategory.MEDICAL, true);
+        assertThat(verdict.outcome()).isEqualTo(DecisionOutcome.APPROVED);
+    }
+
+    @Test
     void medicalRejectedOutsideWorkingHours() {
         var verdict = new ValidationService(NIGHT)
                 .decideAccess(identity(Set.of(RoleType.DOCTOR, RoleType.CITIZEN), 85), ObjectCategory.MEDICAL, true);

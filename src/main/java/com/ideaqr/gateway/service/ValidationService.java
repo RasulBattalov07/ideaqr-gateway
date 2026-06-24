@@ -55,9 +55,11 @@ public class ValidationService {
 
         return switch (category) {
             case MEDICAL -> {
-                if (!roles.contains(RoleType.DOCTOR)) {
+                // Medical data is accessible to doctors and pharmacists (the Role Access
+                // Matrix: a pharmacist may view prescriptions / appointments).
+                if (!(roles.contains(RoleType.DOCTOR) || roles.contains(RoleType.PHARMACIST))) {
                     yield new Verdict(REJECTED, "ROLE_REQUIRED_DOCTOR",
-                            "Доступ к медицинской карте разрешён только врачам.", "HIGH");
+                            "Доступ к медицинским данным разрешён только врачам и фармацевтам.", "HIGH");
                 }
                 if (trust < TRUST_MEDICAL) {
                     yield new Verdict(REJECTED, "TRUST_TOO_LOW",
@@ -68,7 +70,7 @@ public class ValidationService {
                             "Доступ к медицинской карте возможен только в рабочее время (08:00–18:00).", "MEDIUM");
                 }
                 yield new Verdict(APPROVED, "ACCESS_GRANTED",
-                        "Проверка пройдена: роль врача, уровень доверия и рабочее время.", "MEDIUM");
+                        "Проверка пройдена: роль (врач/фармацевт), уровень доверия и рабочее время.", "MEDIUM");
             }
             case INFRASTRUCTURE -> {
                 if (!(roles.contains(RoleType.INSPECTOR) || roles.contains(RoleType.ENGINEER))) {

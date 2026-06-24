@@ -1,409 +1,139 @@
-# IDEAQR Digital Gateway — Stage 3
+# IDEA QR DIGITAL GATEWAY — Developer Cheat Sheet 🛠️
 
-An access-governance and immutable-audit layer for the **Digital Kazakhstan** vision.
-QR codes act **only as identifiers** — the underlying data stays in its registries.
-Every scan and every object creation is routed through a decision engine and written
-to an **append-only history**, so access is always governed and fully traceable.
-
-This is an investor-stage MVP. The medical, retail, eco and infrastructure registries
-are enriched **mock data** that simulate integration with state and commercial systems.
+> Личная шпаргалка создателя для управления MVP и проведения демо.
+> Платформа цифровых взаимодействий: **QR — только точка входа, права решает движок, история неизменяема.**
 
 ---
 
-## What Stage 3 adds
-
-Stage 2 delivered the governance pipeline:
-
-```
-Identity → Request → Decision → QR / Access → Assignment → Interaction → History
-```
-
-Stage 3 puts a real identity and access layer on top of it:
-
-- **Spring Security authentication** with BCrypt-hashed passwords.
-- **Persistent accounts** — file-based H2 that survives restarts (credentials and
-  created objects are *not* volatile). PostgreSQL is available via a profile.
-- A **`User`** entity bound to the Stage 2 **`Identity`** (each registered user gets a
-  primary identity, a primary QR and a trust level derived from their profession).
-- **Three role-based interfaces** served from a single SPA:
-  1. **Unauthenticated** — Russian login / registration.
-  2. **Administrator** — a governance panel to mint scannable QR codes for objects.
-  3. **Citizen / specialist** — a terminal with a live camera scanner and a search hub
-     that renders contextual data cards.
-
-> **Localization:** the backend keeps English identifiers for types, enums and data
-> keys, but **every user-facing string in the UI is in Russian**.
-
----
-
-## Tech stack
-
-| Layer        | Choice                                             |
-|--------------|----------------------------------------------------|
-| Language     | Java 17                                             |
-| Framework    | Spring Boot 3.2.5 (Web, Data JPA, Security, Validation) |
-| Persistence  | H2 (file, default) · PostgreSQL (profile)          |
-| ORM          | Hibernate / JPA                                     |
-| QR codes     | ZXing 3.5.3 (server-side PNG, returned as data URI) |
-| Frontend     | Vanilla JS SPA + `html5-qrcode` (camera)            |
-| Boilerplate  | Lombok                                              |
-| Sessions     | Spring Session JDBC (persisted in the shared DB)    |
-| Rate limiting| Bucket4j (token bucket; per-IP + per-user)          |
-
----
-
-## Running it
-
-### Option A — Maven (local)
-
-Requires JDK 17+ and Maven.
+## ⚡ Быстрый старт
 
 ```bash
-mvn spring-boot:run
+# Запуск (нужен JDK 17 + Maven). ВНИМАНИЕ: Lombok ломается на JDK 25 — строго JDK 17.
+mvn spring-boot:run            # → http://localhost:8080
+
+mvn clean package              # fat jar → target/ideaqr-gateway.jar
+mvn clean test                 # весь сьют (43 теста)
+mvn test -Dtest=ИмяКласса      # один класс
+
+# Docker
+docker build -t ideaqr-gateway . && docker run -p 8080:8080 ideaqr-gateway
 ```
 
-Then open **http://localhost:8080**.
+- **Сброс БД:** останови приложение и удали папку `./data/` — при следующем старте `DataSeeder` пересоздаст всё (7 аккаунтов, орг-ции, объекты).
+- **H2 console (только локально):** http://localhost:8080/h2-console · JDBC `jdbc:h2:file:./data/ideaqr` · user `sa` · пароль пустой.
+- **Prod:** профиль `postgres` (`SPRING_PROFILES_ACTIVE=postgres` + `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD`).
 
-The first launch seeds four demo accounts and creates `./data/ideaqr.mv.db`.
-Stop and restart — your data is still there.
+---
 
-### Option B — Packaged jar
+## 🏛️ Архитектура и Суть
 
-```bash
-mvn clean package
-java -jar target/ideaqr-gateway.jar
+### Стек
+| Слой | Технология |
+|---|---|
+| Язык / Framework | Java 17 · Spring Boot 3.2.5 |
+| Web / API | Spring MVC (REST/JSON) + раздача SPA |
+| ORM / БД | Spring Data JPA / Hibernate · PostgreSQL (prod) / H2 (dev) |
+| Миграции | Flyway `V1…V6` (схема под `ddl-auto=validate` — fail-fast при дрейфе) |
+| Security | Spring Security · BCrypt · CSRF (double-submit cookie) |
+| Сессии | Spring Session **JDBC** (сессии в БД → облачная устойчивость) |
+| Rate limit | Bucket4j (token-bucket на login/guest/register/api) |
+| Изоляция | Мультитенантность: ThreadLocal-контекст + Hibernate `@Filter` + `@PrePersist` штамп |
+| Frontend | Vanilla JS SPA · self-hosted шрифты · html5-qrcode · тёмная/светлая темы |
+
+### Где что лежит
+```
+src/main/java/com/ideaqr/gateway/
+├── domain/            сущности (Identity, RegistryObject, Request, Decision, Interaction, Event, History, Qr…)
+│   └── enums/         все перечисления (категории, статусы, роли, типы)
+├── service/           бизнес-логика:
+│     GatewayService           ← ядро: scan/report/sos + Owner Approval Flow
+│     ValidationService        ← движок политик (роль / доверие / рабочее время)
+│     RegistryClient           ← резолв объекта (DB → демо-реестр → префикс)   ← ДЕМО-ОБЪЕКТЫ ЗДЕСЬ
+│     ObjectLifecycleService   ← жизненный цикл + transfer (передача владельца)
+│     GuestService             ← слияние истории гостя (IDOR-safe merge token)
+│     TrustScoreService · AuditService · EventService · UserService · UserAdminService …
+├── web/               REST-контроллеры + TenantInterceptor
+├── tenant/            TenantContext (ThreadLocal) · TenantFilterAspect (AOP) · TenantListener (@PrePersist)
+├── config/            SecurityConfig · RateLimitingFilter · DataSeeder   ← СИДИРОВАНИЕ ЗДЕСЬ
+└── resources/
+      db/migration/    Flyway V1…V6
+      static/          index.html · styles.css · app.js (SPA)
 ```
 
-### Option C — Docker
-
-```bash
-docker build -t ideaqr-gateway .
-docker run -p 8080:8080 ideaqr-gateway
+### 🔗 Золотой Конвейер
+Любое действие проходит единую цепочку — обход запрещён архитектурно:
 ```
-
----
-
-## Demo accounts
-
-Seeded automatically on first run. These are **throwaway local-demo credentials**:
-they are provisioned server-side, are **not printed on the login screen** (audit 1.3),
-and do not exist in a production deployment backed by a real database.
-
-| Username    | Password      | Person (RU)         | Interface        | Domain role  | Tenant     |
-|-------------|---------------|---------------------|------------------|--------------|------------|
-| `admin`     | `Admin123!`   | Аружан Сапарова     | Admin panel      | Retail admin | Retail     |
-| `seller`    | `Seller123!`  | Ербол Нурлан        | Citizen terminal | Seller       | Retail     |
-| `doctor`    | `Doctor123!`  | Санжар Ким          | Citizen terminal | Doctor       | Hospital   |
-| `inspector` | `Inspect123!` | Гульнара Ахметова   | Citizen terminal | Inspector    | Power grid |
-| `citizen`   | `Citizen123!` | Дамир Оспанов       | Citizen terminal | Citizen      | Public     |
-
-Each organisation is its own **tenant** (audit 5.3): `admin` (Retail) manages only
-`admin` + `seller`; `doctor` / `inspector` / `citizen` belong to other tenants and are
-invisible to the retail admin.
-
-Profession → access profile mapping:
-
-| Profession (RU)             | Domain roles                     | Trust | Admin UI |
-|-----------------------------|----------------------------------|-------|----------|
-| Врач                        | DOCTOR, CITIZEN                   | 85    | no       |
-| Администратор торговли      | RETAIL_ADMIN, ADMIN, CITIZEN     | 80    | **yes**  |
-| Инспектор инфраструктуры    | INSPECTOR, ENGINEER, CITIZEN     | 80    | no       |
-| Гражданин                   | CITIZEN                          | 50    | no       |
-
----
-
-## Demo scenarios
-
-The citizen terminal has four **quick-scenario chips**. Each one feeds a known
-identifier into the gateway so you can see the policy engine accept or reject access.
-
-There is also a **"Контекст времени" (time context)** selector. Time-gated objects
-(medical, infrastructure) only open during working hours (08:00–18:00). Because a live
-demo might run at any hour, set the selector to **"Рабочее — 10:00"** to satisfy the
-time gate, or to **"Нерабочее — 23:00"** to watch the same scan be denied.
-
-### A · Medical — `PATIENT_7291`
-- **Log in as `doctor`** and set the time context to a working hour.
-- The engine checks role (DOCTOR), trust (≥70) and the working-hours window, then grants
-  access and renders the patient card: **allergy warning banner**, blood type and masked
-  IIN, chronic conditions, a medication table, an **SVG blood-pressure / pulse chart**,
-  visit history, immunizations and an AI assistant note.
-- Log in as `citizen` and scan the same code → **access denied** (role gate). Try `doctor`
-  at 23:00 → **denied** (time gate).
-
-### B · Retail — `RETAIL_ADIDAS_SHIRT`
-- Works for **any** logged-in user (public object).
-- Renders the product card: price, rating, **per-size live stock** (in / low / out),
-  colours, **cheaper alternatives** (Kaspi, Wildberries, Lamoda) and a loyalty promo code.
-
-### C · Eco — `ECO_SMART_BIN_102`
-- Public object. Renders a **fill-level gauge** (colour-coded), operator and address,
-  pickup schedule, environmental tier and recycling stats, plus a
-  **"Сообщить о переполнении / поломке"** button that files a governed report.
-
-### D · Infrastructure — `INFRA_SUBSTATION_07`
-- **Log in as `inspector`** with a working-hour context.
-- Role + trust + time gates apply (same as medical). Renders asset type, voltage, status,
-  inspection / maintenance dates, technical notes and a **"Сообщить о проблеме"** button.
-
-The **administrator** can also create brand-new objects from the panel (the brief's
-"Adidas Black T-Shirt" flow). A created object runs the full `QR_CREATION` pipeline and
-returns a **real, scannable QR PNG**; scanning that code in the terminal resolves the
-object you just created.
-
----
-
-## Admin: User Management (try it)
-
-Log in as **`admin`** and open the **«Пользователи»** tab. Because admins are
-tenant-scoped, you will see only **`admin`** and **`seller`** (your Retail tenant) — not
-`doctor`, `inspector` or `citizen`. Try, on the `seller` row:
-
-1. **Изменить роль** → pick *Врач* / *Инспектор* / *Администратор торговли*. The role
-   badge updates and the new business roles take effect immediately (sessions are
-   refreshed). This is the controlled way specialist roles are granted — public sign-up
-   can never self-assign them.
-2. **Заблокировать** → optionally enter a reason. The status turns to a red
-   **● Заблокирован** badge with the reason + timestamp; the seller's live session ends
-   and a login attempt as `seller` is now refused (HTTP 401). **Разблокировать** reverses it.
-3. **Сделать админом / Снять админа** → toggles access to the governance panel.
-4. **Сброс пароля** → issues a one-time temporary password (shown once, copyable) and
-   forces the user to set a new one on next login.
-
-Cross-tenant safety: trying to manage a user from another organisation (e.g. `doctor`)
-returns *"user not found"* — the tenant filter makes other tenants' rows physically
-invisible, so one customer can never touch another's accounts.
-
----
-
-## How a scan is governed
-
-`GatewayService.scan(...)` performs, in order:
-
-1. **Resolve** the object via `RegistryClient` (DB-created objects first, then the
-   enriched demo registry, then prefix inference).
-2. Create a **`Request`** (ACCESS, PENDING).
-3. Ask **`ValidationService`** for a **`Decision`** — evaluated against role, request
-   type, object category, trust level and the time-of-day policy window.
-4. Record an **`Interaction`** (always), mark the request PROCESSED / FAILED.
-5. Attach the data payload **only when APPROVED**.
-6. Append a **`History`** entry (ACCESS_GRANTED / DENIED / REVIEW).
-7. Return the verdict, the localized reason, a risk level and the **full chain of UUIDs**,
-   which the SPA animates in the **governance pipeline tracker**.
-
-Rejected scans and rejected object creations still return **HTTP 200** with
-`success: false` and an `outcome`, so the UI can show the verdict and the pipeline rather
-than treating governance decisions as errors.
-
----
-
-## Design
-
-The interface is an **official state e-service**: a light, high-trust, accessible
-register. It opens with a government-service banner, uses a deepened **Kazakh sky-blue**
-as the primary colour with a restrained **gold** trust accent, and pairs *Manrope*
-(display) with *Golos Text* (Cyrillic UI) and *JetBrains Mono* (codes and UUIDs). The
-direction follows government-portal conventions (USWDS / GOV.UK): clear official framing,
-data-minimisation messaging, and the privacy-by-design principle that data stays with the
-registries that hold it.
-
-The signature element is the **governance pipeline tracker**, which lights
-Личность → Запрос → Решение → Действие → История with the real generated UUIDs on every
-scan and every object creation — the Decision node turns red when access is denied, and
-the History node closes with a gold check when it is granted. A live **health indicator**
-sits in the banner, and an **immutable-journal viewer** (admins see the whole system; users
-see their own actions) makes the append-only audit trail visible in the product itself.
-
-Motion is restrained and `prefers-reduced-motion` is respected; the layout is responsive
-to mobile with visible keyboard focus.
-
----
-
-## Persistence & inspection
-
-- Default DB file: `./data/ideaqr.mv.db` (created on first run).
-- **H2 console — local development only.** Enabled solely on the default (local)
-  profile; it is **hard-disabled and unreachable on the `prod` / `postgres` profiles**
-  (audit 4.4). Path `/h2-console`; the DB password is taken from `H2_PASSWORD` (blank
-  only for the throwaway local file DB, where the console is the sole access path).
-- Schema is owned by **Flyway** migrations (`src/main/resources/db/migration`).
-  Hibernate runs with `ddl-auto=validate` — it never mutates the schema, only verifies
-  the entity model matches it and fails fast on drift. The same portable `V1` baseline
-  runs on both H2 and PostgreSQL; `baseline-on-migrate=true` adopts a pre-existing DB.
-- **HTTP sessions are stored in the database** via Spring Session JDBC — the
-  `SPRING_SESSION` / `SPRING_SESSION_ATTRIBUTES` tables (created by migration `V5`),
-  so sessions are shared across instances and survive a restart.
-- To start fresh, stop the app and delete the `./data` directory.
-
----
-
-## Deploying with PostgreSQL (e.g. Render)
-
-Two production-ready profiles ship:
-
-- **`prod`** — the Render default (`render.yaml`). Hardened file-H2: console off,
-  security headers on, DB password required from `H2_PASSWORD` (a platform-generated
-  secret) — never a blank `sa`.
-- **`postgres`** — managed PostgreSQL. The JDBC URL is assembled from discrete vars
-  (Render exposes host/port/db individually):
-
-```bash
-SPRING_PROFILES_ACTIVE=postgres
-DB_HOST=<host>
-DB_PORT=5432
-DB_NAME=<db>
-DB_USERNAME=<user>
-DB_PASSWORD=<password>
+Identity → Role → Request → Decision → Interaction → Event → History → (Trust Score) → Audit
 ```
+`GatewayService.scan()`: резолв объекта → `Request(PENDING)` → `ValidationService` выносит `Decision` (APPROVED/REJECTED/REVIEW) → `Interaction` → многоуровневая видимость (гость = публичная проекция, зарегистрированный = полная) → `Event` + `History` (хэш-цепочка) → пересчёт `Trust Score`. Отказ = HTTP 200 + `success:false` (это бизнес-вердикт, не ошибка).
 
-The server binds to `$PORT` automatically (defaults to 8080), which suits Render/Heroku.
-
----
-
-## Security posture
-
-This build was hardened against an internal red-team audit. Highlights:
-
-- **No privilege from client input.** Public registration always creates a `CITIZEN`;
-  specialist/admin roles are granted only by a privileged path (server seeding or the
-  admin endpoint `POST /api/admin/users/{username}/profession`). A role change or ban
-  revokes the user's active sessions immediately, not at their next login.
-- **CSRF enabled** — a double-submit `XSRF-TOKEN` cookie echoed in the `X-XSRF-TOKEN`
-  header on every state-changing request. Passwords use **BCrypt**; session cookie is
-  `JSESSIONID`.
-- **Security headers** (on `prod`): Content-Security-Policy, `X-Frame-Options: DENY`,
-  Referrer-Policy, HSTS. The H2 console is unreachable in production.
-- **Immutable audit is real, not a label.** The history journal is append-only and
-  **hash-chained** (`prev_hash` → `entry_hash`); `GET /api/admin/audit/verify` proves
-  integrity and detects any out-of-band edit.
-- **Server-side time** drives the working-hours policy (never client-supplied).
-- **Rate limiting** (Bucket4j token buckets): hard per-IP limits on the public
-  `/login`, `/api/auth/register` and `/api/auth/guest` endpoints (brute-force / guest
-  flood), plus a baseline per-user ceiling on the rest of `/api/**`. Over the limit it
-  returns `429` with a `Retry-After`; thresholds are tunable via `app.rate-limit.*`
-  without a rebuild. Password policy is ≥ 12 chars with letters and digits.
-- Front-end assets (fonts, QR scanner) are **self-hosted** — no external CDN.
-- **Investor MVP.** All registry data (including the medical record) is **mock data**;
-  no real personal data is stored.
-
-- **Multi-tenant isolation** (audit 5.3): a `tenant_id` discriminator on the
-  customer-data tables, with a Hibernate filter that scopes every read and a listener
-  that stamps every write from the request's tenant — one organisation can never read
-  or write another's rows. Each organisation is its own tenant; citizens/guests share
-  a public tenant.
-
-- **Horizontal-scale ready** (audit 3.7): HTTP sessions live in the shared database
-  (**Spring Session JDBC**), so any instance serves any request and a restart no longer
-  logs users out. Session revocation (above) is backed by this shared store, so a ban
-  or role change applies across every replica.
-
-**Roadmap (not yet implemented):** a *distributed* rate-limit store (e.g. Redis) so the
-public ceilings are enforced cluster-wide rather than per node.
+**Админ = кросс-тенантный супер-админ** (видит и управляет всеми тенантами). Изоляция тенантов действует для всех НЕ-админов.
 
 ---
 
-## Project layout
+## 🔑 Учётные записи (Credentials)
 
-```
-src/main/java/com/ideaqr/gateway
-├── IdeaqrGatewayApplication.java
-├── config/        SecurityConfig, DataSeeder
-├── domain/        Entities (Identity, User, Request, Decision, Qr, Assignment,
-│   │              Interaction, History, RegistryObject)
-│   └── enums/     RoleType, RequestType, ObjectCategory, … (11 enums)
-├── dto/           Request/response payloads
-├── repository/    Spring Data JPA repositories
-├── service/       AuditService, IdentityService, QrService, ValidationService,
-│                  RegistryClient, GatewayService, UserService, CustomUserDetailsService
-├── web/           AuthController, GatewayController, QrAdminController,
-│                  HealthController, GlobalExceptionHandler, AuthSupport
-└── exception/     UsernameAlreadyExistsException
+Все пароли по схеме `Имя123!`. Создаются `DataSeeder` при первом старте.
 
-src/main/resources
-├── application.properties            (file-H2 default)
-├── application-postgres.properties   (PostgreSQL profile)
-└── static/        index.html, styles.css, app.js  (the SPA)
-```
+| Логин | Пароль | Роль / профессия | Тенант (организация) | Для демо |
+|---|---|---|---|---|
+| `admin` | `Admin123!` | Администратор торговли (**ROLE_ADMIN**) | IDEAQR Retail | Полная админка, управление юзерами, **передача владельца** |
+| `seller` | `Seller123!` | Продавец | IDEAQR Retail | Цель передачи авто, управляемый юзер |
+| `doctor` | `Doctor123!` | Врач | Городская больница | Доступ к рецепту/медкарте (роль) |
+| `pharmacist` | `Pharma123!` | Фармацевт | Городская больница | Доступ к рецептам (роль PHARMACIST) |
+| `inspector` | `Inspect123!` | Инспектор инфраструктуры | АО «Астана-РЭК» | Доступ к умному замку (роль) |
+| `citizen` | `Citizen123!` | Гражданин | — (public) | Обычный пользователь, P2P, жалобы |
+| `aidos` | `Aidos123!` | Продавец (Цифровая визитка) | — (public) | **Владелец визитки** — подтверждает P2P-доступ |
+
+**Гость:** кнопка «Продолжить как гость» на экране входа (без пароля). На форме логина есть кликабельные чипы — клик подставляет логин/пароль.
+
+**Организации (тенанты):** `IDEAQR Retail` (RETAIL) · `Городская больница` (MEDICAL) · `АО «Астана-РЭК»` (INFRASTRUCTURE).
 
 ---
 
-## Scenario features (Stage 4)
+## 🎯 Тестовые данные (Cheat Codes)
 
-On top of the governed scan pipeline, the prototype implements the scenario brief:
+Скопируй любой ID и вставь в строку «Идентификатор объекта» в терминале (или нажми кнопку быстрого доступа). Это и есть значения, зашитые в QR.
 
-- **Working mode & sessions** — switch between personal and working context for an
-  organization you belong to (identity and primary QR never change); recorded as an
-  event with a notification (`/api/v2/mode/work`, `/api/v2/mode/personal`, `/api/v2/session`).
-- **Organizations & memberships** — seeded organizations linked to identities; working
-  mode requires a membership.
-- **SOS** — an escalated, high-priority request (`/api/v2/sos`), written to the journal
-  with a CRITICAL risk level and a notification.
-- **Notification center** — in-app notifications on decisions, SOS and mode changes
-  (`/api/v2/notifications`, statuses NEW / READ / ARCHIVED).
-- **Identity risk score** — NORMAL / MEDIUM / HIGH, surfaced in the profile.
-- **Guest identities + merge** — enter without registration (`/api/auth/guest`); on
-  registration the guest's whole history is re-pointed into the new identity, losing
-  nothing (`/api/v2/guest/merge`).
-- **Scaffolding** — a `Workflow` entity links to requests for future multi-step approval;
-  the policy checks (role / trust / working-hours / object type) live in `ValidationService`.
+| # | ID (копировать) | Категория | Что показывает | Кем сканировать → вердикт |
+|---|---|---|---|---|
+| 1 | `RETAIL_NIKE_AF1` | Товар | **Конверсия гостя**: гость видит фото/имя/описание/рейтинг, цена/отзывы скрыты → регистрация → полная карточка | гость → PUBLIC · любой юзер → FULL |
+| 2 | `MED_RX_5521` | Медицина | **Ролевой доступ** к рецепту (Амоксициллин) | citizen → ОТКАЗ · doctor/pharmacist → ДОСТУП* |
+| 3 | `SERVICE_TRASH_PICKUP` | Услуга | **Request → Decision → Interaction** (вынос мусора от двери) | любой → ДОСТУП (видна цепочка) |
+| 4 | `CAR_TOYOTA_CAMRY` | Авто (DB-объект) | **Передача владельца** (Transfer) — реальный объект в базе | citizen → ДОСТУП · admin → передаёт владельца |
+| 5 | `LOCK_OFFICE_AITU` | Инфраструктура | **Запрос доступа** (умный замок офиса AITU) | citizen → ОТКАЗ · inspector → ДОСТУП* |
+| 6 | `DOC_STUDENT_AITU` | Документ | **Образование** — студбилет AITU | любой → ДОСТУП |
+| 7 | `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` | Личность | **P2P + Trust Score** (визитка «Айдос Серіков», TS 78) | citizen → REVIEW (запрос владельцу) |
 
-## Quick verification (terminal)
+\* Медицина и инфраструктура гейтятся ещё и **рабочим временем 08:00–18:00** по серверным часам — вне окна будет отказ `OUTSIDE_WORKING_HOURS`.
 
-A single self-checking script exercises the **whole** platform end-to-end —
-health, auth, registration, the admin read APIs, role-based authorization, QR
-generation, the object lifecycle, the citizen terminal (scan / report / SOS),
-the wallet, sessions / working mode, notifications, owner-approval access,
-complaints, guests, **and the user-management module** (block / unblock /
-change role / reset password).
+### Сценарии демо «по кнопкам»
+1. **Guest Conversion** — выйти/гость → скан `RETAIL_NIKE_AF1` → урезанная карточка + кнопка «Зарегистрироваться» → регистрация → та же карточка, но с ценой/отзывами/историей (история гостя сливается).
+2. **Owner Approval / P2P** — войти `citizen` → скан `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` → статус REVIEW, владельцу ушло уведомление. В другой сессии войти `aidos` → «Запросы доступа» → подтвердить → открывается профиль + Trust Score.
+3. **Роли (DOCTOR/PHARMACIST)** — `citizen` скан `MED_RX_5521` → ОТКАЗ; `doctor` или `pharmacist` (в рабочее время) → ДОСТУП к рецепту.
+4. **Request→Decision→Interaction** — любой логин, скан `SERVICE_TRASH_PICKUP` → анимированный конвейер с UUID каждого звена.
+5. **Передача владельца** — `admin` → вкладка «Управление» → карточка `CAR_TOYOTA_CAMRY` → «Передать владельца» → выбрать `seller`/`aidos` (история сохраняется как `OBJECT_TRANSFERRED`).
+6. **Access Request (инфра)** — `citizen` скан `LOCK_OFFICE_AITU` → ОТКАЗ; `inspector` (рабочее время) → ДОСТУП.
 
-```bash
-# 1. start the app
-mvn spring-boot:run
-# 2. in another terminal — run every scenario and print a pass/fail tally
-bash scripts/smoke-test.sh
-# against a custom port:
-BASE_URL=http://localhost:8099 bash scripts/smoke-test.sh
-```
+---
 
-All destructive actions run against a throwaway account the script registers at
-startup, so the demo accounts stay pristine and the script is re-runnable.
+## 🌐 Полезные эндпоинты
 
-## API reference
+| Метод · путь | Назначение |
+|---|---|
+| `POST /api/auth/register` · `POST /login` · `POST /logout` | Регистрация / вход / выход (JSON 200/401) |
+| `POST /api/auth/guest` | Гостевой вход (+ merge-token) |
+| `POST /api/v2/scan` | Скан объекта/личности (ядро конвейера) |
+| `POST /api/v2/access/{interactionUid}/confirm\|reject` | Owner Approval: подтвердить/отклонить |
+| `GET  /api/admin/users` | Список ВСЕХ пользователей (админ — кросс-тенантно) |
+| `POST /api/admin/objects/{objectUid}/transfer` | Передача владельца объекта |
+| `GET  /api/admin/audit/verify` | Проверка целостности хэш-цепочки журнала |
+| `GET  /api/qr/{objectUid}.png` | PNG QR-кода объекта (для печати/демо) |
+| `GET  /api/health` | Health-probe (не троттлится) |
 
-| Method | Path                     | Auth        | Purpose                              |
-|--------|--------------------------|-------------|--------------------------------------|
-| POST   | `/api/auth/register`     | public      | Register a new account               |
-| POST   | `/login`                 | public      | Form login (`username`, `password`)  |
-| POST   | `/logout`                | session     | Log out                              |
-| GET    | `/api/auth/me`           | session     | Current user profile                 |
-| POST   | `/api/auth/guest`        | public      | Start a guest session                |
-| POST   | `/api/v2/guest/merge`    | session     | Merge a guest's history into account |
-| POST   | `/api/v2/scan`           | session     | Scan an object through the pipeline  |
-| POST   | `/api/v2/report`         | session     | File a governed issue report         |
-| POST   | `/api/v2/sos`            | session     | Raise an escalated SOS request       |
-| GET    | `/api/v2/wallet`         | session     | QR Wallet — my QR / objects / requests / history |
-| GET    | `/api/v2/my-qr`          | session     | Personal primary-QR card             |
-| GET    | `/api/v2/history/me`     | session     | Personal scan history                |
-| GET    | `/api/v2/access/pending` | session     | Pending owner-approval requests      |
-| POST   | `/api/v2/access/{id}/confirm` | session | Confirm a profile-access request    |
-| POST   | `/api/v2/access/{id}/reject`  | session | Reject a profile-access request     |
-| GET    | `/api/v2/audit` · `/audit/me` | session | Global / own immutable journal      |
-| POST   | `/api/v2/mode/work` · `/mode/personal` | session | Enter / leave working mode |
-| GET    | `/api/v2/session`        | session     | Current session context + orgs       |
-| GET    | `/api/v2/notifications`  | session     | List the caller's notifications      |
-| POST   | `/api/v2/notifications/{id}/read` | session | Mark a notification read        |
-| POST   | `/api/v2/complaints`     | session     | File a complaint against an interaction |
-| GET    | `/api/v2/complaints/me`  | session     | List the caller's complaints         |
-| GET    | `/api/admin/stats` · `/analytics` | ROLE_ADMIN | Platform statistics / analytics |
-| GET    | `/api/admin/users`       | ROLE_ADMIN  | Full user list (with status flags)   |
-| GET    | `/api/admin/modules` · `/events` · `/complaints` | ROLE_ADMIN | Modules / event log / complaints |
-| POST   | `/api/admin/modules/{id}/toggle`   | ROLE_ADMIN | Enable / disable a module       |
-| POST   | `/api/admin/complaints/{id}/status` | ROLE_ADMIN | Update a complaint's status    |
-| POST   | `/api/admin/qr/create`   | ROLE_ADMIN  | Mint a governed object + QR          |
-| GET    | `/api/admin/qr/list`     | ROLE_ADMIN  | List created objects (status + trust)|
-| POST   | `/api/admin/objects/{uid}/activate` · `/modify` · `/archive` | ROLE_ADMIN | Object lifecycle transition |
-| POST   | `/api/admin/users/{username}/block`   | ROLE_ADMIN | **Block (ban) a user**          |
-| POST   | `/api/admin/users/{username}/unblock` | ROLE_ADMIN | **Unblock a user**              |
-| POST   | `/api/admin/users/{username}/role`    | ROLE_ADMIN | **Change access level** (`{"admin":true}` / `{"role":"USER"}`) |
-| POST   | `/api/admin/users/{username}/reset-password` | ROLE_ADMIN | **Reset to a temp password** |
-| GET    | `/api/health`            | public      | Liveness                             |
+> Сгенерировать сканируемый QR для любого cheat-кода: открой `http://localhost:8080/api/qr/RETAIL_NIKE_AF1.png` (подставь нужный ID).
+
+---
+
+## 🧪 Тесты (43, все зелёные)
+Ключевые инварианты: `ValidationServiceTest` (политики + фармацевт), `GuestServiceMergeTest` (IDOR-safe merge), `ObjectLifecycleServiceTransferTest` (transfer без пересоздания), `PublicCardTest` (проекция гостя), `AuditServiceChainTest` (tamper-evidence), `TenantIsolationTest` (изоляция на уровне БД), `TenantHttpIsolationTest` (админ видит все тенанты), `ForeignKeyIntegrityTest`, `SecurityIntegrationTest`, `RateLimitingTest`, `UserManagementTest`, `PasswordLifecycleTest`.

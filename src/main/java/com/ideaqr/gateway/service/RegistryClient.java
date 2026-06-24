@@ -17,12 +17,13 @@ import java.util.Optional;
 /**
  * Resolves a scanned object identifier to its category, display name and card
  * payload. Resolution order mirrors the brief: (1) objects created in the DB via
- * the admin panel, (2) the enriched demo registry (mock data simulating external
- * state/commercial registries), (3) prefix inference for anything else.
+ * the admin panel / seeder, (2) the curated demo registry (reference objects that
+ * are universally scannable regardless of tenant), (3) prefix inference.
  *
- * <p>The demo registry holds platform-grade reference objects across the core
- * spheres — transport, medicine, commercial real estate and household services —
- * so a demonstration reflects the breadth of the platform rather than toy data.</p>
+ * <p>The demo registry is the showcase set used by the quick-access buttons. Each
+ * object exercises a distinct platform capability — guest conversion, role-gated
+ * access, the Request→Decision→Interaction pipeline, ownership transfer, restricted
+ * infrastructure access and an education document.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -40,11 +41,12 @@ public class RegistryClient {
 
     @PostConstruct
     void loadDemoRegistry() {
+        demoRegistry.put("RETAIL_NIKE_AF1", new Demo(ObjectCategory.RETAIL, "Кроссовки Nike Air Force 1", RETAIL_NIKE_AF1));
+        demoRegistry.put("MED_RX_5521", new Demo(ObjectCategory.MEDICAL, "Рецепт №5521 · Амоксициллин", MED_RX_5521));
+        demoRegistry.put("SERVICE_TRASH_PICKUP", new Demo(ObjectCategory.GENERAL, "Вынос мусора от двери квартиры", SERVICE_TRASH_PICKUP));
         demoRegistry.put("CAR_TOYOTA_CAMRY", new Demo(ObjectCategory.RETAIL, "Toyota Camry 2024", CAR_TOYOTA_CAMRY));
-        demoRegistry.put("PATIENT_1024", new Demo(ObjectCategory.MEDICAL, "Медкарта пациента №1024", PATIENT_1024));
-        demoRegistry.put("REALTY_OFFICE_1205", new Demo(ObjectCategory.GENERAL, "Офис №1205, БЦ «Нурлы Тау»", REALTY_OFFICE_1205));
-        demoRegistry.put("SERVICE_MASTER_CALL", new Demo(ObjectCategory.GENERAL, "Услуга: вызов мастера", SERVICE_MASTER_CALL));
-        demoRegistry.put("INFRA_SUBSTATION_07", new Demo(ObjectCategory.INFRASTRUCTURE, "Подстанция №07", INFRA_SUBSTATION_07));
+        demoRegistry.put("LOCK_OFFICE_AITU", new Demo(ObjectCategory.INFRASTRUCTURE, "Умный замок · офис AITU", LOCK_OFFICE_AITU));
+        demoRegistry.put("DOC_STUDENT_AITU", new Demo(ObjectCategory.GENERAL, "Студенческий билет AITU", DOC_STUDENT_AITU));
     }
 
     public Resolved resolve(String objectUid) {
@@ -53,14 +55,14 @@ public class RegistryClient {
             return new Resolved(false, ObjectCategory.UNKNOWN, "—", minimal(key, "Пустой идентификатор."));
         }
 
-        // 1. Objects minted through the admin panel.
+        // 1. Objects minted through the admin panel / seeded into the DB.
         Optional<RegistryObject> dbObject = registryObjectRepository.findByObjectUid(key);
         if (dbObject.isPresent()) {
             RegistryObject o = dbObject.get();
             return new Resolved(true, o.getCategory(), o.getDisplayName(), parse(o.getDataJson()));
         }
 
-        // 2. Enriched demo registry.
+        // 2. Curated demo registry (universally scannable).
         Demo demo = demoRegistry.get(key.toUpperCase(Locale.ROOT));
         if (demo != null) {
             return new Resolved(true, demo.category(), demo.displayName(), parse(demo.json()));
@@ -77,14 +79,14 @@ public class RegistryClient {
 
     private ObjectCategory inferCategory(String key) {
         String u = key.toUpperCase(Locale.ROOT);
-        if (u.startsWith("PATIENT") || u.startsWith("MED")) return ObjectCategory.MEDICAL;
+        if (u.startsWith("PATIENT") || u.startsWith("MED") || u.startsWith("RX")) return ObjectCategory.MEDICAL;
         if (u.startsWith("CAR") || u.startsWith("AUTO") || u.startsWith("VEHICLE") || u.startsWith("TOYOTA")
-                || u.startsWith("RETAIL") || u.startsWith("PROD")) return ObjectCategory.RETAIL;
-        if (u.startsWith("INFRA") || u.startsWith("SUBSTATION")) return ObjectCategory.INFRASTRUCTURE;
+                || u.startsWith("RETAIL") || u.startsWith("NIKE") || u.startsWith("PROD")) return ObjectCategory.RETAIL;
+        if (u.startsWith("INFRA") || u.startsWith("SUBSTATION") || u.startsWith("LOCK")) return ObjectCategory.INFRASTRUCTURE;
         if (u.startsWith("ECO") || u.startsWith("BIN")) return ObjectCategory.ECO;
-        if (u.startsWith("REALTY") || u.startsWith("OFFICE") || u.startsWith("PROPERTY")
-                || u.startsWith("SERVICE") || u.startsWith("MASTER")
-                || u.startsWith("GENERAL") || u.startsWith("OBJ")) return ObjectCategory.GENERAL;
+        if (u.startsWith("SERVICE") || u.startsWith("TRASH") || u.startsWith("DOC") || u.startsWith("STUDENT")
+                || u.startsWith("REALTY") || u.startsWith("OFFICE") || u.startsWith("GENERAL") || u.startsWith("OBJ"))
+            return ObjectCategory.GENERAL;
         return ObjectCategory.UNKNOWN;
     }
 
@@ -104,10 +106,69 @@ public class RegistryClient {
     }
 
     // ------------------------------------------------------------------
-    //  Enriched demo data (mock — simulates external registries)
+    //  Curated demo data (reference objects for the quick-access buttons)
     // ------------------------------------------------------------------
 
-    private static final String CAR_TOYOTA_CAMRY = """
+    private static final String RETAIL_NIKE_AF1 = """
+            {
+              "productName": "Nike Air Force 1 '07",
+              "brand": "Nike", "sku": "RETAIL_NIKE_AF1",
+              "price": 54990, "currency": "₸",
+              "rating": 4.9, "reviews": 2841,
+              "description": "Классические кожаные кроссовки унисекс, белый цвет. Оригинал.",
+              "sizes": [
+                {"size": "40", "stock": 7}, {"size": "41", "stock": 12},
+                {"size": "42", "stock": 3}, {"size": "43", "stock": 0}
+              ],
+              "colors": ["Белый", "Чёрный", "Серый"],
+              "alternatives": [
+                {"store": "Kaspi Магазин", "price": 52990, "url": "#", "note": "Доставка 1–2 дня"},
+                {"store": "Lamoda", "price": 53500, "url": "#", "note": "Бесплатная примерка"},
+                {"store": "Wildberries", "price": 51990, "url": "#", "note": "Завтра в пункте выдачи"}
+              ],
+              "loyalty": {"code": "IDEAQR-NIKE-10", "note": "Скидка 10% в фирменном магазине", "discount": "−10%"}
+            }
+            """;
+
+    private static final String MED_RX_5521 = """
+            {
+              "patientName": "Рецепт №5521",
+              "patientId": "MED_RX_5521",
+              "age": 52, "gender": "Женский", "bloodType": "I (O) Rh−",
+              "iinMasked": "8•••••••••03",
+              "allergies": ["Сульфаниламиды"],
+              "chronicConditions": ["Хронический бронхит"],
+              "medications": [
+                {"name": "Амоксициллин", "dose": "500 мг", "schedule": "3 раза в день, 7 дней"},
+                {"name": "Амброксол", "dose": "30 мг", "schedule": "2 раза в день"}
+              ],
+              "recentVisits": [
+                {"date": "2026-06-20", "clinic": "Поликлиника №2", "reason": "Острый бронхит", "doctor": "Терапевт Алиев"}
+              ],
+              "aiNotes": "Курс антибиотика 7 дней. Контрольный осмотр при сохранении симптомов.",
+              "note": "Рецепт. Доступ разрешён врачам и фармацевтам в рабочее время (08:00–18:00)."
+            }
+            """;
+
+    private static final String SERVICE_TRASH_PICKUP = """
+            {
+              "title": "Вынос мусора от двери квартиры",
+              "kind": "Услуга · ЖКХ",
+              "description": "Ежедневный вынос бытовых отходов от двери квартиры по заявке жильца. Каждая заявка проходит конвейер Request → Decision → Interaction.",
+              "details": {
+                "Адрес": "ЖК «Хайвилл», блок Б, кв. 84",
+                "Оператор": "УК «Comfort Service»",
+                "График": "Ежедневно, 08:00–10:00",
+                "Тариф": "3 000 ₸ в месяц",
+                "Рейтинг сервиса": "4.7 / 5",
+                "Статус": "Принимает заявки"
+              },
+              "note": "Оформление и оплата заявки доступны после авторизации."
+            }
+            """;
+
+    /** Public so the seeder can mint the same Toyota Camry as a real DB object (for the transfer demo). */
+    public static final String CAR_TOYOTA_CAMRY = """
             {
               "productName": "Toyota Camry 2.5 Prestige",
               "brand": "Toyota", "sku": "01 KZ 777 ABC",
@@ -124,81 +185,35 @@ public class RegistryClient {
             }
             """;
 
-    private static final String PATIENT_1024 = """
+    private static final String LOCK_OFFICE_AITU = """
             {
-              "patientName": "Медкарта пациента №1024",
-              "patientId": "PATIENT_1024",
-              "age": 47, "gender": "Мужской", "bloodType": "III (B) Rh+",
-              "iinMasked": "7•••••••••18",
-              "allergies": ["Пенициллин"],
-              "chronicConditions": ["Сахарный диабет 2 типа", "Артериальная гипертензия II ст."],
-              "medications": [
-                {"name": "Метформин", "dose": "1000 мг", "schedule": "2 раза в день"},
-                {"name": "Периндоприл", "dose": "5 мг", "schedule": "1 раз в день, утром"}
-              ],
-              "vitals": {"series": [
-                {"label": "Янв", "systolic": 150, "diastolic": 95, "pulse": 80},
-                {"label": "Фев", "systolic": 144, "diastolic": 90, "pulse": 78},
-                {"label": "Мар", "systolic": 138, "diastolic": 86, "pulse": 74},
-                {"label": "Апр", "systolic": 132, "diastolic": 84, "pulse": 72},
-                {"label": "Май", "systolic": 128, "diastolic": 82, "pulse": 70}
-              ]},
-              "recentVisits": [
-                {"date": "2026-05-18", "clinic": "Городская поликлиника №4", "reason": "Контроль гликемии", "doctor": "Эндокринолог Бекова"},
-                {"date": "2026-03-10", "clinic": "Кардиологический центр", "reason": "Плановый осмотр", "doctor": "Кардиолог Жумабаев"}
-              ],
-              "immunizations": ["Грипп 2025", "COVID-19 (ревакцинация)"],
-              "aiNotes": "Давление стабилизируется на фоне терапии. Рекомендован контроль гликированного гемоглобина через 3 месяца.",
-              "note": "Доступ к медицинской карте возможен только врачам и только в рабочее время (08:00–18:00)."
+              "title": "Умный замок — офис AITU",
+              "assetId": "LOCK_OFFICE_AITU",
+              "assetType": "Электронный замок СКУД", "status": "Активен",
+              "voltage": "—",
+              "location": "Astana IT University, блок C, ауд. 1201",
+              "operator": "Служба безопасности AITU",
+              "lastInspection": "2026-06-01", "nextMaintenance": "2026-09-01",
+              "technicalNotes": "Доступ предоставляется только авторизованному персоналу (инспектор / инженер) в рабочее время. Каждая попытка входа фиксируется как Request → Decision."
             }
             """;
 
-    private static final String REALTY_OFFICE_1205 = """
+    private static final String DOC_STUDENT_AITU = """
             {
-              "title": "Офис №1205, БЦ «Нурлы Тау»",
-              "kind": "Коммерческая недвижимость",
-              "description": "Офисное помещение класса A в деловом центре. Открытая планировка, панорамное остекление, готово к въезду.",
+              "title": "Студенческий билет — AITU",
+              "kind": "Документ · образование",
+              "description": "Цифровой студенческий билет Astana IT University. Идентификатор студента в экосистеме платформы.",
               "details": {
-                "Адрес": "г. Астана, пр. Кабанбай батыра 15/1",
-                "Площадь": "85 м²",
-                "Этаж": "12 из 18",
-                "Назначение": "Офис (класс A)",
-                "Кадастровый номер": "21-315-042-1205",
-                "Статус": "Свободно · аренда",
-                "Ставка аренды": "12 500 ₸/м² в месяц"
+                "ФИО": "Серіков Айдос Бағланұлы",
+                "Университет": "Astana IT University (AITU)",
+                "Факультет": "Вычислительная техника и ПО",
+                "Специальность": "Программная инженерия",
+                "Курс": "3 курс",
+                "Студенческий №": "AITU-2022-1457",
+                "Статус": "Активен",
+                "Действителен до": "30.06.2026"
               },
-              "note": "Полные документы и история сделок доступны после авторизации."
-            }
-            """;
-
-    private static final String SERVICE_MASTER_CALL = """
-            {
-              "title": "Вызов мастера на дом",
-              "kind": "Услуга · быт",
-              "description": "Бытовая услуга по заявке: сантехник, электрик или мастер на час. Выезд в течение 2 часов.",
-              "details": {
-                "Категория": "Сантехнические работы",
-                "Исполнитель": "Сервис «Уют-Сервис»",
-                "Рейтинг исполнителя": "4.9 / 5",
-                "Время выезда": "до 2 часов",
-                "Стоимость выезда": "5 000 ₸",
-                "Гарантия на работы": "12 месяцев",
-                "Статус": "Принимает заявки"
-              },
-              "note": "Оформление заявки и оплата доступны после авторизации."
-            }
-            """;
-
-    private static final String INFRA_SUBSTATION_07 = """
-            {
-              "title": "Подстанция №07",
-              "assetId": "INFRA_SUBSTATION_07",
-              "assetType": "Трансформаторная подстанция", "status": "В работе",
-              "voltage": "10/0.4 кВ",
-              "location": "г. Астана, промзона Сарыарка",
-              "operator": "АО «Астана-РЭК»",
-              "lastInspection": "2026-04-20", "nextMaintenance": "2026-07-20",
-              "technicalNotes": "Плановое ТО без отключений. Замена масла в Т-2 запланирована на III квартал."
+              "note": "Полные данные и история доступны после авторизации."
             }
             """;
 }
