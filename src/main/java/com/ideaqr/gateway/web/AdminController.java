@@ -163,9 +163,12 @@ public class AdminController {
     }
 
     @GetMapping("/complaints")
-    public ResponseEntity<List<Map<String, Object>>> complaints(Authentication authentication) {
+    public ResponseEntity<PageResponse<Map<String, Object>>> complaints(
+            @PageableDefault(size = 50) Pageable pageable, Authentication authentication) {
         authSupport.requireUser(authentication);
-        return ResponseEntity.ok(complaintService.all().stream().map(this::complaintRow).collect(Collectors.toList()));
+        Page<Complaint> page = complaintService.all(pageable);
+        return ResponseEntity.ok(PageResponse.of(page,
+                page.getContent().stream().map(this::complaintRow).collect(Collectors.toList())));
     }
 
     @PostMapping("/complaints/{id}/status")
@@ -183,12 +186,14 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.ok("Статус жалобы обновлён.").with("status", c.getStatus().name()));
     }
 
-    /** Machine event log (the unified Event model) — admin only. */
+    /** Machine event log (the unified Event model) — admin only. Server-paginated (audit M-2). */
     @GetMapping("/events")
-    public ResponseEntity<List<Map<String, Object>>> events(Authentication authentication) {
+    public ResponseEntity<PageResponse<Map<String, Object>>> events(
+            @PageableDefault(size = 50) Pageable pageable, Authentication authentication) {
         authSupport.requireUser(authentication);
+        Page<Event> page = eventService.globalLog(pageable);
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (Event e : eventService.globalLog()) {
+        for (Event e : page.getContent()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("eventUid", e.getEventUid().toString());
             m.put("eventType", e.getEventType().name());
@@ -198,7 +203,7 @@ public class AdminController {
             m.put("createdAt", e.getCreatedAt() != null ? e.getCreatedAt().format(TS) : null);
             rows.add(m);
         }
-        return ResponseEntity.ok(rows);
+        return ResponseEntity.ok(PageResponse.of(page, rows));
     }
 
     private Map<String, Object> complaintRow(Complaint c) {

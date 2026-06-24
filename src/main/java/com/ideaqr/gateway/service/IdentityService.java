@@ -77,8 +77,9 @@ public class IdentityService {
     }
 
     public Identity findById(UUID identityUid) {
+        // Audit M-3: do not echo the raw identifier back to the client in the error message.
         return identityRepository.findById(identityUid)
-                .orElseThrow(() -> new IllegalStateException("Личность не найдена: " + identityUid));
+                .orElseThrow(() -> new IllegalStateException("Личность не найдена."));
     }
 
     /** Batch-load identities by id (used to avoid N+1 in the admin user list — audit 3.2). */

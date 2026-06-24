@@ -17,8 +17,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,11 +41,23 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
 
-    /** Cap on distinct tracked keys; on overflow we drop everything and start fresh. */
+    /** Cap on distinct tracked keys; oldest (least-recently-used) keys are evicted on overflow. */
     private static final int MAX_TRACKED_KEYS = 50_000;
 
     private final RateLimitProperties properties;
-    private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
+
+    /**
+     * Bounded, access-ordered LRU of per-key buckets. On overflow only the
+     * least-recently-used key is evicted — never a global {@code clear()}, so a flood
+     * of fresh keys can no longer wipe everyone else's (incl. brute-force) counters.
+     */
+    private final Map<String, Bucket> buckets = Collections.synchronizedMap(
+            new LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Bucket> eldest) {
+                    return size() > MAX_TRACKED_KEYS;
+                }
+            });
 
     public RateLimitingFilter(RateLimitProperties properties) {
         this.properties = properties;
@@ -106,11 +119,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     }
 
     private Bucket resolveBucket(BucketSpec spec) {
-        // Guard against unbounded growth from spoofed keys: fail-open on memory only,
-        // never on the limit itself.
-        if (buckets.size() > MAX_TRACKED_KEYS) {
-            buckets.clear();
-        }
+        // computeIfAbsent on the synchronized LRU map is atomic; overflow evicts the
+        // least-recently-used key (see the map's removeEldestEntry), not everything.
         return buckets.computeIfAbsent(spec.key(), k -> newBucket(spec.capacity()));
     }
 
@@ -130,12 +140,26 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return "ip:" + clientIp(request);
     }
 
-    /** Honour the proxy header on Render/Heroku, else the socket address. */
+    /**
+     * Resolve the real client IP for bucketing (audit C-1). {@code X-Forwarded-For} is
+     * <b>only</b> consulted when {@code trustedProxyCount > 0}, and then we read the hop at
+     * {@code (len - trustedProxyCount)} — the address the outermost proxy <i>we control</i>
+     * actually saw. Any extra left-hand entries a client injects sit before that index and
+     * are ignored, so the bucket key can no longer be forged. With the default of {@code 0}
+     * the header is ignored entirely and the (unspoofable) socket address is used.
+     */
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
+        int trusted = properties.getTrustedProxyCount();
+        if (trusted > 0) {
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                String[] hops = forwarded.split(",");
+                int idx = Math.max(0, hops.length - trusted);
+                String ip = hops[idx].trim();
+                if (!ip.isEmpty()) {
+                    return ip;
+                }
+            }
         }
         return request.getRemoteAddr();
     }

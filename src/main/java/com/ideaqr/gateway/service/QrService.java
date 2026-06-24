@@ -12,6 +12,8 @@ import com.ideaqr.gateway.dto.QrCreationRequest;
 import com.ideaqr.gateway.dto.QrCreationResponse;
 import com.ideaqr.gateway.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -142,6 +144,11 @@ public class QrService {
         return registryObjectRepository.findAllByOrderByCreatedAtDesc();
     }
 
+    /** Server-paginated object list for the admin panel (audit M-2). */
+    public Page<RegistryObject> listObjectsForAdmin(Pageable pageable) {
+        return registryObjectRepository.findAllByOrderByCreatedAtDesc(pageable);
+    }
+
     /** Regenerate the scannable PNG for an existing object (the QR encodes its UID). */
     public String regenerateImageFor(String objectUid) {
         return pngDataUri(objectUid);
@@ -194,7 +201,8 @@ public class QrService {
                         Map<String, Object> m = new LinkedHashMap<>();
                         m.put("store", a.getStore().trim());
                         if (a.getPrice() != null) m.put("price", a.getPrice());
-                        if (notBlank(a.getUrl())) m.put("url", a.getUrl().trim());
+                        String safeUrl = sanitizeUrl(a.getUrl());
+                        if (safeUrl != null) m.put("url", safeUrl);
                         if (notBlank(a.getNote())) m.put("note", a.getNote().trim());
                         alts.add(m);
                     }
@@ -240,6 +248,20 @@ public class QrService {
 
     private boolean notBlank(String s) {
         return s != null && !s.trim().isEmpty();
+    }
+
+    /**
+     * Accept only {@code http(s)} links into a stored card (audit L-1). Anything else
+     * — {@code javascript:}, {@code data:}, etc. — is dropped so it can never be rendered
+     * into an {@code href} and become a stored-XSS sink.
+     */
+    private String sanitizeUrl(String url) {
+        if (!notBlank(url)) {
+            return null;
+        }
+        String trimmed = url.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        return (lower.startsWith("http://") || lower.startsWith("https://")) ? trimmed : null;
     }
 
     private String pngDataUri(String text) {

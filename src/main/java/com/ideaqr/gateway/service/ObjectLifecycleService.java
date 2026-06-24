@@ -13,6 +13,7 @@ import com.ideaqr.gateway.domain.enums.ObjectStatus;
 import com.ideaqr.gateway.domain.enums.RequestStatus;
 import com.ideaqr.gateway.domain.enums.RequestType;
 import com.ideaqr.gateway.repository.DecisionRepository;
+import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
 import com.ideaqr.gateway.repository.RegistryObjectRepository;
 import com.ideaqr.gateway.repository.RequestRepository;
@@ -44,6 +45,7 @@ public class ObjectLifecycleService {
     private final RequestRepository requestRepository;
     private final DecisionRepository decisionRepository;
     private final InteractionRepository interactionRepository;
+    private final IdentityRepository identityRepository;
     private final AuditService auditService;
     private final EventService eventService;
 
@@ -92,6 +94,11 @@ public class ObjectLifecycleService {
         }
         if (newOwnerIdentityUid.equals(object.getOwnerIdentityUid())) {
             throw new IllegalArgumentException("Объект уже принадлежит указанному владельцу.");
+        }
+        // Audit H-3: the new owner must be a real identity, or the chain of custody would
+        // point at a non-existent owner (an orphaned object).
+        if (!identityRepository.existsById(newOwnerIdentityUid)) {
+            throw new IllegalArgumentException("Указанный новый владелец не найден в системе.");
         }
 
         String detail = "Передача владельца объекта"

@@ -78,6 +78,15 @@ public class History implements TenantScoped {
     private LocalDateTime createdAt;
 
     /**
+     * Strictly-monotonic, clock-independent chain order (audit H-1). Assigned under the
+     * {@code audit_chain_tip} lock by {@code AuditService}; {@code verifyChain()} walks the
+     * journal by this value so the verification order can never diverge from the hash links
+     * (the old {@code created_at}-based ordering broke on sub-microsecond collisions).
+     */
+    @Column(name = "chain_seq", updatable = false)
+    private Long chainSeq;
+
+    /**
      * Tenant setter used only by {@link TenantListener} at insert time. The journal is
      * otherwise setter-free; tenant_id is never mutated after the row is written, so the
      * hash chain (which excludes tenant_id) is unaffected.

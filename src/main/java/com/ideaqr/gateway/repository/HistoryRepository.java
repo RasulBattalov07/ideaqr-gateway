@@ -28,11 +28,8 @@ public interface HistoryRepository extends JpaRepository<History, UUID> {
     /** Server-paginated variant of the alias-aware journal. */
     Page<History> findByIdentityUidInOrderByCreatedAtDesc(Collection<UUID> identityUids, Pageable pageable);
 
-    /** Newest entry — the chain tip used to link a new append (audit 4.5). */
-    History findTopByOrderByCreatedAtDescHistoryUidDesc();
-
-    /** Whole journal in insert order, for hash-chain verification. */
-    List<History> findAllByOrderByCreatedAtAscHistoryUidAsc();
+    /** Whole journal in append order (monotonic chain_seq), for hash-chain verification (audit H-1). */
+    List<History> findAllByOrderByChainSeqAsc();
 
     List<History> findByIdentityUid(UUID identityUid);
 }

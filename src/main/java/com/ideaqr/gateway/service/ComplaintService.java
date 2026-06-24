@@ -9,6 +9,9 @@ import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.repository.ComplaintRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +40,14 @@ public class ComplaintService {
         }
         Interaction interaction = interactionRepository.findById(interactionUid)
                 .orElseThrow(() -> new IllegalArgumentException("Взаимодействие для жалобы не найдено."));
+        // Audit M-4 (IDOR): a user may only attach a complaint to an interaction they were
+        // party to — one they initiated, or one targeting them. findById bypasses any scoping,
+        // so this ownership check is enforced explicitly.
+        boolean involved = author.getIdentityUid().equals(interaction.getIdentityUid())
+                || author.getIdentityUid().equals(interaction.getTargetIdentityUid());
+        if (!involved) {
+            throw new AccessDeniedException("Жалобу можно подать только по вашему взаимодействию.");
+        }
         if (subject == null || subject.isBlank()) {
             throw new IllegalArgumentException("Укажите тему жалобы.");
         }
@@ -62,6 +73,11 @@ public class ComplaintService {
 
     public List<Complaint> mine(UUID identityUid) {
         return complaintRepository.findByIdentityUidOrderByCreatedAtDesc(identityUid);
+    }
+
+    /** Server-paginated complaint list for the admin triage panel (audit M-2). */
+    public Page<Complaint> all(Pageable pageable) {
+        return complaintRepository.findAllByOrderByCreatedAtDesc(pageable);
     }
 
     public List<Complaint> all() {

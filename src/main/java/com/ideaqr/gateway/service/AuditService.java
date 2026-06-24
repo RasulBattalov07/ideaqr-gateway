@@ -1,8 +1,10 @@
 package com.ideaqr.gateway.service;
 
+import com.ideaqr.gateway.domain.AuditChainTip;
 import com.ideaqr.gateway.domain.History;
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
+import com.ideaqr.gateway.repository.AuditChainTipRepository;
 import com.ideaqr.gateway.repository.HistoryRepository;
 import com.ideaqr.gateway.repository.IdentityRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,7 @@ public class AuditService {
 
     private final HistoryRepository historyRepository;
     private final IdentityRepository identityRepository;
+    private final AuditChainTipRepository chainTipRepository;
 
     /** Append a simple event (no chain links). */
     @Transactional
@@ -49,25 +52,26 @@ public class AuditService {
     }
 
     /**
-     * Append an event carrying the chain that produced it. Synchronized so the
-     * hash chain stays linear on this instance; createdAt is forced strictly
-     * monotonic so insert order is unambiguous for verification.
+     * Append an event carrying the chain that produced it (audit H-1). The single
+     * {@code audit_chain_tip} row is locked {@code FOR UPDATE} first, so concurrent
+     * appends serialize at the database — a later append always reads the just-committed
+     * predecessor and can never fork the chain. The link order is captured in a strictly
+     * monotonic {@code chainSeq} (assigned under the lock), which {@link #verifyChain()}
+     * walks by — so ordering no longer depends on wall-clock precision.
      */
     @Transactional
-    public synchronized History record(UUID identityUid, String objectUid, HistoryEventType eventType,
-                                       String description, UUID requestUid, UUID decisionUid, UUID interactionUid) {
-        History tip = historyRepository.findTopByOrderByCreatedAtDescHistoryUidDesc();
-        String prevHash = tip != null ? tip.getEntryHash() : GENESIS;
+    public History record(UUID identityUid, String objectUid, HistoryEventType eventType,
+                          String description, UUID requestUid, UUID decisionUid, UUID interactionUid) {
+        AuditChainTip tip = lockChainTip();
+        long seq = tip.getLastSeq() + 1;
+        String prevHash = tip.getLastHash();
 
         UUID historyUid = UUID.randomUUID();
         LocalDateTime createdAt = LocalDateTime.now();
-        if (tip != null && !createdAt.isAfter(tip.getCreatedAt())) {
-            createdAt = tip.getCreatedAt().plusNanos(1);
-        }
         String entryHash = computeHash(prevHash, historyUid, identityUid, objectUid, eventType,
                 description, requestUid, decisionUid, interactionUid, createdAt);
 
-        History history = History.builder()
+        History history = historyRepository.save(History.builder()
                 .historyUid(historyUid)
                 .identityUid(identityUid)
                 .objectUid(objectUid)
@@ -79,8 +83,23 @@ public class AuditService {
                 .prevHash(prevHash)
                 .entryHash(entryHash)
                 .createdAt(createdAt)
-                .build();
-        return historyRepository.save(history);
+                .chainSeq(seq)
+                .build());
+
+        tip.setLastHash(entryHash);
+        tip.setLastSeq(seq);
+        chainTipRepository.save(tip);
+        return history;
+    }
+
+    /**
+     * Acquire the pessimistic write lock on the chain tip, creating the singleton row on
+     * first use (the migration seeds it in deployed schemas; the create-drop test slice
+     * starts empty). The lock is held until the surrounding transaction commits.
+     */
+    private AuditChainTip lockChainTip() {
+        return chainTipRepository.lockTip().orElseGet(() -> chainTipRepository.save(
+                AuditChainTip.builder().id(AuditChainTip.SINGLETON_ID).lastHash(GENESIS).lastSeq(0L).build()));
     }
 
     /** Whole-system journal, newest first (admin view). */
@@ -125,7 +144,7 @@ public class AuditService {
      * "immutable journal" claim is real and checkable.
      */
     public ChainVerification verifyChain() {
-        List<History> all = historyRepository.findAllByOrderByCreatedAtAscHistoryUidAsc();
+        List<History> all = historyRepository.findAllByOrderByChainSeqAsc();
         String expectedPrev = GENESIS;
         long checked = 0;
         for (History h : all) {

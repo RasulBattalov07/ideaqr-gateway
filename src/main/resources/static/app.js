@@ -39,6 +39,14 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // Defence-in-depth for hrefs (audit L-1): only allow http(s) links, so a stored
+    // `javascript:`/`data:` URL can never execute when rendered into an anchor.
+    function safeUrl(value) {
+        if (!value) return '';
+        const v = String(value).trim();
+        return /^https?:\/\//i.test(v) ? v : '';
+    }
+
     function shortId(uid) {
         if (!uid) return '—';
         return String(uid).replace(/-/g, '').substring(0, 8).toUpperCase();
@@ -336,6 +344,20 @@
         return headers;
     }
 
+    // Centralised handling of a lost session (audit M-5). If a call comes back 401 while
+    // we believed we were authenticated (session expired or revoked by an admin), drop the
+    // cached user and return to the login screen instead of leaving panels silently broken.
+    // A 401 when not logged in (initial /api/auth/me, a failed /login) is the normal case
+    // and is ignored.
+    function handleUnauthorized() {
+        if (!currentUser) return;
+        currentUser = null;
+        const bar = document.getElementById('appbar');
+        if (bar) bar.hidden = true;
+        toast('Сессия истекла. Войдите снова.', 'err');
+        renderAuth();
+    }
+
     async function apiJson(path, { method = 'GET', body } = {}) {
         const opts = { method, credentials: 'same-origin', headers: withCsrf({}, method) };
         if (body !== undefined) {
@@ -343,6 +365,7 @@
             opts.body = JSON.stringify(body);
         }
         const res = await fetch(path, opts);
+        if (res.status === 401) handleUnauthorized();
         const text = await res.text();
         let data = null;
         if (text) { try { data = JSON.parse(text); } catch (_) { data = { raw: text }; } }
@@ -356,6 +379,7 @@
             headers: withCsrf({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'POST'),
             body: new URLSearchParams(params).toString()
         });
+        if (res.status === 401) handleUnauthorized();
         const text = await res.text();
         let data = null;
         if (text) { try { data = JSON.parse(text); } catch (_) { data = { raw: text }; } }
@@ -954,13 +978,17 @@
         animatePipeline(document.getElementById('admin-pipeline'), data, 'APPROVED');
     }
 
-    async function loadAdminObjects() {
+    let adminObjectsPage = 0;
+    async function loadAdminObjects(page = adminObjectsPage) {
+        adminObjectsPage = page;
         const list = document.getElementById('obj-list');
+        if (!list) return;
         try {
-            const { ok, data } = await apiJson('/api/admin/qr/list');
-            if (!ok || !Array.isArray(data)) { list.innerHTML = `<div class="obj-empty">Не удалось загрузить список.</div>`; return; }
-            if (data.length === 0) { list.innerHTML = `<div class="obj-empty">Пока нет созданных объектов.</div>`; return; }
-            list.innerHTML = data.map(o => `
+            const { ok, data } = await apiJson(`/api/admin/qr/list?page=${page}&size=60`);
+            const items = data && Array.isArray(data.content) ? data.content : null; // paginated (audit M-2)
+            if (!ok || !items) { list.innerHTML = `<div class="obj-empty">Не удалось загрузить список.</div>`; return; }
+            if (items.length === 0) { list.innerHTML = `<div class="obj-empty">Пока нет созданных объектов.</div>`; return; }
+            list.innerHTML = items.map(o => `
                 <div class="obj-item">
                     <img src="${esc(o.qrImageUrl)}" alt="QR ${esc(o.objectUid)}" loading="lazy">
                     <div class="oi-body">
@@ -970,10 +998,11 @@
                     </div>
                     <button class="btn btn-ghost btn-sm obj-transfer" type="button"
                         data-uid="${esc(o.objectUid)}" data-owner="${esc(o.ownerIdentityUid || '')}">Передать владельца</button>
-                </div>`).join('');
+                </div>`).join('') + pagerHtml(data);
             list.querySelectorAll('.obj-transfer').forEach(btn => {
                 btn.addEventListener('click', () => transferOwner(btn.dataset.uid, btn.dataset.owner));
             });
+            bindPager(list, data, p => loadAdminObjects(p));
         } catch (_) {
             list.innerHTML = `<div class="obj-empty">Ошибка загрузки списка.</div>`;
         }
@@ -1294,19 +1323,22 @@
         });
     }
 
-    function renderAdminComplaints() {
+    let adminComplaintsPage = 0;
+    function renderAdminComplaints(page = adminComplaintsPage) {
+        adminComplaintsPage = page;
         const body = document.getElementById('admin-body');
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка жалоб…')}</section>`;
-        apiJson('/api/admin/complaints').then(({ ok, data }) => {
-            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
+        apiJson(`/api/admin/complaints?page=${page}&size=50`).then(({ ok, data }) => {
+            const items = data && Array.isArray(data.content) ? data.content : null; // paginated (audit M-2)
+            if (!ok || !items) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
             const statuses = ['NEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
             body.innerHTML = `
             <section class="panel panel-pad">
-                <div class="section-title">Жалобы (${data.length})</div>
-                ${data.length === 0 ? '<div class="obj-empty">Жалоб нет.</div>' : `
+                <div class="section-title">Жалобы (${data.totalElements})</div>
+                ${items.length === 0 ? '<div class="obj-empty">Жалоб нет.</div>' : `
                 <div class="table-scroll"><table class="audit-tbl">
                     <thead><tr><th>Тема</th><th>Категория</th><th>Описание</th><th>Статус</th><th>Изменить</th></tr></thead>
-                    <tbody>${data.map(c => `
+                    <tbody>${items.map(c => `
                         <tr data-id="${esc(c.complaintUid)}">
                             <td>${esc(c.subject)}</td>
                             <td>${esc(c.category)}</td>
@@ -1316,7 +1348,7 @@
                                 ${statuses.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${esc(COMPLAINT_RU[s])}</option>`).join('')}
                             </select></td>
                         </tr>`).join('')}</tbody>
-                </table></div>`}
+                </table></div>${pagerHtml(data)}`}
             </section>`;
             body.querySelectorAll('.cmp-status-sel').forEach(sel => {
                 sel.addEventListener('change', async () => {
@@ -1328,6 +1360,7 @@
                     } catch (_) { toast('Ошибка обновления.', 'err'); }
                 });
             });
+            bindPager(body, data, p => renderAdminComplaints(p));
         });
     }
 
@@ -2155,12 +2188,15 @@
             else if (stock <= 5) { cls = 'low'; label = 'Мало (' + stock + ')'; }
             return `<tr><td><strong>${esc(s.size)}</strong></td><td style="text-align:right"><span class="stock ${cls}">${esc(label)}</span></td></tr>`;
         }).join('');
-        const altRows = alts.map(a => `
+        const altRows = alts.map(a => {
+            const link = safeUrl(a.url); // audit L-1: only http(s) — never javascript:/data:
+            return `
             <div class="alt-row">
                 <div><div class="alt-store">${esc(a.store)}</div><div class="alt-note">${esc(a.note || '')}</div></div>
                 <div class="alt-right"><div class="alt-price">${esc(fmtPrice(a.price, d.currency))}</div>
-                ${a.url && a.url !== '#' ? `<a class="alt-link" href="${esc(a.url)}" target="_blank" rel="noopener">Открыть →</a>` : ''}</div>
-            </div>`).join('');
+                ${link ? `<a class="alt-link" href="${esc(link)}" target="_blank" rel="noopener">Открыть →</a>` : ''}</div>
+            </div>`;
+        }).join('');
         const promo = loyalty ? `
             <div class="dc-section"><h4>Программа лояльности</h4>
                 <div class="promo">

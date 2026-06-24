@@ -32,12 +32,16 @@ public class TenantFilterAspect {
         if (tenant == null) {
             return;
         }
+        // Fail CLOSED (audit H-2): if a tenant is in context the scope MUST be applied. The
+        // old code swallowed every exception, so any failure to enable the filter silently
+        // returned UNSCOPED (cross-tenant) rows. We now propagate the failure instead.
         try {
             entityManager.unwrap(Session.class)
                     .enableFilter("tenantFilter")
                     .setParameter("tenantId", tenant);
-        } catch (Exception ignored) {
-            // No session bound (e.g. called outside a request/transaction) — nothing to scope.
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Не удалось применить изоляцию тенанта — запрос отклонён в целях безопасности.", e);
         }
     }
 }

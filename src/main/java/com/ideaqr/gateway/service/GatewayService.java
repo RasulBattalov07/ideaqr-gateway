@@ -24,6 +24,7 @@ import com.ideaqr.gateway.repository.InteractionRepository;
 import com.ideaqr.gateway.repository.RequestRepository;
 import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.repository.WorkflowRepository;
+import com.ideaqr.gateway.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -298,6 +299,13 @@ public class GatewayService {
         } catch (IllegalArgumentException ignored) {
             // not a UUID → handled as "not found" below
         }
+        // Tenant safety net (audit H-2): findById bypasses the Hibernate @Filter, so re-check
+        // the resolved identity's tenant by hand. A non-admin caller (tenant in context) may
+        // only resolve identities in their own tenant or the shared PUBLIC tenant; anything
+        // else is reported as "not found" so cross-tenant identities can't be enumerated.
+        if (owner != null && isCrossTenant(owner)) {
+            owner = null;
+        }
         if (owner == null) {
             return GatewayResponse.builder()
                     .success(false).outcome(DecisionOutcome.REJECTED.name())
@@ -491,6 +499,24 @@ public class GatewayService {
             throw new IllegalArgumentException("Запрос уже обработан.");
         }
         return interaction;
+    }
+
+    /**
+     * True when {@code owner} belongs to a different tenant than the current caller (audit H-2).
+     * Admins / system tasks run with no tenant in context (unscoped) and bypass this check;
+     * the shared {@link TenantContext#PUBLIC_TENANT} (citizens, guests, demo cards) is visible
+     * to everyone.
+     */
+    private boolean isCrossTenant(Identity owner) {
+        UUID caller = TenantContext.getTenantId();
+        if (caller == null) {
+            return false; // admin / unscoped — sees everyone
+        }
+        UUID ownerTenant = owner.getTenantId();
+        if (ownerTenant == null || ownerTenant.equals(TenantContext.PUBLIC_TENANT)) {
+            return false; // shared/public identities are universally resolvable
+        }
+        return !ownerTenant.equals(caller);
     }
 
     private String displayName(UUID identityUid) {

@@ -12,6 +12,7 @@ import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.ObjectCategory;
 import com.ideaqr.gateway.domain.enums.ObjectStatus;
 import com.ideaqr.gateway.repository.DecisionRepository;
+import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
 import com.ideaqr.gateway.repository.RegistryObjectRepository;
 import com.ideaqr.gateway.repository.RequestRepository;
@@ -45,6 +46,7 @@ class ObjectLifecycleServiceTransferTest {
     @Mock private RequestRepository requestRepository;
     @Mock private DecisionRepository decisionRepository;
     @Mock private InteractionRepository interactionRepository;
+    @Mock private IdentityRepository identityRepository;
     @Mock private AuditService auditService;
     @Mock private EventService eventService;
 
@@ -71,6 +73,7 @@ class ObjectLifecycleServiceTransferTest {
         RegistryObject car = car(oldOwner, ObjectStatus.ACTIVE);
 
         when(registryObjectRepository.findByObjectUid("CAR_FLYBO_01")).thenReturn(Optional.of(car));
+        when(identityRepository.existsById(newOwner)).thenReturn(true);   // audit H-3: owner must exist
         when(requestRepository.save(any(RequestRecord.class))).thenAnswer(a -> a.getArgument(0));
         when(decisionRepository.save(any(Decision.class))).thenAnswer(a -> a.getArgument(0));
         when(interactionRepository.save(any(Interaction.class))).thenAnswer(a -> a.getArgument(0));
@@ -105,5 +108,17 @@ class ObjectLifecycleServiceTransferTest {
 
         assertThatThrownBy(() -> service.transfer(actor(), "CAR_FLYBO_01", UUID.randomUUID(), null))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void transferToANonexistentOwnerIsRejected() {
+        UUID phantomOwner = UUID.randomUUID();
+        when(registryObjectRepository.findByObjectUid("CAR_FLYBO_01"))
+                .thenReturn(Optional.of(car(UUID.randomUUID(), ObjectStatus.ACTIVE)));
+        when(identityRepository.existsById(phantomOwner)).thenReturn(false); // audit H-3
+
+        assertThatThrownBy(() -> service.transfer(actor(), "CAR_FLYBO_01", phantomOwner, "Продажа"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("новый владелец");
     }
 }

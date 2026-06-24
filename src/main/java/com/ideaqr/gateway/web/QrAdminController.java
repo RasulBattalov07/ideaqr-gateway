@@ -2,11 +2,15 @@ package com.ideaqr.gateway.web;
 
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.RegistryObject;
+import com.ideaqr.gateway.dto.PageResponse;
 import com.ideaqr.gateway.dto.QrCreationRequest;
 import com.ideaqr.gateway.dto.QrCreationResponse;
 import com.ideaqr.gateway.service.QrService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -47,12 +51,13 @@ public class QrAdminController {
     }
 
     @GetMapping("/qr/list")
-    public ResponseEntity<List<Map<String, Object>>> list(Authentication authentication) {
-        Identity admin = authSupport.requireIdentity(authentication);
-        List<RegistryObject> objects = qrService.listObjectsForAdmin(admin.getIdentityUid());
+    public ResponseEntity<PageResponse<Map<String, Object>>> list(
+            @PageableDefault(size = 60) Pageable pageable, Authentication authentication) {
+        authSupport.requireIdentity(authentication);
+        Page<RegistryObject> page = qrService.listObjectsForAdmin(pageable);
 
         List<Map<String, Object>> summaries = new ArrayList<>();
-        for (RegistryObject obj : objects) {
+        for (RegistryObject obj : page.getContent()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("objectUid", obj.getObjectUid());
             m.put("displayName", obj.getDisplayName());
@@ -67,6 +72,6 @@ public class QrAdminController {
             m.put("qrImageUrl", "/api/qr/" + obj.getObjectUid() + ".png");
             summaries.add(m);
         }
-        return ResponseEntity.ok(summaries);
+        return ResponseEntity.ok(PageResponse.of(page, summaries));
     }
 }

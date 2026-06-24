@@ -28,4 +28,9 @@ USER ideaqr
 
 # The app honours $PORT (defaults to 8080) — Render/Heroku friendly.
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+
+# Sensible default JVM flags; render.yaml overrides JAVA_OPTS at deploy time. The shell
+# form expands $JAVA_OPTS (the exec ["java", ...] form did NOT, so the configured flags
+# were silently ignored). `exec` keeps Java as PID 1 for correct signal handling.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

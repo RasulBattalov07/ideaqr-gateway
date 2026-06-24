@@ -4,6 +4,8 @@ import com.ideaqr.gateway.domain.Event;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.repository.EventRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,11 @@ public class EventService {
 
     public List<Event> globalLog() {
         return eventRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    /** Server-paginated global event log (admin view) — audit M-2. */
+    public Page<Event> globalLog(Pageable pageable) {
+        return eventRepository.findAllByOrderByCreatedAtDesc(pageable);
     }
 
     public List<Event> logFor(UUID identityUid) {

@@ -153,8 +153,9 @@ public class UserService {
     }
 
     public User findByUsername(String username) {
+        // Audit M-3: keep the message generic — never reflect the looked-up username back.
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalStateException("Пользователь не найден: " + username));
+                .orElseThrow(() -> new IllegalStateException("Пользователь не найден."));
     }
 
     public Identity identityOf(User user) {

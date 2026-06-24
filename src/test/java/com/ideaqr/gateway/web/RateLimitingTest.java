@@ -61,4 +61,29 @@ class RateLimitingTest {
                 .as("a 429 tells the client when it may retry")
                 .isNotNull();
     }
+
+    /**
+     * Audit C-1 regression: with one trusted proxy (the test profile), the bucket key is
+     * the hop the proxy actually observed — the LAST X-Forwarded-For entry. Rotating the
+     * left-hand (client-injected) entry on every request must NOT mint a fresh bucket, so
+     * the throttle still fires.
+     */
+    @Test
+    void spoofingTheLeftmostForwardedForCannotBypassTheThrottle() throws Exception {
+        String realClient = "198.51.100.99"; // the hop the trusted proxy appends (rightmost)
+        List<Integer> statuses = new ArrayList<>();
+
+        for (int i = 0; i < 20; i++) {
+            // The attacker forges a new left-hand IP every time; the proxy appends realClient.
+            statuses.add(mvc.perform(post("/login").with(csrf())
+                            .header("X-Forwarded-For", "10.0.0." + i + ", " + realClient)
+                            .param("username", "nobody")
+                            .param("password", "wrong-" + i))
+                    .andReturn().getResponse().getStatus());
+        }
+
+        assertThat(statuses)
+                .as("rotating the spoofable left-hand X-Forwarded-For entry does not dodge the limit")
+                .contains(429);
+    }
 }

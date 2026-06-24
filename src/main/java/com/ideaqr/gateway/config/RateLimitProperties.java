@@ -31,4 +31,14 @@ public class RateLimitProperties {
 
     /** Baseline ceiling for authenticated API traffic per window, keyed by username. */
     private int authenticatedCapacity = 100;
+
+    /**
+     * Number of <b>trusted</b> reverse proxies in front of the app (audit C-1). The real
+     * client IP is read from {@code X-Forwarded-For} at position {@code (len - trustedProxyCount)}
+     * — i.e. the hop the outermost trusted proxy actually observed — so a client cannot
+     * forge its bucket key by injecting extra left-hand entries. {@code 0} (the safe default)
+     * ignores {@code X-Forwarded-For} entirely and keys on the socket address. Set to the
+     * exact number of proxies you control (Render's edge = 1).
+     */
+    private int trustedProxyCount = 0;
 }

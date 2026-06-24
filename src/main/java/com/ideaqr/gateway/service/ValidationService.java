@@ -45,6 +45,12 @@ public class ValidationService {
         if (category == null || category == ObjectCategory.UNKNOWN) {
             return new Verdict(REJECTED, "OBJECT_NOT_FOUND", "Объект не найден в реестре.", "MEDIUM");
         }
+        // Audit L-3: a category guessed from a prefix is NOT a real object. Only grant access
+        // to objects actually backed by data (DB row or curated registry); otherwise the
+        // platform would "approve" access to phantom identifiers that don't exist.
+        if (!known) {
+            return new Verdict(REJECTED, "OBJECT_NOT_FOUND", "Объект не найден в реестре.", "MEDIUM");
+        }
 
         Set<RoleType> roles = identity.getRoles();
         int trust = identity.getTrustLevel();

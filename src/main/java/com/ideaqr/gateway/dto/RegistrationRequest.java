@@ -15,6 +15,10 @@ public class RegistrationRequest {
 
     @NotBlank(message = "Укажите имя пользователя")
     @Size(min = 3, max = 60, message = "Имя пользователя: от 3 до 60 символов")
+    // Audit L-2: restrict to a safe identifier charset — letters, digits, dot, underscore,
+    // hyphen. Blocks HTML/script metacharacters and confusable whitespace at the input edge.
+    @Pattern(regexp = "^[A-Za-z0-9._-]+$",
+            message = "Имя пользователя: только латинские буквы, цифры и символы . _ -")
     private String username;
 
     // Stronger policy than the old 6-char minimum (audit 4.9). BCrypt caps at 72 bytes.
@@ -24,12 +28,16 @@ public class RegistrationRequest {
             message = "Пароль должен содержать буквы и цифры")
     private String password;
 
+    // Audit L-2: Unicode letters (incl. Cyrillic/Kazakh) plus spaces, hyphen, apostrophe and
+    // dot — no angle brackets or other HTML/script metacharacters.
     @NotBlank(message = "Укажите имя")
     @Size(max = 80)
+    @Pattern(regexp = "^[\\p{L}\\p{M} .'’-]+$", message = "Имя содержит недопустимые символы")
     private String firstName;
 
     @NotBlank(message = "Укажите фамилию")
     @Size(max = 80)
+    @Pattern(regexp = "^[\\p{L}\\p{M} .'’-]+$", message = "Фамилия содержит недопустимые символы")
     private String lastName;
 
     /** EMPLOYED or UNEMPLOYED. */
