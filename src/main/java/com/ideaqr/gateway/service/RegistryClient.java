@@ -19,6 +19,10 @@ import java.util.Optional;
  * payload. Resolution order mirrors the brief: (1) objects created in the DB via
  * the admin panel, (2) the enriched demo registry (mock data simulating external
  * state/commercial registries), (3) prefix inference for anything else.
+ *
+ * <p>The demo registry holds platform-grade reference objects across the core
+ * spheres — transport, medicine, commercial real estate and household services —
+ * so a demonstration reflects the breadth of the platform rather than toy data.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -36,9 +40,10 @@ public class RegistryClient {
 
     @PostConstruct
     void loadDemoRegistry() {
-        demoRegistry.put("PATIENT_7291", new Demo(ObjectCategory.MEDICAL, "Пациент 7291", PATIENT_7291));
-        demoRegistry.put("RETAIL_ADIDAS_SHIRT", new Demo(ObjectCategory.RETAIL, "Adidas — чёрная футболка", RETAIL_ADIDAS_SHIRT));
-        demoRegistry.put("ECO_SMART_BIN_102", new Demo(ObjectCategory.ECO, "Умный контейнер №102", ECO_SMART_BIN_102));
+        demoRegistry.put("CAR_TOYOTA_CAMRY", new Demo(ObjectCategory.RETAIL, "Toyota Camry 2024", CAR_TOYOTA_CAMRY));
+        demoRegistry.put("PATIENT_1024", new Demo(ObjectCategory.MEDICAL, "Медкарта пациента №1024", PATIENT_1024));
+        demoRegistry.put("REALTY_OFFICE_1205", new Demo(ObjectCategory.GENERAL, "Офис №1205, БЦ «Нурлы Тау»", REALTY_OFFICE_1205));
+        demoRegistry.put("SERVICE_MASTER_CALL", new Demo(ObjectCategory.GENERAL, "Услуга: вызов мастера", SERVICE_MASTER_CALL));
         demoRegistry.put("INFRA_SUBSTATION_07", new Demo(ObjectCategory.INFRASTRUCTURE, "Подстанция №07", INFRA_SUBSTATION_07));
     }
 
@@ -73,10 +78,13 @@ public class RegistryClient {
     private ObjectCategory inferCategory(String key) {
         String u = key.toUpperCase(Locale.ROOT);
         if (u.startsWith("PATIENT") || u.startsWith("MED")) return ObjectCategory.MEDICAL;
-        if (u.startsWith("RETAIL") || u.startsWith("PROD")) return ObjectCategory.RETAIL;
-        if (u.startsWith("ECO") || u.startsWith("BIN")) return ObjectCategory.ECO;
+        if (u.startsWith("CAR") || u.startsWith("AUTO") || u.startsWith("VEHICLE") || u.startsWith("TOYOTA")
+                || u.startsWith("RETAIL") || u.startsWith("PROD")) return ObjectCategory.RETAIL;
         if (u.startsWith("INFRA") || u.startsWith("SUBSTATION")) return ObjectCategory.INFRASTRUCTURE;
-        if (u.startsWith("GENERAL") || u.startsWith("OBJ")) return ObjectCategory.GENERAL;
+        if (u.startsWith("ECO") || u.startsWith("BIN")) return ObjectCategory.ECO;
+        if (u.startsWith("REALTY") || u.startsWith("OFFICE") || u.startsWith("PROPERTY")
+                || u.startsWith("SERVICE") || u.startsWith("MASTER")
+                || u.startsWith("GENERAL") || u.startsWith("OBJ")) return ObjectCategory.GENERAL;
         return ObjectCategory.UNKNOWN;
     }
 
@@ -99,71 +107,85 @@ public class RegistryClient {
     //  Enriched demo data (mock — simulates external registries)
     // ------------------------------------------------------------------
 
-    private static final String PATIENT_7291 = """
+    private static final String CAR_TOYOTA_CAMRY = """
             {
-              "patientName": "Айгерим Нұрланқызы",
-              "patientId": "PATIENT_7291",
-              "age": 34, "gender": "Женский", "bloodType": "II (A) Rh+",
-              "iinMasked": "8•••••••••42",
-              "allergies": ["Пенициллин", "Амоксициллин"],
-              "chronicConditions": ["Гипертония I ст.", "Гипотиреоз"],
+              "productName": "Toyota Camry 2.5 Prestige",
+              "brand": "Toyota", "sku": "01 KZ 777 ABC",
+              "price": 18900000, "currency": "₸",
+              "rating": 4.8, "reviews": 342,
+              "description": "Седан бизнес-класса, 2024 г., пробег 0 км. Официальный дилер Toyota в Казахстане.",
+              "colors": ["Белый перламутр", "Чёрный металлик", "Серебристый"],
+              "alternatives": [
+                {"store": "Toyota Astana Motors", "price": 18900000, "url": "#", "note": "Официальный дилер · гарантия 5 лет"},
+                {"store": "Toyota Almaty", "price": 18750000, "url": "#", "note": "В наличии · трейд-ин"},
+                {"store": "Вторичный рынок", "price": 17200000, "url": "#", "note": "Аналог 2023 г. с пробегом"}
+              ],
+              "loyalty": {"code": "TRADE-IN-2024", "note": "Трейд-ин старого авто + автокредит от 4% годовых", "discount": "−6%"}
+            }
+            """;
+
+    private static final String PATIENT_1024 = """
+            {
+              "patientName": "Медкарта пациента №1024",
+              "patientId": "PATIENT_1024",
+              "age": 47, "gender": "Мужской", "bloodType": "III (B) Rh+",
+              "iinMasked": "7•••••••••18",
+              "allergies": ["Пенициллин"],
+              "chronicConditions": ["Сахарный диабет 2 типа", "Артериальная гипертензия II ст."],
               "medications": [
-                {"name": "Лозартан", "dose": "50 мг", "schedule": "1 раз в день, утром"},
-                {"name": "L-тироксин", "dose": "75 мкг", "schedule": "натощак"}
+                {"name": "Метформин", "dose": "1000 мг", "schedule": "2 раза в день"},
+                {"name": "Периндоприл", "dose": "5 мг", "schedule": "1 раз в день, утром"}
               ],
               "vitals": {"series": [
-                {"label": "Янв", "systolic": 145, "diastolic": 92, "pulse": 78},
-                {"label": "Фев", "systolic": 138, "diastolic": 88, "pulse": 74},
-                {"label": "Мар", "systolic": 132, "diastolic": 85, "pulse": 72},
-                {"label": "Апр", "systolic": 128, "diastolic": 82, "pulse": 70},
-                {"label": "Май", "systolic": 125, "diastolic": 80, "pulse": 68}
+                {"label": "Янв", "systolic": 150, "diastolic": 95, "pulse": 80},
+                {"label": "Фев", "systolic": 144, "diastolic": 90, "pulse": 78},
+                {"label": "Мар", "systolic": 138, "diastolic": 86, "pulse": 74},
+                {"label": "Апр", "systolic": 132, "diastolic": 84, "pulse": 72},
+                {"label": "Май", "systolic": 128, "diastolic": 82, "pulse": 70}
               ]},
               "recentVisits": [
-                {"date": "2026-05-12", "clinic": "ГП №4", "reason": "Плановый осмотр", "doctor": "Терапевт Сейтова"},
-                {"date": "2026-03-03", "clinic": "Эндокринологический центр", "reason": "Контроль ТТГ", "doctor": "Эндокринолог Қасым"}
+                {"date": "2026-05-18", "clinic": "Городская поликлиника №4", "reason": "Контроль гликемии", "doctor": "Эндокринолог Бекова"},
+                {"date": "2026-03-10", "clinic": "Кардиологический центр", "reason": "Плановый осмотр", "doctor": "Кардиолог Жумабаев"}
               ],
-              "immunizations": ["COVID-19 (2 дозы)", "Грипп 2025", "Столбняк 2022"],
-              "aiNotes": "Давление стабилизируется на фоне терапии. Рекомендован контроль ТТГ через 3 месяца.",
-              "note": "Доступ к медицинской карте возможен только врачам и только в рабочее время."
+              "immunizations": ["Грипп 2025", "COVID-19 (ревакцинация)"],
+              "aiNotes": "Давление стабилизируется на фоне терапии. Рекомендован контроль гликированного гемоглобина через 3 месяца.",
+              "note": "Доступ к медицинской карте возможен только врачам и только в рабочее время (08:00–18:00)."
             }
             """;
 
-    private static final String RETAIL_ADIDAS_SHIRT = """
+    private static final String REALTY_OFFICE_1205 = """
             {
-              "productName": "Adidas — чёрная футболка",
-              "brand": "Adidas", "sku": "RETAIL_ADIDAS_SHIRT",
-              "price": 25000, "currency": "₸",
-              "rating": 4.6, "reviews": 1280,
-              "description": "Хлопковая футболка Adidas Originals, унисекс, чёрная.",
-              "sizes": [
-                {"size": "S", "stock": 5}, {"size": "M", "stock": 12},
-                {"size": "L", "stock": 0}, {"size": "XL", "stock": 3}
-              ],
-              "colors": ["Чёрный", "Белый", "Тёмно-синий"],
-              "alternatives": [
-                {"store": "Kaspi Магазин", "price": 22990, "url": "https://kaspi.kz", "note": "Доставка 1–2 дня"},
-                {"store": "Wildberries", "price": 23500, "url": "https://wildberries.kz", "note": "Завтра в пункте выдачи"},
-                {"store": "Lamoda", "price": 24100, "url": "https://lamoda.kz", "note": "Бесплатная примерка"}
-              ],
-              "loyalty": {"code": "IDEAQR-ADIDAS-10", "note": "Скидка 10% в фирменном магазине", "discount": "−10%"}
+              "title": "Офис №1205, БЦ «Нурлы Тау»",
+              "kind": "Коммерческая недвижимость",
+              "description": "Офисное помещение класса A в деловом центре. Открытая планировка, панорамное остекление, готово к въезду.",
+              "details": {
+                "Адрес": "г. Астана, пр. Кабанбай батыра 15/1",
+                "Площадь": "85 м²",
+                "Этаж": "12 из 18",
+                "Назначение": "Офис (класс A)",
+                "Кадастровый номер": "21-315-042-1205",
+                "Статус": "Свободно · аренда",
+                "Ставка аренды": "12 500 ₸/м² в месяц"
+              },
+              "note": "Полные документы и история сделок доступны после авторизации."
             }
             """;
 
-    private static final String ECO_SMART_BIN_102 = """
+    private static final String SERVICE_MASTER_CALL = """
             {
-              "title": "Умный контейнер №102",
-              "binId": "ECO_SMART_BIN_102",
-              "fillLevel": 82, "status": "Требует вывоза",
-              "environmentalTier": "Класс А — раздельный сбор",
-              "location": "г. Астана, ул. Кабанбай батыра 53",
-              "operator": "Оператор РОП «Tazalyq»",
-              "lastEmptied": "2026-06-15 07:40",
-              "coordinates": "51.0909, 71.4187",
-              "co2SavedKg": 1240, "recyclingRate": 63,
-              "wasteTypes": ["Пластик", "Бумага", "Стекло", "Металл"],
-              "pickupSchedule": [
-                {"day": "Пн", "time": "08:00"}, {"day": "Ср", "time": "08:00"}, {"day": "Пт", "time": "08:00"}
-              ]
+              "title": "Вызов мастера на дом",
+              "kind": "Услуга · быт",
+              "description": "Бытовая услуга по заявке: сантехник, электрик или мастер на час. Выезд в течение 2 часов.",
+              "details": {
+                "Категория": "Сантехнические работы",
+                "Исполнитель": "Сервис «Уют-Сервис»",
+                "Рейтинг исполнителя": "4.9 / 5",
+                "Время выезда": "до 2 часов",
+                "Стоимость выезда": "5 000 ₸",
+                "Гарантия на работы": "12 месяцев",
+                "Статус": "Принимает заявки"
+              },
+              "note": "Оформление заявки и оплата доступны после авторизации."
             }
             """;
 

@@ -292,7 +292,7 @@
 
     function categoryLabel(category) {
         const labels = {
-            MEDICAL: 'Медицинская карта', RETAIL: 'Розничный товар', ECO: 'Экологический объект',
+            MEDICAL: 'Медицинская карта', RETAIL: 'Товар / коммерция', ECO: 'Экологический объект',
             INFRASTRUCTURE: 'Инфраструктурный объект', GENERAL: 'Общий объект', UNKNOWN: 'Неизвестно'
         };
         return labels[category] || category;
@@ -542,10 +542,9 @@
                     <div class="field-error" id="login-error"></div>
                     <button class="btn btn-primary btn-block" id="login-submit" type="submit">Войти</button>
 
-                    <div class="demo-note">
-                        Демонстрационные аккаунты (администратор, врач, инспектор, гражданин)
-                        описаны в README проекта. В целях безопасности пароли не выводятся
-                        на экран входа.
+                    <div class="demo-creds">
+                        <div class="dc-label">Демо-доступы — нажмите, чтобы подставить</div>
+                        <div class="cred-grid" id="demo-creds"></div>
                     </div>
                 </form>
 
@@ -619,6 +618,34 @@
 
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
+
+        // Demo logins (clickable) — convenience for the live demo. Clicking a chip fills
+        // the login form with that account's credentials and switches to the Вход tab.
+        const demoAccounts = [
+            { role: 'Администратор', user: 'admin', pass: 'Admin123!', badge: 'admin' },
+            { role: 'Продавец', user: 'seller', pass: 'Seller123!', badge: 'user' },
+            { role: 'Врач', user: 'doctor', pass: 'Doctor123!', badge: 'user' },
+            { role: 'Инспектор', user: 'inspector', pass: 'Inspect123!', badge: 'user' },
+            { role: 'Гражданин', user: 'citizen', pass: 'Citizen123!', badge: 'user' }
+        ];
+        const credBox = document.getElementById('demo-creds');
+        if (credBox) {
+            credBox.innerHTML = demoAccounts.map((a, i) => `
+                <button class="cred-chip" type="button" data-i="${i}">
+                    <div class="cc-role">${esc(a.role)}</div>
+                    <div class="cc-login">${esc(a.user)} · ${esc(a.pass)}</div>
+                    <span class="cc-badge ${a.badge}">${a.badge === 'admin' ? 'Админ' : 'Пользователь'}</span>
+                </button>`).join('');
+            credBox.querySelectorAll('.cred-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const a = demoAccounts[Number(chip.dataset.i)];
+                    activate('login');
+                    document.getElementById('li-username').value = a.user;
+                    document.getElementById('li-password').value = a.pass;
+                    document.getElementById('login-submit').focus();
+                });
+            });
+        }
 
         // Self-service registration always provisions a CITIZEN (audit 4.1/4.2), so the
         // employment selector no longer gates a profession picker — there isn't one.
@@ -733,7 +760,7 @@
                     <div class="field">
                         <label for="cf-category">Тип объекта</label>
                         <select id="cf-category">
-                            <option value="RETAIL">Розничный товар</option>
+                            <option value="RETAIL">Товар / коммерция</option>
                             <option value="ECO">Экологический объект</option>
                             <option value="INFRASTRUCTURE">Инфраструктурный объект</option>
                             <option value="MEDICAL">Медицинская карта</option>
@@ -742,7 +769,7 @@
                     </div>
                     <div class="field">
                         <label for="cf-name">Наименование</label>
-                        <input id="cf-name" type="text" placeholder="например, Adidas — чёрная футболка">
+                        <input id="cf-name" type="text" placeholder="например, Toyota Camry 2024">
                     </div>
                     <div class="field">
                         <label for="cf-desc">Описание</label>
@@ -1536,7 +1563,7 @@
                     <button class="btn btn-primary" id="open-scanner" type="button">📷 Сканировать камерой</button>
                 </div>
                 <div class="manual-row">
-                    <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. PATIENT_7291">
+                    <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. CAR_TOYOTA_CAMRY">
                     <button class="btn btn-ghost" id="manual-go" type="button">Проверить</button>
                 </div>
 
@@ -1557,10 +1584,10 @@
         </div>`;
 
         const quick = [
-            { name: 'Пациент 7291', code: 'PATIENT_7291', tag: 'требуется врач + рабочее время' },
-            { name: 'Футболка Adidas', code: 'RETAIL_ADIDAS_SHIRT', tag: 'общедоступно' },
-            { name: 'Контейнер №102', code: 'ECO_SMART_BIN_102', tag: 'общедоступно' },
-            { name: 'Подстанция №07', code: 'INFRA_SUBSTATION_07', tag: 'требуется инспектор + рабочее время' }
+            { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'товар · общедоступно (Сценарий №1)' },
+            { name: 'Медкарта пациента №1024', code: 'PATIENT_1024', tag: 'требуется врач + рабочее время' },
+            { name: 'Офис №1205 · недвижимость', code: 'REALTY_OFFICE_1205', tag: 'коммерческая недвижимость' },
+            { name: 'Вызов мастера · услуга', code: 'SERVICE_MASTER_CALL', tag: 'бытовая услуга по заявке' }
         ];
         const chipBox = document.getElementById('quick-chips');
         chipBox.innerHTML = quick.map((q, i) => `
@@ -2006,7 +2033,7 @@
     }
 
     function cardHead(title, sub, category) {
-        const labels = { MEDICAL: 'Медицина', RETAIL: 'Розница', ECO: 'Экология', INFRASTRUCTURE: 'Инфраструктура', GENERAL: 'Объект' };
+        const labels = { MEDICAL: 'Медицина', RETAIL: 'Товар', ECO: 'Экология', INFRASTRUCTURE: 'Инфраструктура', GENERAL: 'Объект' };
         const cls = (category || 'general').toLowerCase();
         return `
             <div class="dc-head">
@@ -2209,10 +2236,14 @@
     }
 
     function generalCard(d, objectUid) {
+        const details = (d.details && typeof d.details === 'object' && !Array.isArray(d.details)) ? d.details : null;
+        const kvs = details ? Object.keys(details).map(k => kv(k, details[k])).join('') : '';
+        const sub = d.kind ? d.kind : 'ID: ' + objectUid;
         return `
         <div class="card data-card fade-in">
-            ${cardHead(d.title || d.displayName || 'Объект', 'ID: ' + objectUid, 'GENERAL')}
+            ${cardHead(d.title || d.displayName || d.name || 'Объект', sub, 'GENERAL')}
             ${d.description ? `<div class="dc-section"><p>${esc(d.description)}</p></div>` : ''}
+            ${kvs ? `<div class="dc-section"><h4>Характеристики</h4><div class="kv-grid">${kvs}</div></div>` : ''}
             ${d.note ? `<div class="dc-section"><p class="muted">${esc(d.note)}</p></div>` : ''}
         </div>`;
     }

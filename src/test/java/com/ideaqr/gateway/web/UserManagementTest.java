@@ -36,14 +36,18 @@ class UserManagementTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void adminCannotManageUserOfAnotherTenant() throws Exception {
-        // "admin" is in the retail tenant; "doctor" is in the hospital tenant. The
-        // tenant filter makes doctor invisible, so the block is rejected (not found).
-        mvc.perform(post("/api/admin/users/doctor/block").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}"))
-                .andExpect(status().is4xxClientError());
-
-        // doctor is untouched.
+    void adminManagesUsersAcrossTenants() throws Exception {
+        // The platform admin is a cross-tenant super-admin: although "admin" is in the
+        // retail tenant and "doctor" in the hospital tenant, the admin can manage doctor.
+        // Restored afterwards so the shared test context is left clean.
+        try {
+            mvc.perform(post("/api/admin/users/doctor/block").with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}"))
+                    .andExpect(status().isOk());
+            assertThat(userRepository.findByUsername("doctor").orElseThrow().isBlocked()).isTrue();
+        } finally {
+            userAdminService.unblock("admin", "doctor");
+        }
         assertThat(userRepository.findByUsername("doctor").orElseThrow().isBlocked()).isFalse();
     }
 

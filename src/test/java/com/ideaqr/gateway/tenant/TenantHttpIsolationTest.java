@@ -9,18 +9,20 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * End-to-end isolation over HTTP (audit 5.3): an authenticated admin's
- * {@code GET /api/admin/users} returns only users from the admin's own tenant. This
- * exercises the full path — {@code TenantInterceptor} resolves the tenant from the
- * caller and enables the Hibernate filter on the request session. The seeded "admin"
- * is in the retail tenant; "doctor" / "inspector" are in other tenants and must be
- * invisible.
+ * The platform administrator is a cross-tenant super-admin (product rule —
+ * "admin sees everyone"): {@code GET /api/admin/users} lists every account across ALL
+ * tenants, so newly self-registered users (which land in the public tenant) are always
+ * visible in the User Management panel. The seeded "admin" is in the retail tenant,
+ * while "doctor" / "inspector" / "citizen" live in other tenants and must all appear.
+ *
+ * <p>Per-tenant data isolation for <b>non-admin</b> users — the actual SaaS guarantee
+ * (audit 5.3) — is proved at the data layer by {@link TenantIsolationTest}: with the
+ * tenant filter enabled for tenant A, a query returns only tenant A's rows.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -32,12 +34,12 @@ class TenantHttpIsolationTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void adminListsOnlyOwnTenantUsers() throws Exception {
+    void adminSeesUsersAcrossAllTenants() throws Exception {
         mvc.perform(get("/api/admin/users").param("size", "100"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].username", hasItem("admin")))
-                .andExpect(jsonPath("$.content[*].username", not(hasItem("doctor"))))
-                .andExpect(jsonPath("$.content[*].username", not(hasItem("inspector"))))
-                .andExpect(jsonPath("$.content[*].username", not(hasItem("citizen"))));
+                .andExpect(jsonPath("$.content[*].username", hasItem("doctor")))
+                .andExpect(jsonPath("$.content[*].username", hasItem("inspector")))
+                .andExpect(jsonPath("$.content[*].username", hasItem("citizen")));
     }
 }

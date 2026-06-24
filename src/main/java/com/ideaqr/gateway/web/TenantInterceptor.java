@@ -34,8 +34,20 @@ public class TenantInterceptor implements HandlerInterceptor {
             return true; // unauthenticated: no tenant scope; any writes default to PUBLIC
         }
         User user = userRepository.findByUsername(auth.getName()).orElse(null);
-        if (user != null && user.getTenantId() != null) {
-            TenantContext.setTenantId(user.getTenantId());
+        if (user != null) {
+            // The platform administrator is a cross-tenant (super-admin) role: the
+            // governance and User Management panels must see and manage every account
+            // across ALL tenants ("admin sees everyone"). We therefore leave the tenant
+            // context unset for admins, so the Hibernate filter is not enabled for them.
+            // Tenant isolation continues to apply to every NON-admin user — one customer's
+            // users still cannot read or write another customer's data (audit 5.3, proved
+            // at the data layer by TenantIsolationTest).
+            if (user.isAdmin()) {
+                return true; // unscoped → admin operates globally
+            }
+            if (user.getTenantId() != null) {
+                TenantContext.setTenantId(user.getTenantId());
+            }
         }
         return true;
     }
