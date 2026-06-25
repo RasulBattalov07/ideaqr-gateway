@@ -12,7 +12,7 @@
 mvn spring-boot:run            # → http://localhost:8080
 
 mvn clean package              # fat jar → target/ideaqr-gateway.jar
-mvn clean test                 # весь сьют (43 теста)
+mvn clean test                 # весь сьют (51 тест)
 mvn test -Dtest=ИмяКласса      # один класс
 
 # Docker
@@ -33,12 +33,12 @@ docker build -t ideaqr-gateway . && docker run -p 8080:8080 ideaqr-gateway
 | Язык / Framework | Java 17 · Spring Boot 3.2.5 |
 | Web / API | Spring MVC (REST/JSON) + раздача SPA |
 | ORM / БД | Spring Data JPA / Hibernate · PostgreSQL (prod) / H2 (dev) |
-| Миграции | Flyway `V1…V6` (схема под `ddl-auto=validate` — fail-fast при дрейфе) |
-| Security | Spring Security · BCrypt · CSRF (double-submit cookie) |
+| Миграции | Flyway `V1…V8` (схема под `ddl-auto=validate` — fail-fast при дрейфе) |
+| Security | Spring Security · BCrypt · CSRF (double-submit cookie, **включён**) |
 | Сессии | Spring Session **JDBC** (сессии в БД → облачная устойчивость) |
 | Rate limit | Bucket4j (token-bucket на login/guest/register/api) |
 | Изоляция | Мультитенантность: ThreadLocal-контекст + Hibernate `@Filter` + `@PrePersist` штамп |
-| Frontend | Vanilla JS SPA · self-hosted шрифты · html5-qrcode · тёмная/светлая темы |
+| Frontend | Vanilla JS SPA · нативный скан (URL-QR `/s/<id>`) · полноэкранный результат · html5-qrcode · тёмная/светлая темы |
 
 ### Где что лежит
 ```
@@ -46,17 +46,19 @@ src/main/java/com/ideaqr/gateway/
 ├── domain/            сущности (Identity, RegistryObject, Request, Decision, Interaction, Event, History, Qr…)
 │   └── enums/         все перечисления (категории, статусы, роли, типы)
 ├── service/           бизнес-логика:
-│     GatewayService           ← ядро: scan/report/sos + Owner Approval Flow
-│     ValidationService        ← движок политик (роль / доверие / рабочее время)
+│     GatewayService           ← ядро: scan/report/sos + Owner Approval Flow (результат доводится сканеру)
+│     ValidationService        ← движок политик (роль / доверие / рабочий режим / рабочее время)
+│     MedicalService           ← рецепты: врач выписывает → фармацевт выдаёт (governed Interaction)
 │     RegistryClient           ← резолв объекта (DB → демо-реестр → префикс)   ← ДЕМО-ОБЪЕКТЫ ЗДЕСЬ
-│     ObjectLifecycleService   ← жизненный цикл + transfer (передача владельца)
+│     ObjectLifecycleService   ← жизненный цикл + transfer (передача владельца + уведомление получателю)
 │     GuestService             ← слияние истории гостя (IDOR-safe merge token)
+│     DevTimeService           ← «Машина времени»: мок часа сессии для демо рабочего окна
 │     TrustScoreService · AuditService · EventService · UserService · UserAdminService …
-├── web/               REST-контроллеры + TenantInterceptor
+├── web/               REST-контроллеры + TenantInterceptor (+ SpaForwardController для /s/**)
 ├── tenant/            TenantContext (ThreadLocal) · TenantFilterAspect (AOP) · TenantListener (@PrePersist)
 ├── config/            SecurityConfig · RateLimitingFilter · DataSeeder   ← СИДИРОВАНИЕ ЗДЕСЬ
 └── resources/
-      db/migration/    Flyway V1…V6
+      db/migration/    Flyway V1…V8
       static/          index.html · styles.css · app.js (SPA)
 ```
 
@@ -71,6 +73,25 @@ Identity → Role → Request → Decision → Interaction → Event → History
 
 ---
 
+## 🆕 Что нового (product/UX overhaul)
+
+Итог живого демо с заказчиком — оживлены сценарии и убраны «кнопки-пустышки». Без новых таблиц (Flyway `validate` зелёный): рецепты — это governed `Interaction`, ответы на жалобы — уведомления.
+
+- **Нативный скан камерой.** QR зашивает абсолютную ссылку `<base>/s/<id>` — стоковая камера телефона открывает сайт. Не залогинен → панель входа/гостя, после входа скан выполняется автоматически. База: `app.public-base-url` (env `PUBLIC_BASE_URL`), по умолчанию origin запроса.
+  > 📱 **Скан с телефона:** `localhost` телефону недоступен — задай `PUBLIC_BASE_URL` (деплой-домен) **или** открой app по LAN-IP ноутбука (`http://192.168.x.x:8080`), тогда QR зашьёт достижимый адрес.
+- **Результат скана — отдельная полноэкранная страница** (не левый сайдбар), удобно на мобиле.
+- **Врач → Фармацевт.** На медкарте врач «Выписывает рецепт», фармацевт жмёт «Выдать» (`Interaction` PENDING→CONFIRMED).
+- **Передача объекта видна получателю** — вкладка **«Мои объекты»** с QR + уведомление новому владельцу.
+- **Скан профиля доводится до конца** — после подтверждения владельцем сканирующий видит профиль (поллинг результата).
+- **Рабочий режим теперь гейтит** мед/инфра-доступ: в личном режиме — `WORKING_MODE_REQUIRED`.
+- **Машина времени** — виджет 🕓 внизу слева мокает час сессии, чтобы показать блокировку вне `08:00–18:00`.
+- **Жалобы:** админ «Открыть и ответить» → полный текст + смена статуса + ответ пользователю (уведомлением).
+- **Trust Score динамический:** +5 за решённую жалобу, −2 за отклонённый скан, +2 за подтверждённое действие.
+- **Гость:** вкладки истории/жалоб скрыты; история гостя реально переносится в новый профиль при регистрации (read-union по `linkedGuestUids`).
+- Фикс логина «с первого раза ошибка» (CSRF-прайминг + ретрай на 403); чип `pharmacist` добавлен на экран входа.
+
+---
+
 ## 🔑 Учётные записи (Credentials)
 
 Все пароли по схеме `Имя123!`. Создаются `DataSeeder` при первом старте.
@@ -79,8 +100,8 @@ Identity → Role → Request → Decision → Interaction → Event → History
 |---|---|---|---|---|
 | `admin` | `Admin123!` | Администратор торговли (**ROLE_ADMIN**) | IDEAQR Retail | Полная админка, управление юзерами, **передача владельца** |
 | `seller` | `Seller123!` | Продавец | IDEAQR Retail | Цель передачи авто, управляемый юзер |
-| `doctor` | `Doctor123!` | Врач | Городская больница | Доступ к рецепту/медкарте (роль) |
-| `pharmacist` | `Pharma123!` | Фармацевт | Городская больница | Доступ к рецептам (роль PHARMACIST) |
+| `doctor` | `Doctor123!` | Врач | Городская больница | Рабочий режим → медкарта → **выписывает рецепт** |
+| `pharmacist` | `Pharma123!` | Фармацевт | Городская больница | Рабочий режим → **выдаёт рецепт** (роль PHARMACIST) |
 | `inspector` | `Inspect123!` | Инспектор инфраструктуры | АО «Астана-РЭК» | Доступ к умному замку (роль) |
 | `citizen` | `Citizen123!` | Гражданин | — (public) | Обычный пользователь, P2P, жалобы |
 | `aidos` | `Aidos123!` | Продавец (Цифровая визитка) | — (public) | **Владелец визитки** — подтверждает P2P-доступ |
@@ -98,22 +119,24 @@ Identity → Role → Request → Decision → Interaction → Event → History
 | # | ID (копировать) | Категория | Что показывает | Кем сканировать → вердикт |
 |---|---|---|---|---|
 | 1 | `RETAIL_NIKE_AF1` | Товар | **Конверсия гостя**: гость видит фото/имя/описание/рейтинг, цена/отзывы скрыты → регистрация → полная карточка | гость → PUBLIC · любой юзер → FULL |
-| 2 | `MED_RX_5521` | Медицина | **Ролевой доступ** к рецепту (Амоксициллин) | citizen → ОТКАЗ · doctor/pharmacist → ДОСТУП* |
+| 2 | `MED_RX_5521` | Медицина | **Врач→Фармацевт**: ролевой доступ к рецепту + выписка/выдача | citizen → ОТКАЗ · doctor/pharmacist → ДОСТУП* |
 | 3 | `SERVICE_TRASH_PICKUP` | Услуга | **Request → Decision → Interaction** (вынос мусора от двери) | любой → ДОСТУП (видна цепочка) |
 | 4 | `CAR_TOYOTA_CAMRY` | Авто (DB-объект) | **Передача владельца** (Transfer) — реальный объект в базе | citizen → ДОСТУП · admin → передаёт владельца |
 | 5 | `LOCK_OFFICE_AITU` | Инфраструктура | **Запрос доступа** (умный замок офиса AITU) | citizen → ОТКАЗ · inspector → ДОСТУП* |
 | 6 | `DOC_STUDENT_AITU` | Документ | **Образование** — студбилет AITU | любой → ДОСТУП |
 | 7 | `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` | Личность | **P2P + Trust Score** (визитка «Айдос Серіков», TS 78) | citizen → REVIEW (запрос владельцу) |
 
-\* Медицина и инфраструктура гейтятся ещё и **рабочим временем 08:00–18:00** по серверным часам — вне окна будет отказ `OUTSIDE_WORKING_HOURS`.
+\* Медицина и инфраструктура требуют **рабочего режима** (иначе `WORKING_MODE_REQUIRED`) и **рабочего времени 08:00–18:00** (иначе `OUTSIDE_WORKING_HOURS`). Час сессии подменяется «Машиной времени» 🕓.
 
 ### Сценарии демо «по кнопкам»
-1. **Guest Conversion** — выйти/гость → скан `RETAIL_NIKE_AF1` → урезанная карточка + кнопка «Зарегистрироваться» → регистрация → та же карточка, но с ценой/отзывами/историей (история гостя сливается).
-2. **Owner Approval / P2P** — войти `citizen` → скан `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` → статус REVIEW, владельцу ушло уведомление. В другой сессии войти `aidos` → «Запросы доступа» → подтвердить → открывается профиль + Trust Score.
-3. **Роли (DOCTOR/PHARMACIST)** — `citizen` скан `MED_RX_5521` → ОТКАЗ; `doctor` или `pharmacist` (в рабочее время) → ДОСТУП к рецепту.
+1. **Guest Conversion** — выйти/гость → скан `RETAIL_NIKE_AF1` → урезанная карточка + кнопка «Зарегистрироваться» → регистрация → та же карточка, но с ценой/отзывами/историей (история гостя сливается; вкладки истории у гостя скрыты).
+2. **Owner Approval / P2P** — войти `citizen` → скан `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` → статус REVIEW, владельцу ушло уведомление. В другой сессии войти `aidos` → «Запросы доступа» → подтвердить → у сканера автоматически открывается профиль + Trust Score.
+3. **Врач → Фармацевт** — `doctor`: 🕓 `10:00` + **рабочий режим** → скан `MED_RX_5521` → ДОСТУП → «+ Выписать рецепт». Затем `pharmacist` (тоже рабочий режим) → скан того же → «Выдать». В личном режиме → `WORKING_MODE_REQUIRED`; в `22:00` → `OUTSIDE_WORKING_HOURS`; `citizen` → отказ по роли.
 4. **Request→Decision→Interaction** — любой логин, скан `SERVICE_TRASH_PICKUP` → анимированный конвейер с UUID каждого звена.
-5. **Передача владельца** — `admin` → вкладка «Управление» → карточка `CAR_TOYOTA_CAMRY` → «Передать владельца» → выбрать `seller`/`aidos` (история сохраняется как `OBJECT_TRANSFERRED`).
-6. **Access Request (инфра)** — `citizen` скан `LOCK_OFFICE_AITU` → ОТКАЗ; `inspector` (рабочее время) → ДОСТУП.
+5. **Передача владельца** — `admin` → «Управление» → `CAR_TOYOTA_CAMRY` → «Передать владельца» → выбрать `seller` (история = `OBJECT_TRANSFERRED`). Войти `seller` → вкладка **«Мои объекты»**: объект с QR + пришло уведомление.
+6. **Access Request (инфра)** — `citizen` скан `LOCK_OFFICE_AITU` → ОТКАЗ; `inspector` (рабочий режим + 🕓 рабочее время) → ДОСТУП.
+7. **Машина времени** — виджет 🕓 → `22:00` → скан мед/инфра врачом/инспектором в рабочем режиме → отказ по времени; верни `10:00` → ДОСТУП.
+8. **Жалоба + ответ** — `citizen` после скана → вкладка «Жалобы» → подать; `admin` → «Жалобы» → «Открыть и ответить» → статус «Решена» + текст → пользователю приходит уведомление, Trust Score растёт.
 
 ---
 
@@ -123,17 +146,23 @@ Identity → Role → Request → Decision → Interaction → Event → History
 |---|---|
 | `POST /api/auth/register` · `POST /login` · `POST /logout` | Регистрация / вход / выход (JSON 200/401) |
 | `POST /api/auth/guest` | Гостевой вход (+ merge-token) |
+| `GET  /s/{id}` | Нативный deep-link QR → отдаёт SPA, скан выполняется после входа/гостя |
 | `POST /api/v2/scan` | Скан объекта/личности (ядро конвейера) |
 | `POST /api/v2/access/{interactionUid}/confirm\|reject` | Owner Approval: подтвердить/отклонить |
+| `GET  /api/v2/access/{interactionUid}/result` | Результат P2P-доступа для сканера (поллинг) |
+| `POST /api/v2/medical/{objectUid}/prescribe` · `…/prescriptions/{id}/dispense` | Врач выписывает / фармацевт выдаёт рецепт |
+| `GET  /api/v2/my-objects` | Объекты во владении (в т.ч. переданные) |
+| `POST /api/v2/dev/time` | Машина времени: мок часа сессии (демо рабочего окна) |
 | `GET  /api/admin/users` | Список ВСЕХ пользователей (админ — кросс-тенантно) |
 | `POST /api/admin/objects/{objectUid}/transfer` | Передача владельца объекта |
+| `POST /api/admin/complaints/{id}/respond` | Ответ на жалобу пользователю + смена статуса |
 | `GET  /api/admin/audit/verify` | Проверка целостности хэш-цепочки журнала |
-| `GET  /api/qr/{objectUid}.png` | PNG QR-кода объекта (для печати/демо) |
+| `GET  /api/qr/{objectUid}.png` | PNG QR-кода объекта (зашита ссылка `<base>/s/<id>`) |
 | `GET  /api/health` | Health-probe (не троттлится) |
 
-> Сгенерировать сканируемый QR для любого cheat-кода: открой `http://localhost:8080/api/qr/RETAIL_NIKE_AF1.png` (подставь нужный ID).
+> Сгенерировать сканируемый QR для любого cheat-кода: открой `http://localhost:8080/api/qr/RETAIL_NIKE_AF1.png` (подставь нужный ID). В QR зашита ссылка `<base>/s/<id>` — стоковая камера телефона откроет сайт (для скана с телефона задай `PUBLIC_BASE_URL` или открой app по LAN-IP).
 
 ---
 
-## 🧪 Тесты (43, все зелёные)
-Ключевые инварианты: `ValidationServiceTest` (политики + фармацевт), `GuestServiceMergeTest` (IDOR-safe merge), `ObjectLifecycleServiceTransferTest` (transfer без пересоздания), `PublicCardTest` (проекция гостя), `AuditServiceChainTest` (tamper-evidence), `TenantIsolationTest` (изоляция на уровне БД), `TenantHttpIsolationTest` (админ видит все тенанты), `ForeignKeyIntegrityTest`, `SecurityIntegrationTest`, `RateLimitingTest`, `UserManagementTest`, `PasswordLifecycleTest`.
+## 🧪 Тесты (51, все зелёные)
+Ключевые инварианты: `ValidationServiceTest` (политики + фармацевт), `GuestServiceMergeTest` (IDOR-safe merge), `ObjectLifecycleServiceTransferTest` (transfer без пересоздания), `PublicCardTest` (проекция гостя), `AuditServiceChainTest` (tamper-evidence), `TenantIsolationTest` (изоляция на уровне БД), `TenantHttpIsolationTest` (админ видит все тенанты), `ForeignKeyIntegrityTest`, `SecurityIntegrationTest`, `RateLimitingTest`, `UserManagementTest`, `PasswordLifecycleTest`. Сценарии оверхола (врач→фармацевт, рабочий режим, машина времени, transfer→«Мои объекты», слияние истории гостя, ответ на жалобу) проверены живым прогоном.
