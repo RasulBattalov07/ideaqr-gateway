@@ -17,6 +17,9 @@ public interface RegistryObjectRepository extends JpaRepository<RegistryObject, 
 
     List<RegistryObject> findByCreatedByIdentityUidOrderByCreatedAtDesc(UUID createdByIdentityUid);
 
+    /** Objects an identity currently OWNS (post-transfer) — feeds the "Мои объекты" view. */
+    List<RegistryObject> findByOwnerIdentityUidOrderByCreatedAtDesc(UUID ownerIdentityUid);
+
     List<RegistryObject> findAllByOrderByCreatedAtDesc();
 
     /** Server-paginated object list for the admin panel (audit M-2). */

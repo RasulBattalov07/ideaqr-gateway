@@ -114,4 +114,28 @@ public class WalletController {
 
         return ResponseEntity.ok(wallet);
     }
+
+    /**
+     * Objects this identity currently OWNS — including ones transferred to them by an admin
+     * (Point 3). After a transfer the recipient sees the object here with its scannable QR, so
+     * the hand-off is no longer a dead-end ("и что дальше?").
+     */
+    @GetMapping("/my-objects")
+    public ResponseEntity<List<Map<String, Object>>> myObjects(Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (RegistryObject obj : registryObjectRepository
+                .findByOwnerIdentityUidOrderByCreatedAtDesc(identity.getIdentityUid())) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("objectUid", obj.getObjectUid());
+            m.put("displayName", obj.getDisplayName());
+            m.put("category", obj.getCategory().name());
+            m.put("status", obj.getStatus() != null ? obj.getStatus().name() : null);
+            m.put("trustScore", obj.getTrustScore());
+            m.put("qrImageDataUri", qrService.regenerateImageFor(obj.getObjectUid()));
+            m.put("createdAt", obj.getCreatedAt() != null ? obj.getCreatedAt().format(TS) : null);
+            rows.add(m);
+        }
+        return ResponseEntity.ok(rows);
+    }
 }

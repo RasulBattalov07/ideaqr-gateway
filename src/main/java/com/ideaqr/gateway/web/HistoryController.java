@@ -20,8 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -61,10 +63,15 @@ public class HistoryController {
     @GetMapping("/history/me")
     public ResponseEntity<Map<String, Object>> myHistory(Authentication authentication) {
         Identity identity = authSupport.requireIdentity(authentication);
-        UUID me = identity.getIdentityUid();
+        // Alias-aware (audit 4.5/4.6): include any guest identities merged into this profile,
+        // so the history a user built up as a guest actually appears once they register. This
+        // was the missing read-side union that made guest history "не переходит" after merge.
+        Set<UUID> ids = new LinkedHashSet<>();
+        ids.add(identity.getIdentityUid());
+        ids.addAll(identity.getLinkedGuestUids());
 
         List<Map<String, Object>> scannedByMe = new ArrayList<>();
-        for (Interaction i : interactionRepository.findByIdentityUidOrderByCreatedAtDesc(me)) {
+        for (Interaction i : interactionRepository.findByIdentityUidInOrderByCreatedAtDesc(ids)) {
             String type = i.getInteractionType();
             if (!"SCAN".equals(type) && !"PROFILE_SCAN".equals(type)) continue;
             String counterpart = "PROFILE_SCAN".equals(type) && i.getTargetIdentityUid() != null
@@ -74,7 +81,7 @@ public class HistoryController {
         }
 
         List<Map<String, Object>> scansOfMe = new ArrayList<>();
-        for (Interaction i : interactionRepository.findByTargetIdentityUidOrderByCreatedAtDesc(me)) {
+        for (Interaction i : interactionRepository.findByTargetIdentityUidInOrderByCreatedAtDesc(ids)) {
             scansOfMe.add(row(displayName(i.getIdentityUid()), i.getInteractionType(), i));
         }
 
@@ -111,6 +118,18 @@ public class HistoryController {
                                                   Authentication authentication) {
         Identity identity = authSupport.requireIdentity(authentication);
         return ResponseEntity.ok(gatewayService.rejectProfileAccess(identity, UUID.fromString(interactionUid)));
+    }
+
+    /**
+     * The scanner polls this after scanning a profile QR. While the owner has not acted it
+     * reports REVIEW; once confirmed it returns the permitted profile data, so the scanning
+     * side finally sees a result instead of a dead-end.
+     */
+    @GetMapping("/access/{interactionUid}/result")
+    public ResponseEntity<GatewayResponse> accessResult(@PathVariable("interactionUid") String interactionUid,
+                                                        Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        return ResponseEntity.ok(gatewayService.profileAccessResult(identity, UUID.fromString(interactionUid)));
     }
 
     // ------------------------------------------------------------------

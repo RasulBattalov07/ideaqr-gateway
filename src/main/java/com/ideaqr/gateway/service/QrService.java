@@ -12,10 +12,13 @@ import com.ideaqr.gateway.dto.QrCreationRequest;
 import com.ideaqr.gateway.dto.QrCreationResponse;
 import com.ideaqr.gateway.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -43,6 +46,16 @@ public class QrService {
     private final InteractionRepository interactionRepository;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+
+    /**
+     * Public origin embedded into the scannable QR (Point 1 — native camera support). A QR
+     * now carries an absolute URL {@code <base>/s/<identifier>} so a phone's stock camera
+     * opens the app's scan page, instead of a bare UUID the camera can't act on. Defaults to
+     * the current request's own origin; set {@code app.public-base-url} to a fixed public
+     * domain so codes generated locally still resolve when scanned from another device.
+     */
+    @Value("${app.public-base-url:}")
+    private String publicBaseUrl;
 
     /** Mint the permanent primary identity QR (called once during registration). */
     @Transactional
@@ -278,13 +291,43 @@ public class QrService {
             Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
             hints.put(EncodeHintType.MARGIN, 1);
             hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
-            BitMatrix matrix = new QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 320, 320, hints);
+            BitMatrix matrix = new QRCodeWriter().encode(toScanUrl(text), BarcodeFormat.QR_CODE, 320, 320, hints);
             BufferedImage image = MatrixToImageWriter.toBufferedImage(matrix);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "PNG", out);
             return out.toByteArray();
         } catch (Exception e) {
             throw new IllegalStateException("Не удалось сгенерировать QR-код", e);
+        }
+    }
+
+    /**
+     * Wrap a logical identifier ({@code IDENTITY:<uuid>} or an object UID) into an absolute
+     * scan URL so a phone's native camera opens the app's {@code /s/<id>} page. Falls back to
+     * the bare identifier when no base URL can be resolved (e.g. outside a web request), which
+     * keeps internal/manual-entry behaviour working unchanged.
+     */
+    String toScanUrl(String value) {
+        String base = resolveBaseUrl();
+        if (base == null || base.isBlank()) {
+            return value;
+        }
+        // The identifier is path-safe (alphanumerics, '_', '-', ':') — a literal colon is a
+        // valid path char (RFC 3986), so no encoding is needed and the SPA reads it verbatim.
+        return base + "/s/" + value;
+    }
+
+    private String resolveBaseUrl() {
+        if (publicBaseUrl != null && !publicBaseUrl.isBlank()) {
+            return publicBaseUrl.replaceAll("/+$", "");
+        }
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            return null; // no active request (e.g. seeding) → encode the bare value
+        }
+        try {
+            return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
+        } catch (Exception e) {
+            return null;
         }
     }
 }

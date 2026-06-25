@@ -48,6 +48,7 @@ public class ObjectLifecycleService {
     private final IdentityRepository identityRepository;
     private final AuditService auditService;
     private final EventService eventService;
+    private final NotificationService notificationService;
 
     /** Move an object to {@code ACTIVE} (e.g. put it into circulation / un-archive). */
     @Transactional
@@ -145,6 +146,10 @@ public class ObjectLifecycleService {
                 req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
         eventService.record(EventType.OBJECT_TRANSFERRED, actor.getIdentityUid(), objectUid,
                 interaction.getInteractionUid(), detail);
+
+        // Tell the new owner so the hand-off surfaces in their "Мои объекты" view (Point 3).
+        notificationService.notify(newOwnerIdentityUid, "OBJECT_TRANSFER",
+                "Вам передан объект «" + object.getDisplayName() + "». Откройте вкладку «Мои объекты».");
 
         return object;
     }

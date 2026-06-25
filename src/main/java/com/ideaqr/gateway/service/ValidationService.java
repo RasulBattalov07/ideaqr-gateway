@@ -50,7 +50,24 @@ public class ValidationService {
      * without introducing a new org-based denial — the stable core is unchanged.
      */
     public Verdict decideAccess(Identity identity, ObjectCategory category, boolean known, UUID organizationUid) {
-        return decideAccess(identity, category, known);
+        return decideAccess(identity, category, known, organizationUid, true, null);
+    }
+
+    /**
+     * Full entry point used by the live pipeline. Layers two MVP demo levers on top of the
+     * pure policy:
+     * <ul>
+     *   <li><b>Working mode</b> — professional categories (medical / infrastructure) are only
+     *       reachable when the actor is in WORKING mode, so the mode toggle actually gates
+     *       something instead of being decorative;</li>
+     *   <li><b>overrideHour</b> — an optional session-scoped "time machine" hour (dev panel),
+     *       set server-side, so the working-hours gate can be demonstrated live.
+     *       {@code null} ⇒ server clock (un-spoofable, audit 4.3).</li>
+     * </ul>
+     */
+    public Verdict decideAccess(Identity identity, ObjectCategory category, boolean known,
+                                UUID organizationUid, boolean workingMode, Integer overrideHour) {
+        return coreDecide(identity, category, known, workingMode, overrideHour);
     }
 
     /**
@@ -71,6 +88,11 @@ public class ValidationService {
     }
 
     public Verdict decideAccess(Identity identity, ObjectCategory category, boolean known) {
+        return coreDecide(identity, category, known, true, null);
+    }
+
+    private Verdict coreDecide(Identity identity, ObjectCategory category, boolean known,
+                               boolean workingMode, Integer overrideHour) {
         if (category == null || category == ObjectCategory.UNKNOWN) {
             return new Verdict(REJECTED, "OBJECT_NOT_FOUND", "Объект не найден в реестре.", "MEDIUM");
         }
@@ -83,9 +105,10 @@ public class ValidationService {
 
         Set<RoleType> roles = identity.getRoles();
         int trust = identity.getTrustLevel();
-        // Security (audit 4.3): the time gate uses the SERVER clock exclusively. There
-        // is no client-supplied hour, so the working-hours policy cannot be spoofed.
-        int hour = LocalTime.now(clock).getHour();
+        // Security (audit 4.3): the time gate uses the SERVER clock by default and there is no
+        // client-supplied hour on the request, so the policy cannot be spoofed. overrideHour is
+        // an optional session-scoped demo lever (dev "time machine"), itself set server-side.
+        int hour = overrideHour != null ? overrideHour : LocalTime.now(clock).getHour();
         boolean workingHours = hour >= WORK_START && hour < WORK_END;
 
         return switch (category) {
@@ -100,12 +123,18 @@ public class ValidationService {
                     yield new Verdict(REJECTED, "TRUST_TOO_LOW",
                             "Недостаточный уровень доверия для доступа к медицинским данным.", "HIGH");
                 }
+                // The mode toggle now gates professional access: a specialist must be ON the
+                // clock (working mode) to open a patient's card — not in personal mode.
+                if (!workingMode) {
+                    yield new Verdict(REJECTED, "WORKING_MODE_REQUIRED",
+                            "Медицинская карта доступна только в рабочем режиме. Перейдите в рабочий режим.", "MEDIUM");
+                }
                 if (!workingHours) {
                     yield new Verdict(REJECTED, "OUTSIDE_WORKING_HOURS",
                             "Доступ к медицинской карте возможен только в рабочее время (08:00–18:00).", "MEDIUM");
                 }
                 yield new Verdict(APPROVED, "ACCESS_GRANTED",
-                        "Проверка пройдена: роль (врач/фармацевт), уровень доверия и рабочее время.", "MEDIUM");
+                        "Проверка пройдена: роль (врач/фармацевт), доверие, рабочий режим и время.", "MEDIUM");
             }
             case INFRASTRUCTURE -> {
                 if (!(roles.contains(RoleType.INSPECTOR) || roles.contains(RoleType.ENGINEER))) {
@@ -116,12 +145,16 @@ public class ValidationService {
                     yield new Verdict(REJECTED, "TRUST_TOO_LOW",
                             "Недостаточный уровень доверия для доступа к объекту.", "HIGH");
                 }
+                if (!workingMode) {
+                    yield new Verdict(REJECTED, "WORKING_MODE_REQUIRED",
+                            "Инфраструктурный объект доступен только в рабочем режиме. Перейдите в рабочий режим.", "MEDIUM");
+                }
                 if (!workingHours) {
                     yield new Verdict(REJECTED, "OUTSIDE_WORKING_HOURS",
                             "Доступ к инфраструктурному объекту возможен только в рабочее время (08:00–18:00).", "MEDIUM");
                 }
                 yield new Verdict(APPROVED, "ACCESS_GRANTED",
-                        "Проверка пройдена: роль, уровень доверия и рабочее время.", "MEDIUM");
+                        "Проверка пройдена: роль, доверие, рабочий режим и время.", "MEDIUM");
             }
             case RETAIL, ECO, GENERAL -> new Verdict(APPROVED, "PUBLIC_OBJECT",
                     "Объект общедоступен. Данные предоставлены.", "LOW");

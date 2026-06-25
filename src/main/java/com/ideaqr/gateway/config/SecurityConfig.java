@@ -129,7 +129,10 @@ public class SecurityConfig {
                     // Public shell + self-hosted static assets.
                     auth.requestMatchers(
                             "/", "/index.html", "/styles.css", "/app.js",
-                            "/favicon.ico", "/assets/**", "/error").permitAll();
+                            "/favicon.ico", "/assets/**", "/error",
+                            // Native-scan deep link → SPA shell (Point 1). The SPA gates the
+                            // actual scan behind auth/guest; this only serves the public shell.
+                            "/s/**").permitAll();
                     // Public endpoints.
                     auth.requestMatchers("/api/health", "/api/auth/register", "/api/auth/guest").permitAll();
                     auth.requestMatchers("/login", "/logout").permitAll();

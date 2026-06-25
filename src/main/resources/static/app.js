@@ -26,6 +26,9 @@
     let notifList = [];
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
     let pendingRegister = false;   // open the Registration tab after a guest converts
+    let pendingScanTarget = null;  // identifier from a /s/<id> native-camera deep link
+    let profilePollTimer = null;   // polls for the owner's confirmation after a profile scan
+    let citizenTabsForGuest = ['terminal', 'myqr']; // guests never see history / complaints
 
     const app = () => document.getElementById('app');
 
@@ -358,32 +361,50 @@
         renderAuth();
     }
 
-    async function apiJson(path, { method = 'GET', body } = {}) {
+    // Materialise the double-submit CSRF cookie with a cheap GET. On a cold load the
+    // XSRF-TOKEN cookie may not exist yet when the first state-changing call (e.g. login)
+    // fires, which the server rejects with 403 — the classic "ошибка с первого раза".
+    // Priming + a one-shot retry makes the first login succeed on the first attempt.
+    async function primeCsrf() {
+        try { await fetch('/api/health', { credentials: 'same-origin' }); } catch (_) { /* ignore */ }
+    }
+
+    function parseBody(text) {
+        if (!text) return null;
+        try { return JSON.parse(text); } catch (_) { return { raw: text }; }
+    }
+
+    async function apiJson(path, { method = 'GET', body, _retried = false } = {}) {
+        const m = (method || 'GET').toUpperCase();
+        if (m !== 'GET' && !getCookie('XSRF-TOKEN')) await primeCsrf();
         const opts = { method, credentials: 'same-origin', headers: withCsrf({}, method) };
         if (body !== undefined) {
             opts.headers['Content-Type'] = 'application/json';
             opts.body = JSON.stringify(body);
         }
         const res = await fetch(path, opts);
+        if (res.status === 403 && m !== 'GET' && !_retried) {
+            await primeCsrf();
+            return apiJson(path, { method, body, _retried: true });
+        }
         if (res.status === 401) handleUnauthorized();
-        const text = await res.text();
-        let data = null;
-        if (text) { try { data = JSON.parse(text); } catch (_) { data = { raw: text }; } }
-        return { ok: res.ok, status: res.status, data };
+        return { ok: res.ok, status: res.status, data: parseBody(await res.text()) };
     }
 
-    async function apiForm(path, params) {
+    async function apiForm(path, params, _retried = false) {
+        if (!getCookie('XSRF-TOKEN')) await primeCsrf();
         const res = await fetch(path, {
             method: 'POST',
             credentials: 'same-origin',
             headers: withCsrf({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'POST'),
             body: new URLSearchParams(params).toString()
         });
+        if (res.status === 403 && !_retried) {
+            await primeCsrf();
+            return apiForm(path, params, true);
+        }
         if (res.status === 401) handleUnauthorized();
-        const text = await res.text();
-        let data = null;
-        if (text) { try { data = JSON.parse(text); } catch (_) { data = { raw: text }; } }
-        return { ok: res.ok, status: res.status, data };
+        return { ok: res.ok, status: res.status, data: parseBody(await res.text()) };
     }
 
     async function loadMe() {
@@ -419,6 +440,7 @@
             } catch (_) { /* ignore */ }
             toast('Вы вошли как гость. Действия будут записаны.', 'info');
             route();
+            consumePendingScan();
         } catch (err) {
             toast(err.message, 'err');
         }
@@ -483,6 +505,7 @@
     //  Routing
     // -------------------------------------------------------------
     function route() {
+        renderTimeMachine();
         if (!currentUser) {
             document.getElementById('appbar').hidden = true;
             renderAuth();
@@ -516,6 +539,12 @@
     // =============================================================
     function renderAuth() {
         app().innerHTML = `
+        ${pendingScanTarget ? `<div class="scan-intent">
+            <span class="si-ico">📷</span>
+            <div class="si-txt"><strong>Вы отсканировали объект</strong>
+            <span>Войдите или продолжите как гость — и мы сразу покажем результат проверки доступа.</span></div>
+            <code class="si-code">${esc(pendingScanTarget.startsWith('IDENTITY:') ? 'Цифровая личность' : pendingScanTarget)}</code>
+        </div>` : ''}
         <div class="auth-wrap fade-in">
             <aside class="auth-hero">
                 <div>
@@ -649,6 +678,7 @@
             { role: 'Администратор', user: 'admin', pass: 'Admin123!', badge: 'admin' },
             { role: 'Продавец', user: 'seller', pass: 'Seller123!', badge: 'user' },
             { role: 'Врач', user: 'doctor', pass: 'Doctor123!', badge: 'user' },
+            { role: 'Фармацевт', user: 'pharmacist', pass: 'Pharma123!', badge: 'user' },
             { role: 'Инспектор', user: 'inspector', pass: 'Inspect123!', badge: 'user' },
             { role: 'Гражданин', user: 'citizen', pass: 'Citizen123!', badge: 'user' }
         ];
@@ -690,6 +720,7 @@
                 toast('Вход выполнен. Добро пожаловать.', 'ok');
                 route();
                 enforcePasswordChange();
+                consumePendingScan();
             } catch (err) {
                 errEl.textContent = err.message;
                 btn.disabled = false; btn.textContent = 'Войти';
@@ -726,6 +757,7 @@
                 await doLogin(payload.username, payload.password);
                 await maybeMergeGuest();
                 route();
+                consumePendingScan();
             } catch (err) {
                 errEl.textContent = err.message;
                 btn.disabled = false; btn.textContent = 'Создать аккаунт';
@@ -752,7 +784,6 @@
                 <button data-tab="stats" type="button">Статистика</button>
                 <button data-tab="analytics" type="button">Аналитика</button>
                 <button data-tab="complaints" type="button">Жалобы</button>
-                <button data-tab="modules" type="button">Модули</button>
                 <button data-tab="audit" type="button">Аудит</button>
             </div>
             <div id="admin-body"></div>
@@ -1331,36 +1362,69 @@
         apiJson(`/api/admin/complaints?page=${page}&size=50`).then(({ ok, data }) => {
             const items = data && Array.isArray(data.content) ? data.content : null; // paginated (audit M-2)
             if (!ok || !items) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
-            const statuses = ['NEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
             body.innerHTML = `
             <section class="panel panel-pad">
                 <div class="section-title">Жалобы (${data.totalElements})</div>
                 ${items.length === 0 ? '<div class="obj-empty">Жалоб нет.</div>' : `
                 <div class="table-scroll"><table class="audit-tbl">
-                    <thead><tr><th>Тема</th><th>Категория</th><th>Описание</th><th>Статус</th><th>Изменить</th></tr></thead>
-                    <tbody>${items.map(c => `
-                        <tr data-id="${esc(c.complaintUid)}">
+                    <thead><tr><th>Тема</th><th>Категория</th><th>Статус</th><th></th></tr></thead>
+                    <tbody>${items.map((c, i) => `
+                        <tr>
                             <td>${esc(c.subject)}</td>
                             <td>${esc(c.category)}</td>
-                            <td>${esc(c.description || '—')}</td>
-                            <td>${esc(COMPLAINT_RU[c.status] || c.status)}</td>
-                            <td><select class="cmp-status-sel">
-                                ${statuses.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${esc(COMPLAINT_RU[s])}</option>`).join('')}
-                            </select></td>
+                            <td><span class="cmp-status s-${esc((c.status || '').toLowerCase())}">${esc(COMPLAINT_RU[c.status] || c.status)}</span></td>
+                            <td><button class="btn btn-ghost btn-sm cmp-open" type="button" data-i="${i}">Открыть и ответить</button></td>
                         </tr>`).join('')}</tbody>
                 </table></div>${pagerHtml(data)}`}
             </section>`;
-            body.querySelectorAll('.cmp-status-sel').forEach(sel => {
-                sel.addEventListener('change', async () => {
-                    const id = sel.closest('tr').getAttribute('data-id');
-                    try {
-                        const { ok: o } = await apiJson(`/api/admin/complaints/${id}/status`,
-                            { method: 'POST', body: { status: sel.value } });
-                        toast(o ? 'Статус жалобы обновлён.' : 'Не удалось обновить.', o ? 'ok' : 'err');
-                    } catch (_) { toast('Ошибка обновления.', 'err'); }
-                });
+            body.querySelectorAll('.cmp-open').forEach(btn => {
+                btn.addEventListener('click', () => openComplaintModal(items[Number(btn.dataset.i)]));
             });
             bindPager(body, data, p => renderAdminComplaints(p));
+        });
+    }
+
+    // Admin opens a complaint, reads it in full, sets a status and writes a reply that is
+    // delivered to the author as a notification (Point 4 — "админ не может открыть/ответить").
+    function openComplaintModal(c) {
+        const statuses = ['NEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+        showModal({
+            title: 'Жалоба · ' + (c.subject || ''),
+            bodyHtml: `
+                <div class="cmp-detail">
+                    ${kv('Тема', c.subject || '—')}
+                    ${kv('Категория', c.category || '—')}
+                    ${kv('Дата', c.createdAt || '—')}
+                    ${kv('Текущий статус', COMPLAINT_RU[c.status] || c.status)}
+                </div>
+                <div class="field" style="margin-top:12px"><label>Описание</label>
+                    <div class="cmp-desc-box">${esc(c.description || '—')}</div></div>
+                <div class="field" style="margin-top:10px"><label for="cmp-new-status">Новый статус</label>
+                    <select id="cmp-new-status">${statuses.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${esc(COMPLAINT_RU[s])}</option>`).join('')}</select></div>
+                <div class="field" style="margin-top:10px"><label for="cmp-response">Ответ пользователю</label>
+                    <textarea id="cmp-response" placeholder="Опишите принятое решение — пользователь получит уведомление"></textarea></div>`,
+            dismissValue: null,
+            onBody: (card, { close }) => {
+                const box = card.querySelector('.modal-actions');
+                box.innerHTML = `
+                    <button class="btn btn-ghost" type="button" id="cmp-cancel">Закрыть</button>
+                    <button class="btn btn-primary" type="button" id="cmp-send" data-autofocus>Отправить ответ</button>`;
+                card.querySelector('#cmp-cancel').addEventListener('click', () => close(null));
+                card.querySelector('#cmp-send').addEventListener('click', async () => {
+                    const status = card.querySelector('#cmp-new-status').value;
+                    const message = card.querySelector('#cmp-response').value.trim();
+                    const sendBtn = card.querySelector('#cmp-send');
+                    sendBtn.disabled = true; sendBtn.textContent = 'Отправка…';
+                    try {
+                        const { ok, data } = await apiJson(`/api/admin/complaints/${c.complaintUid}/respond`,
+                            { method: 'POST', body: { status, message } });
+                        if (!ok) throw new Error((data && data.message) || 'Не удалось отправить ответ.');
+                        toast('Ответ отправлен пользователю.', 'ok');
+                        close(true);
+                        renderAdminComplaints();
+                    } catch (e) { toast(e.message, 'err'); sendBtn.disabled = false; sendBtn.textContent = 'Отправить ответ'; }
+                });
+            }
         });
     }
 
@@ -1401,6 +1465,14 @@
     //  CITIZEN VIEW
     // =============================================================
     function renderCitizen() {
+        const guest = !!currentUser.guest;
+        // Guests get a deliberately reduced surface: no personal history / complaints tabs —
+        // their actions are tracked silently and only surface after they register (Point 6).
+        const tabs = guest
+            ? [['terminal', 'Терминал'], ['myqr', 'Мой QR']]
+            : [['terminal', 'Терминал'], ['myqr', 'Мой QR'], ['objects', 'Мои объекты'],
+               ['history', 'Моя история'], ['complaints', 'Жалобы']];
+        if (!tabs.some(t => t[0] === citizenTab)) citizenTab = 'terminal';
         app().innerHTML = `
         <div class="fade-in">
             <div class="page-head">
@@ -1447,10 +1519,7 @@
             <div id="access-requests" class="access-requests"></div>
 
             <div class="view-nav">
-                <button data-tab="terminal" type="button">Терминал</button>
-                <button data-tab="myqr" type="button">Мой QR</button>
-                <button data-tab="history" type="button">Моя история</button>
-                <button data-tab="complaints" type="button">Жалобы</button>
+                ${tabs.map(([k, label]) => `<button data-tab="${k}" type="button">${esc(label)}</button>`).join('')}
             </div>
             <div id="citizen-body"></div>
         </div>`;
@@ -1467,9 +1536,49 @@
 
         if (citizenTab === 'terminal') renderCitizenTerminal();
         else if (citizenTab === 'myqr') renderCitizenMyQr();
+        else if (citizenTab === 'objects') renderCitizenObjects();
         else if (citizenTab === 'history') renderCitizenHistory();
         else if (citizenTab === 'complaints') renderCitizenComplaints();
         else renderCitizenTerminal();
+    }
+
+    // -------------------------------------------------------------
+    //  Citizen: "Мои объекты" — objects I own, incl. ones transferred to me
+    // -------------------------------------------------------------
+    function renderCitizenObjects() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка объектов…')}</section>`;
+        apiJson('/api/v2/my-objects').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) {
+                body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить объекты.</div></section>`;
+                return;
+            }
+            if (data.length === 0) {
+                body.innerHTML = `<section class="panel panel-pad">
+                    <div class="section-title">Мои объекты</div>
+                    <div class="obj-empty">У вас пока нет объектов. Когда администратор передаст вам объект (например, автомобиль), он появится здесь — с QR-кодом, по которому его можно показать или проверить.</div>
+                </section>`;
+                return;
+            }
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Мои объекты (${data.length})</div>
+                <p class="muted" style="margin-bottom:14px">Объекты, которыми вы владеете. Переданный вам объект отображается здесь — вы можете показать его QR-код или отсканировать сами.</p>
+                <div class="myobj-grid">
+                    ${data.map(o => `
+                    <div class="myobj-card">
+                        <img class="myobj-qr" src="${esc(o.qrImageDataUri)}" alt="QR ${esc(o.displayName)}">
+                        <div class="myobj-name">${esc(o.displayName)}</div>
+                        <div class="myobj-uid mono">${esc(o.objectUid)}</div>
+                        <div class="myobj-meta">${esc(categoryLabel(o.category))} · вы владелец</div>
+                        <button class="btn btn-ghost btn-sm myobj-open" type="button" data-uid="${esc(o.objectUid)}">Открыть карточку</button>
+                    </div>`).join('')}
+                </div>
+            </section>`;
+            body.querySelectorAll('.myobj-open').forEach(btn => {
+                btn.addEventListener('click', () => doScan(btn.dataset.uid));
+            });
+        });
     }
 
     // ---- Citizen context: working mode, SOS, notifications ----
@@ -1531,11 +1640,9 @@
                 { method: 'POST', body: { message: 'SOS из терминала' } });
             if (ok && data) {
                 toast('SOS-запрос зарегистрирован и эскалирован.', 'ok');
-                const slot = document.getElementById('scan-result');
-                if (slot) {
-                    slot.innerHTML = `${verdictHtml('APPROVED', data.reason, data.riskLevel)}<div class="pipeline" id="sos-pipeline"></div>`;
-                    animatePipeline(document.getElementById('sos-pipeline'), data, 'APPROVED');
-                }
+                const slot = openResultPage(
+                    `${verdictHtml('APPROVED', data.reason, data.riskLevel)}<div class="pipeline" id="sos-pipeline"></div>`);
+                animatePipeline(slot.querySelector('#sos-pipeline'), data, 'APPROVED');
                 refreshNotifications();
             } else {
                 toast((data && data.message) || 'Не удалось отправить SOS.', 'err');
@@ -1589,32 +1696,19 @@
 
     function renderCitizenTerminal() {
         document.getElementById('citizen-body').innerHTML = `
-        <div class="split split-wide">
-            <section class="panel panel-pad">
-                <div class="section-title">Сканирование</div>
-                <div class="scan-actions">
-                    <button class="btn btn-primary" id="open-scanner" type="button">📷 Сканировать камерой</button>
-                </div>
-                <div class="manual-row">
-                    <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. CAR_TOYOTA_CAMRY">
-                    <button class="btn btn-ghost" id="manual-go" type="button">Проверить</button>
-                </div>
-
-                <div class="quick-label">Быстрые сценарии</div>
-                <div class="quick-chips" id="quick-chips"></div>
-            </section>
-
-            <section class="panel panel-pad">
-                <div class="section-title">Результат</div>
-                <div id="scan-result">
-                    <div class="placeholder-box">
-                        <div class="pb-ico">⊡</div>
-                        <div class="pb-title">Ожидание сканирования</div>
-                        <div class="pb-sub">Выберите сценарий или отсканируйте код</div>
-                    </div>
-                </div>
-            </section>
-        </div>`;
+        <section class="panel panel-pad">
+            <div class="section-title">Сканирование</div>
+            <p class="muted" style="margin-bottom:14px">Отсканируйте QR-код камерой или введите идентификатор — результат откроется на отдельной странице.</p>
+            <div class="scan-actions">
+                <button class="btn btn-primary" id="open-scanner" type="button">📷 Сканировать камерой</button>
+            </div>
+            <div class="manual-row">
+                <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. CAR_TOYOTA_CAMRY">
+                <button class="btn btn-ghost" id="manual-go" type="button">Проверить</button>
+            </div>
+            <div class="quick-label">Быстрые сценарии</div>
+            <div class="quick-chips" id="quick-chips"></div>
+        </section>`;
 
         const quick = [
             { name: 'Кроссовки Nike Air Force 1', code: 'RETAIL_NIKE_AF1', tag: 'товар · конверсия гостя' },
@@ -1653,24 +1747,57 @@
 
     async function doScan(objectUid) {
         const cleaned = String(objectUid).trim();
-        // Personal identity QR → governed profile-access request (owner confirms).
-        const result = document.getElementById('scan-result');
-        result.innerHTML = inlineLoad('Проверка прав доступа и контекста…');
+        // Result now opens as a full-screen page (Point 2) instead of the desktop sidebar, so
+        // it reads as a real "scan result" screen on a phone. The owner-confirmation flow for
+        // identity QRs is handled by the server and surfaced via polling below.
+        const slot = openResultPage(inlineLoad('Проверка прав доступа и контекста…'));
         // No client-supplied time: the working-hours gate is evaluated server-side only (audit 4.3).
-        const body = { objectUid: cleaned };
         try {
-            const { ok, data } = await apiJson('/api/v2/scan', { method: 'POST', body });
+            const { ok, data } = await apiJson('/api/v2/scan', { method: 'POST', body: { objectUid: cleaned } });
             if (!data || (!ok && !data.outcome)) throw new Error((data && data.message) || 'Ошибка сканирования');
-            renderScanResult(data);
+            renderScanResult(data, slot);
         } catch (err) {
-            result.innerHTML = `<div class="placeholder-box"><div class="pb-ico">⚠</div>
+            slot.innerHTML = `<div class="placeholder-box"><div class="pb-ico">⚠</div>
                 <div class="pb-title">Ошибка</div><div class="pb-sub">${esc(err.message)}</div></div>`;
             toast(err.message, 'err');
         }
     }
 
-    function renderScanResult(data) {
-        const result = document.getElementById('scan-result');
+    // Full-screen scan-result page (Point 2). Covers the viewport with a back button so the
+    // result is a proper page on mobile, not a cramped sidebar that "ломает весь опыт".
+    function openResultPage(innerHtml) {
+        let overlay = document.getElementById('result-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'result-overlay';
+            overlay.className = 'result-overlay';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `
+            <div class="result-page">
+                <div class="result-bar">
+                    <button class="btn btn-ghost btn-sm result-back" id="result-back" type="button">← Назад</button>
+                    <span class="result-bar-title">Результат сканирования</span>
+                    <span class="result-bar-spacer"></span>
+                </div>
+                <div class="result-body" id="result-body">${innerHtml}</div>
+            </div>`;
+        overlay.hidden = false;
+        document.body.classList.add('no-scroll');
+        document.getElementById('result-back').addEventListener('click', closeResultPage);
+        overlay.scrollTop = 0;
+        return document.getElementById('result-body');
+    }
+
+    function closeResultPage() {
+        stopProfilePoll();
+        const overlay = document.getElementById('result-overlay');
+        if (overlay) overlay.hidden = true;
+        document.body.classList.remove('no-scroll');
+    }
+
+    function renderScanResult(data, slot) {
+        const result = slot || openResultPage('');
         const approved = data.outcome === 'APPROVED';
         let cardHtml = '';
         if (approved && data.data) cardHtml = renderCardByCategory(data.category, data.data, data.objectUid);
@@ -1682,8 +1809,128 @@
             <div id="card-slot" class="mt-md">${tierHtml}${cardHtml}${ctaHtml}</div>`;
         animatePipeline(document.getElementById('scan-pipeline'), data, data.outcome);
         wireReportButtons();
+        wirePrescriptions(data.objectUid, result);
         const ctaBtn = document.getElementById('guest-cta-btn');
         if (ctaBtn) ctaBtn.addEventListener('click', startGuestRegistration);
+
+        // Person-to-person: a profile scan returns REVIEW; poll until the owner confirms so the
+        // SCANNER finally sees the allowed profile (Point 3 — the old flow ended in nothing).
+        if (data.category === 'IDENTITY' && data.outcome === 'REVIEW' && data.interactionUid) {
+            startProfilePoll(data.interactionUid, result);
+        }
+    }
+
+    // ---- Profile scan: poll for the owner's confirmation, then reveal the profile ----
+    function stopProfilePoll() {
+        if (profilePollTimer) { clearInterval(profilePollTimer); profilePollTimer = null; }
+    }
+
+    function startProfilePoll(interactionUid, container) {
+        stopProfilePoll();
+        const slot = container.querySelector('#card-slot') || container;
+        const note = document.createElement('div');
+        note.className = 'await-banner';
+        note.innerHTML = `<span class="await-dot"></span><span>Ожидаем подтверждения владельца…</span>`;
+        slot.appendChild(note);
+        let tries = 0;
+        profilePollTimer = setInterval(async () => {
+            if (++tries > 40) { stopProfilePoll(); note.querySelector('span:last-child').textContent = 'Время ожидания истекло.'; return; }
+            try {
+                const { ok, data } = await apiJson(`/api/v2/access/${interactionUid}/result`);
+                if (!ok || !data) return;
+                if (data.outcome === 'APPROVED') {
+                    stopProfilePoll();
+                    renderScanResult(data, container);
+                    toast('Владелец подтвердил доступ к профилю.', 'ok');
+                } else if (data.outcome === 'REJECTED') {
+                    stopProfilePoll();
+                    renderScanResult(data, container);
+                }
+            } catch (_) { /* keep polling */ }
+        }, 3000);
+    }
+
+    // ---- Doctor → Pharmacist: prescription section on an approved medical card ----
+    function prescriptionsSection(list, objectUid) {
+        const isDoctor = currentUser && (currentUser.roles || []).includes('DOCTOR');
+        const isPharma = currentUser && (currentUser.roles || []).includes('PHARMACIST');
+        const rows = (list || []).map(p => {
+            const dispensed = p.status === 'DISPENSED';
+            const statusTag = dispensed
+                ? '<span class="atag ok">Выдан</span>'
+                : '<span class="atag review">Ожидает выдачи</span>';
+            const dispenseBtn = (isPharma && !dispensed)
+                ? `<button class="btn btn-primary btn-sm rx-dispense" type="button" data-rx="${esc(p.prescriptionUid)}">Выдать</button>`
+                : '';
+            const sub = [p.dose, p.schedule].filter(Boolean).join(' · ');
+            const meta = [p.prescriber ? 'Врач: ' + p.prescriber : '', p.prescribedAt,
+                dispensed && p.dispensedBy ? 'Выдал: ' + p.dispensedBy : ''].filter(Boolean).join(' · ');
+            return `<div class="rx-row">
+                <div class="rx-main"><div class="rx-name">${esc(p.name)}</div>
+                    <div class="rx-sub">${esc(sub)}</div><div class="rx-meta">${esc(meta)}</div></div>
+                <div class="rx-right">${statusTag}${dispenseBtn}</div>
+            </div>`;
+        }).join('');
+        const doctorForm = isDoctor ? `
+            <div class="rx-form">
+                <div class="rx-form-row">
+                    <input class="rx-name-in" type="text" placeholder="Препарат (напр. Амоксициллин)">
+                    <input class="rx-dose-in" type="text" placeholder="Доза (500 мг)">
+                </div>
+                <input class="rx-sched-in" type="text" placeholder="Схема приёма (3 раза в день, 7 дней)">
+                <button class="btn btn-gold btn-sm rx-add" type="button">+ Выписать рецепт</button>
+            </div>` : '';
+        const empty = (!list || list.length === 0) ? '<div class="obj-empty">Назначений пока нет.</div>' : '';
+        return `<div class="dc-section rx-section">
+            <h4>Назначения и рецепты</h4>${rows || empty}${doctorForm}</div>`;
+    }
+
+    function wirePrescriptions(objectUid, container) {
+        if (!container || !objectUid) return;
+        container.querySelectorAll('.rx-dispense').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                btn.disabled = true; btn.textContent = 'Выдаём…';
+                try {
+                    const { ok, data } = await apiJson(`/api/v2/medical/prescriptions/${btn.dataset.rx}/dispense`,
+                        { method: 'POST', body: {} });
+                    if (!ok) throw new Error((data && data.message) || 'Не удалось выдать препарат.');
+                    toast('Препарат выдан по рецепту.', 'ok');
+                    refreshPrescriptions(objectUid, container);
+                } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Выдать'; }
+            });
+        });
+        const form = container.querySelector('.rx-form');
+        if (form) {
+            const addBtn = form.querySelector('.rx-add');
+            addBtn.addEventListener('click', async () => {
+                const name = form.querySelector('.rx-name-in').value.trim();
+                if (!name) { toast('Укажите препарат.', 'err'); return; }
+                const body = { name,
+                    dose: form.querySelector('.rx-dose-in').value.trim(),
+                    schedule: form.querySelector('.rx-sched-in').value.trim() };
+                addBtn.disabled = true; addBtn.textContent = 'Выписываем…';
+                try {
+                    const { ok, data } = await apiJson(`/api/v2/medical/${encodeURIComponent(objectUid)}/prescribe`,
+                        { method: 'POST', body });
+                    if (!ok) throw new Error((data && data.message) || 'Не удалось выписать рецепт.');
+                    toast('Рецепт выписан. Фармацевт увидит его при сканировании.', 'ok');
+                    refreshPrescriptions(objectUid, container);
+                } catch (e) { toast(e.message, 'err'); addBtn.disabled = false; addBtn.textContent = '+ Выписать рецепт'; }
+            });
+        }
+    }
+
+    async function refreshPrescriptions(objectUid, container) {
+        try {
+            const { ok, data } = await apiJson(`/api/v2/medical/${encodeURIComponent(objectUid)}/prescriptions`);
+            if (!ok || !Array.isArray(data)) return;
+            const section = container.querySelector('.rx-section');
+            if (!section) return;
+            const wrap = document.createElement('div');
+            wrap.innerHTML = prescriptionsSection(data, objectUid);
+            section.replaceWith(wrap.firstElementChild);
+            wirePrescriptions(objectUid, container);
+        } catch (_) { /* ignore */ }
     }
 
     // Visibility tier (Scenario #1 / ПУБЛИЧНАЯ СТРАНИЦА): a guest receives only the
@@ -2131,6 +2378,7 @@
                 <div class="tag-list">${imm.map(i => `<span class="tag">${esc(i)}</span>`).join('')}</div></div>` : ''}
             ${d.aiNotes ? `<div class="dc-section"><div class="ai-note">
                 <div class="ai-head">⬡ Заключение ИИ-ассистента</div><p>${esc(d.aiNotes)}</p></div></div>` : ''}
+            ${prescriptionsSection(d.prescriptions, objectUid)}
             ${d.note ? `<div class="dc-section"><p class="muted">${esc(d.note)}</p></div>` : ''}
         </div>`;
     }
@@ -2372,6 +2620,82 @@
     // -------------------------------------------------------------
     //  Init
     // -------------------------------------------------------------
+    // Run a deep-linked scan once we know who the visitor is. If they are not signed in the
+    // intent stays on the auth screen (a banner) and runs right after they enter (Point 1).
+    function consumePendingScan() {
+        if (!pendingScanTarget || !currentUser) return;
+        const target = pendingScanTarget;
+        pendingScanTarget = null;
+        if (!currentUser.admin) citizenTab = 'terminal';
+        doScan(target);
+    }
+
+    // -------------------------------------------------------------
+    //  Demo "Time Machine" (Point 5): mock the session's hour so the
+    //  working-hours gate can be shown live (e.g. medical access 08–18).
+    // -------------------------------------------------------------
+    function renderTimeMachine() {
+        let el = document.getElementById('time-machine');
+        if (!currentUser) { if (el) el.remove(); return; }
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'time-machine';
+            el.className = 'time-machine';
+            document.body.appendChild(el);
+        }
+        refreshTimeMachine(el);
+    }
+
+    async function refreshTimeMachine(el) {
+        el = el || document.getElementById('time-machine');
+        if (!el) return;
+        let state = { effectiveHour: new Date().getHours(), mockHour: null, workingHours: null };
+        try {
+            const { ok, data } = await apiJson('/api/v2/dev/time');
+            if (ok && data) state = data;
+        } catch (_) { /* local fallback */ }
+        const hh = String(state.effectiveHour).padStart(2, '0') + ':00';
+        const mocked = state.mockHour != null;
+        const work = state.workingHours;
+        el.innerHTML = `
+            <button class="tm-toggle" id="tm-toggle" type="button" title="Машина времени (демо)">
+                <span class="tm-ico">🕓</span>
+                <span class="tm-now ${work === false ? 'off' : work === true ? 'on' : ''}">${hh}${mocked ? ' ⚙' : ''}</span>
+            </button>
+            <div class="tm-panel" id="tm-panel" hidden>
+                <div class="tm-head">Машина времени · демо</div>
+                <div class="tm-sub">Час сессии: <strong>${hh}</strong> ${mocked ? '(имитация)' : '(сервер)'}<br>
+                    Рабочее окно 08:00–18:00 ${work === false ? '· сейчас ВНЕ окна' : work === true ? '· сейчас в окне' : ''}</div>
+                <div class="tm-row">
+                    <button class="btn btn-sm btn-ghost tm-set" data-h="10" type="button">10:00 рабочее</button>
+                    <button class="btn btn-sm btn-ghost tm-set" data-h="22" type="button">22:00 нерабочее</button>
+                </div>
+                <div class="tm-row">
+                    <input id="tm-hour" type="number" min="0" max="23" placeholder="Час 0–23">
+                    <button class="btn btn-sm btn-primary" id="tm-apply" type="button">Задать</button>
+                </div>
+                <button class="btn btn-sm btn-ghost btn-block" id="tm-reset" type="button">Сбросить на серверное время</button>
+            </div>`;
+        const panel = el.querySelector('#tm-panel');
+        el.querySelector('#tm-toggle').addEventListener('click', () => { panel.hidden = !panel.hidden; });
+        el.querySelectorAll('.tm-set').forEach(b => b.addEventListener('click', () => setMockHour(Number(b.dataset.h))));
+        el.querySelector('#tm-apply').addEventListener('click', () => {
+            const v = el.querySelector('#tm-hour').value;
+            if (v !== '') setMockHour(Number(v));
+        });
+        el.querySelector('#tm-reset').addEventListener('click', () => setMockHour(null));
+    }
+
+    async function setMockHour(hour) {
+        try {
+            const { ok } = await apiJson('/api/v2/dev/time',
+                { method: 'POST', body: hour == null ? {} : { hour } });
+            if (ok) toast(hour == null ? 'Время сброшено на серверное.'
+                : `Час сессии: ${String(hour).padStart(2, '0')}:00`, 'ok');
+        } catch (_) { toast('Не удалось изменить время.', 'err'); }
+        refreshTimeMachine();
+    }
+
     async function init() {
         const closeBtn = document.getElementById('scanner-close');
         if (closeBtn) closeBtn.addEventListener('click', closeScanner);
@@ -2380,12 +2704,21 @@
         if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
         syncThemeIcon();
 
+        // Native-scan deep link: a phone's stock camera opened our QR URL → /s/<identifier>.
+        const deep = location.pathname.match(/^\/s\/(.+)$/);
+        if (deep) {
+            try { pendingScanTarget = decodeURIComponent(deep[1]); } catch (_) { pendingScanTarget = deep[1]; }
+            history.replaceState(null, '', '/');  // clean the URL so a refresh doesn't re-trigger
+        }
+
         checkHealth();
         setInterval(checkHealth, 30000);
 
         try { await loadMe(); } catch (_) { currentUser = null; }
         route();
         enforcePasswordChange();
+        consumePendingScan();
+        renderTimeMachine();
     }
 
     document.addEventListener('DOMContentLoaded', init);

@@ -15,8 +15,10 @@ import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.domain.enums.IdentityType;
 import com.ideaqr.gateway.domain.enums.InteractionStatus;
+import com.ideaqr.gateway.domain.enums.ObjectCategory;
 import com.ideaqr.gateway.domain.enums.RequestStatus;
 import com.ideaqr.gateway.domain.enums.RequestType;
+import com.ideaqr.gateway.domain.enums.SessionMode;
 import com.ideaqr.gateway.dto.GatewayResponse;
 import com.ideaqr.gateway.dto.ReportRequest;
 import com.ideaqr.gateway.dto.ScanRequest;
@@ -29,6 +31,7 @@ import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.repository.WorkflowRepository;
 import com.ideaqr.gateway.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +67,9 @@ public class GatewayService {
     private final WorkflowRepository workflowRepository;
     private final TrustScoreService trustScoreService;
     private final OrganizationService organizationService;
+    private final SessionService sessionService;
+    private final DevTimeService devTimeService;
+    private final MedicalService medicalService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -90,8 +96,14 @@ public class GatewayService {
                 .status(RequestStatus.PENDING)
                 .build());
 
+        // Two MVP demo levers now feed the policy engine, so the mode toggle and the
+        // working-hours window actually gate something live (not decorative buttons):
+        //   • working mode — professional categories require the actor to be ON the clock;
+        //   • mock hour    — the session "time machine" (dev panel), server-side only.
+        boolean workingMode = sessionService.current(identity.getIdentityUid()).getMode() == SessionMode.WORKING;
+        Integer overrideHour = devTimeService.currentMockHour();
         ValidationService.Verdict verdict = validationService.decideAccess(
-                identity, resolved.category(), resolved.known(), organizationUid);
+                identity, resolved.category(), resolved.known(), organizationUid, workingMode, overrideHour);
         boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
 
         // Tiered visibility (Scenario #1 / ПУБЛИЧНАЯ СТРАНИЦА): the access *decision* is
@@ -114,6 +126,14 @@ public class GatewayService {
                 payload = resolved.data();
                 accessTier = "FULL";
             }
+        }
+
+        // Doctor ↔ Pharmacist: surface live prescriptions on an approved (full-access) medical
+        // card so the therapist-writes / pharmacist-dispenses flow is visible on the scan result.
+        if (approved && !guest && resolved.category() == ObjectCategory.MEDICAL && payload instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> card = (Map<String, Object>) payload;
+            card.put("prescriptions", medicalService.listForObject(objectUid));
         }
 
         Decision decision = decisionRepository.save(Decision.builder()
@@ -515,6 +535,41 @@ public class GatewayService {
         return interactionRepository.findByTargetIdentityUidOrderByCreatedAtDesc(ownerIdentityUid).stream()
                 .filter(i -> i.getStatus() == InteractionStatus.PENDING)
                 .toList();
+    }
+
+    /**
+     * The scanner polls this after scanning someone's profile QR. Once the owner confirms,
+     * it returns the permitted profile data so the <b>scanner</b> (not just the owner) finally
+     * sees the result — closing the old dead-end where confirmation led nowhere on the
+     * scanning side. Only the scanner who initiated the request may read it.
+     */
+    public GatewayResponse profileAccessResult(Identity scanner, UUID interactionUid) {
+        Interaction interaction = interactionRepository.findById(interactionUid)
+                .orElseThrow(() -> new IllegalArgumentException("Запрос доступа не найден."));
+        if (!scanner.getIdentityUid().equals(interaction.getIdentityUid())
+                || !"PROFILE_SCAN".equals(interaction.getInteractionType())) {
+            throw new AccessDeniedException("Этот запрос вам не принадлежит.");
+        }
+        InteractionStatus status = interaction.getStatus();
+        boolean confirmed = status == InteractionStatus.CONFIRMED;
+        boolean rejected = status == InteractionStatus.REJECTED;
+        String outcome = confirmed ? DecisionOutcome.APPROVED.name()
+                : rejected ? DecisionOutcome.REJECTED.name() : DecisionOutcome.REVIEW.name();
+        String reason = confirmed ? "Владелец подтвердил доступ. Профиль открыт."
+                : rejected ? "Владелец отклонил доступ к профилю."
+                : "Ожидается подтверждение владельца…";
+        return GatewayResponse.builder()
+                .success(confirmed)
+                .outcome(outcome)
+                .reason(reason)
+                .riskLevel(confirmed ? "LOW" : "MEDIUM")
+                .category("IDENTITY")
+                .objectUid(interaction.getObjectUid())
+                .data(confirmed && interaction.getTargetIdentityUid() != null
+                        ? profilePayload(interaction.getTargetIdentityUid()) : null)
+                .identityUid(scanner.getIdentityUid().toString())
+                .interactionUid(interaction.getInteractionUid().toString())
+                .build();
     }
 
     private Interaction requirePendingTarget(Identity owner, UUID interactionUid) {

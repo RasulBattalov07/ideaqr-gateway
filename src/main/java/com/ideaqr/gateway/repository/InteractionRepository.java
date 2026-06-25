@@ -18,6 +18,15 @@ public interface InteractionRepository extends JpaRepository<Interaction, UUID> 
     /** "Кто сканировал меня" — interactions where this identity's QR was the target. */
     List<Interaction> findByTargetIdentityUidOrderByCreatedAtDesc(UUID targetIdentityUid);
 
+    /** Alias-aware "я сканировал": this identity plus any merged guest identities. */
+    List<Interaction> findByIdentityUidInOrderByCreatedAtDesc(java.util.Collection<UUID> identityUids);
+
+    /** Alias-aware "кто сканировал меня". */
+    List<Interaction> findByTargetIdentityUidInOrderByCreatedAtDesc(java.util.Collection<UUID> targetIdentityUids);
+
+    /** Prescriptions (and other typed interactions) attached to an object, newest first. */
+    List<Interaction> findByObjectUidAndInteractionTypeOrderByCreatedAtDesc(String objectUid, String interactionType);
+
     long countByIdentityUid(UUID identityUid);
 
     long countByIdentityUidAndStatus(UUID identityUid, InteractionStatus status);

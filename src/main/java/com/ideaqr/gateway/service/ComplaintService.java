@@ -7,6 +7,7 @@ import com.ideaqr.gateway.domain.enums.ComplaintStatus;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.repository.ComplaintRepository;
+import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -29,9 +30,11 @@ public class ComplaintService {
 
     private final ComplaintRepository complaintRepository;
     private final InteractionRepository interactionRepository;
+    private final IdentityRepository identityRepository;
     private final AuditService auditService;
     private final EventService eventService;
     private final NotificationService notificationService;
+    private final TrustScoreService trustScoreService;
 
     @Transactional
     public Complaint create(Identity author, UUID interactionUid, String subject, String category, String description) {
@@ -92,7 +95,48 @@ public class ComplaintService {
         complaint.setStatus(status);
         complaint = complaintRepository.save(complaint);
         notificationService.notify(complaint.getIdentityUid(), "COMPLAINT",
-                "Статус вашей жалобы обновлён: " + status.name());
+                "Статус вашей жалобы обновлён: " + statusLabel(status));
+        // Trust Score reacts to resolution (TrustScoreService formula): resolving a complaint
+        // lifts the author's score; an open / rejected one keeps it lowered.
+        refreshAuthorTrust(complaint.getIdentityUid());
         return complaint;
+    }
+
+    /**
+     * Administrator opens a complaint and replies (Point 4 — "админ не может ответить").
+     * The response reaches the author as a notification and the status is updated in one step,
+     * with no schema change. The author's Trust Score is refreshed.
+     */
+    @Transactional
+    public Complaint respond(UUID complaintUid, String message, ComplaintStatus status) {
+        Complaint complaint = complaintRepository.findById(complaintUid)
+                .orElseThrow(() -> new IllegalArgumentException("Жалоба не найдена."));
+        if (status != null) {
+            complaint.setStatus(status);
+        }
+        complaint = complaintRepository.save(complaint);
+        String note = (message != null && !message.isBlank())
+                ? "Ответ по жалобе «" + complaint.getSubject() + "»: " + message.trim()
+                        + " (статус: " + statusLabel(complaint.getStatus()) + ")"
+                : "Статус вашей жалобы обновлён: " + statusLabel(complaint.getStatus());
+        notificationService.notify(complaint.getIdentityUid(), "COMPLAINT", note);
+        auditService.record(complaint.getIdentityUid(), null, HistoryEventType.COMPLAINT_CREATED,
+                "Администратор ответил по жалобе «" + complaint.getSubject() + "» — "
+                        + statusLabel(complaint.getStatus()));
+        refreshAuthorTrust(complaint.getIdentityUid());
+        return complaint;
+    }
+
+    private void refreshAuthorTrust(UUID authorIdentityUid) {
+        identityRepository.findById(authorIdentityUid).ifPresent(trustScoreService::refresh);
+    }
+
+    private String statusLabel(ComplaintStatus status) {
+        return switch (status) {
+            case NEW -> "Новая";
+            case IN_PROGRESS -> "В работе";
+            case RESOLVED -> "Решена";
+            case REJECTED -> "Отклонена";
+        };
     }
 }

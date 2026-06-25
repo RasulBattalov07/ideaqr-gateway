@@ -186,6 +186,26 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.ok("Статус жалобы обновлён.").with("status", c.getStatus().name()));
     }
 
+    /** Open a complaint and reply: delivers a response to the author and updates the status. */
+    @PostMapping("/complaints/{id}/respond")
+    public ResponseEntity<ApiResponse> respondComplaint(@PathVariable("id") String id,
+                                                       @RequestBody Map<String, String> body,
+                                                       Authentication authentication) {
+        authSupport.requireUser(authentication);
+        ComplaintStatus status = null;
+        String raw = body.getOrDefault("status", "").trim();
+        if (!raw.isEmpty()) {
+            try {
+                status = ComplaintStatus.valueOf(raw.toUpperCase(Locale.ROOT));
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Недопустимый статус жалобы."));
+            }
+        }
+        Complaint c = complaintService.respond(UUID.fromString(id), body.get("message"), status);
+        return ResponseEntity.ok(ApiResponse.ok("Ответ отправлен пользователю.")
+                .with("status", c.getStatus().name()));
+    }
+
     /** Machine event log (the unified Event model) — admin only. Server-paginated (audit M-2). */
     @GetMapping("/events")
     public ResponseEntity<PageResponse<Map<String, Object>>> events(

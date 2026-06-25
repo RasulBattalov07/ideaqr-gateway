@@ -49,6 +49,7 @@ class ObjectLifecycleServiceTransferTest {
     @Mock private IdentityRepository identityRepository;
     @Mock private AuditService auditService;
     @Mock private EventService eventService;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private ObjectLifecycleService service;
 
