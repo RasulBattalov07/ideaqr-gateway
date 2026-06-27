@@ -1,7 +1,6 @@
 package com.ideaqr.gateway.web;
 
 import com.ideaqr.gateway.domain.Complaint;
-import com.ideaqr.gateway.domain.Event;
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.Interaction;
 import com.ideaqr.gateway.domain.RequestRecord;
@@ -17,7 +16,6 @@ import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.repository.WorkflowRepository;
 import com.ideaqr.gateway.service.AuditService;
 import com.ideaqr.gateway.service.ComplaintService;
-import com.ideaqr.gateway.service.EventService;
 import com.ideaqr.gateway.service.IdentityService;
 import com.ideaqr.gateway.service.StatsService;
 import com.ideaqr.gateway.service.UserService;
@@ -62,7 +60,6 @@ public class AdminController {
 
     private final StatsService statsService;
     private final ComplaintService complaintService;
-    private final EventService eventService;
     private final UserRepository userRepository;
     private final IdentityService identityService;
     private final UserService userService;
@@ -237,26 +234,6 @@ public class AdminController {
         Complaint c = complaintService.respond(UUID.fromString(id), body.get("message"), status);
         return ResponseEntity.ok(ApiResponse.ok("Ответ отправлен пользователю.")
                 .with("status", c.getStatus().name()));
-    }
-
-    /** Machine event log (the unified Event model) — admin only. Server-paginated (audit M-2). */
-    @GetMapping("/events")
-    public ResponseEntity<PageResponse<Map<String, Object>>> events(
-            @PageableDefault(size = 50) Pageable pageable, Authentication authentication) {
-        authSupport.requireUser(authentication);
-        Page<Event> page = eventService.globalLog(pageable);
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (Event e : page.getContent()) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("eventUid", e.getEventUid().toString());
-            m.put("eventType", e.getEventType().name());
-            m.put("identityUid", e.getIdentityUid() != null ? e.getIdentityUid().toString() : null);
-            m.put("objectUid", e.getObjectUid());
-            m.put("summary", e.getSummary());
-            m.put("createdAt", e.getCreatedAt() != null ? e.getCreatedAt().format(TS) : null);
-            rows.add(m);
-        }
-        return ResponseEntity.ok(PageResponse.of(page, rows));
     }
 
     private Map<String, Object> complaintRow(Complaint c) {

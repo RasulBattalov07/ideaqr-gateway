@@ -25,10 +25,15 @@
     let sessionInfo = null;
     let notifList = [];
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
-    let pendingRegister = false;   // open the Registration tab after a guest converts
-    let pendingScanTarget = null;  // identifier from a /s/<id> native-camera deep link
+    let pendingScanTarget = null;  // identifier from a /s/<id> deep link or a guest conversion
     let profilePollTimer = null;   // polls for the owner's confirmation after a profile scan
     let citizenTabsForGuest = ['terminal', 'myqr']; // guests never see history / complaints
+
+    // Demo-only tooling (the "time machine" + manual UID entry) is hidden from regular users
+    // so the product reads as a real scan-first app. Admins always see it; flip DEMO_MODE to
+    // true to expose it to everyone for a live presentation.
+    const DEMO_MODE = false;
+    function demoToolsEnabled() { return DEMO_MODE || !!(currentUser && currentUser.admin); }
 
     const app = () => document.getElementById('app');
 
@@ -666,8 +671,6 @@
         }
         tabLogin.addEventListener('click', () => activate('login'));
         tabRegister.addEventListener('click', () => activate('register'));
-        // A converting guest lands straight on the Registration tab.
-        if (pendingRegister) { activate('register'); pendingRegister = false; }
 
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
@@ -1493,8 +1496,8 @@
             <div class="page-head">
                 <div>
                     <h2>Терминал доступа</h2>
-                    <p>Отсканируйте QR-код объекта камерой или введите идентификатор вручную. Шлюз проверит
-                    ваши права и контекст, затем покажет доступные данные из реестра.</p>
+                    <p>Отсканируйте QR-код объекта камерой. Шлюз проверит ваши права и контекст,
+                    затем покажет доступные данные из реестра.</p>
                 </div>
             </div>
 
@@ -1708,21 +1711,30 @@
     }
 
     function renderCitizenTerminal() {
+        // Manual identifier entry + quick demo scenarios are demo-only: a real user scans with
+        // the camera and never types an internal UID. Hidden unless admin / DEMO_MODE is on.
+        const demo = demoToolsEnabled();
         document.getElementById('citizen-body').innerHTML = `
         <section class="panel panel-pad">
             <div class="section-title">Сканирование</div>
-            <p class="muted" style="margin-bottom:14px">Отсканируйте QR-код камерой или введите идентификатор — результат откроется на отдельной странице.</p>
+            <p class="muted" style="margin-bottom:14px">Отсканируйте QR-код объекта камерой${demo ? ' или введите идентификатор' : ''} — результат откроется на отдельной странице.</p>
             <div class="scan-actions">
                 <button class="btn btn-primary" id="open-scanner" type="button">📷 Сканировать камерой</button>
             </div>
+            ${demo ? `
             <div class="demo-hint"><span class="demo-tag">DEMO ONLY</span> Ручной ввод идентификатора — только для демонстрации. В реальном продукте доступно лишь сканирование камерой.</div>
             <div class="manual-row">
                 <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. CAR_TOYOTA_CAMRY">
                 <button class="btn btn-ghost" id="manual-go" type="button">Проверить</button>
             </div>
             <div class="quick-label">Быстрые сценарии</div>
-            <div class="quick-chips" id="quick-chips"></div>
+            <div class="quick-chips" id="quick-chips"></div>` : ''}
         </section>`;
+
+        document.getElementById('open-scanner').addEventListener('click', openScanner);
+
+        // Everything below is the demo-only manual block; only wire it when it was rendered.
+        if (!demo) return;
 
         const quick = [
             { name: 'Кроссовки Nike Air Force 1', code: 'RETAIL_NIKE_AF1', tag: 'товар · конверсия гостя' },
@@ -1756,7 +1768,6 @@
         document.getElementById('manual-uid').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); document.getElementById('manual-go').click(); }
         });
-        document.getElementById('open-scanner').addEventListener('click', openScanner);
     }
 
     async function doScan(objectUid) {
@@ -1977,19 +1988,85 @@
         </div>`;
     }
 
-    // Guest → registration. The guest UID + one-time merge token were stored at guest
-    // login; after the new account is created maybeMergeGuest() folds the guest history
-    // in. Logging out returns to the auth screen, where we open the Registration tab.
-    // P1: when a guest converts from a scan result, remember WHAT they were looking at, so after
-    // registration we re-run that scan and drop them back on the (now full) card — not an empty
-    // profile. consumePendingScan() (after login/register) replays pendingScanTarget.
+    // Guest → registration WITHOUT a hard logout. We open a registration modal over the current
+    // scan result — no jump to the auth screen, no torn-down context — switch the session in
+    // place, fold in the guest history (maybeMergeGuest), then replay the scan so the user lands
+    // back on the now-FULL card. resumeObjectUid remembers what they were viewing.
     function startGuestRegistration(resumeObjectUid) {
-        pendingRegister = true;
-        if (resumeObjectUid && typeof resumeObjectUid === 'string') {
-            pendingScanTarget = resumeObjectUid;
-        }
-        closeResultPage();
-        doLogout();
+        const resume = (resumeObjectUid && typeof resumeObjectUid === 'string') ? resumeObjectUid : pendingScanTarget;
+        openGuestRegisterModal(resume);
+    }
+
+    function openGuestRegisterModal(resumeObjectUid) {
+        const body = `
+            <p class="modal-text">Создайте аккаунт, чтобы сохранить историю и открыть полную карточку. Мы вернём вас к результату сканирования.</p>
+            <div class="form-grid">
+                <div class="form-row">
+                    <div class="field"><label for="gr-firstName">Имя</label>
+                        <input id="gr-firstName" type="text" placeholder="Имя"></div>
+                    <div class="field"><label for="gr-lastName">Фамилия</label>
+                        <input id="gr-lastName" type="text" placeholder="Фамилия"></div>
+                </div>
+                <div class="field"><label for="gr-username">Имя пользователя</label>
+                    <input id="gr-username" type="text" autocomplete="username" placeholder="Латиница, от 3 символов"></div>
+                <div class="field"><label for="gr-password">Пароль</label>
+                    <input id="gr-password" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры"></div>
+                <div class="field"><label for="gr-employment">Статус занятости</label>
+                    <select id="gr-employment">
+                        <option value="EMPLOYED">Трудоустроен(а)</option>
+                        <option value="UNEMPLOYED" selected>Не трудоустроен(а)</option>
+                    </select></div>
+                <div class="field-error" id="gr-error"></div>
+                <button class="btn btn-primary btn-block" id="gr-submit" type="button">Создать аккаунт</button>
+            </div>`;
+        showModal({
+            title: 'Регистрация',
+            bodyHtml: body,
+            dismissValue: null,
+            actions: [{ label: 'Позже', cls: 'btn-ghost', value: null }],
+            onBody: (card, { close }) => {
+                const errEl = card.querySelector('#gr-error');
+                const submit = card.querySelector('#gr-submit');
+                submit.addEventListener('click', async () => {
+                    errEl.textContent = '';
+                    const payload = {
+                        firstName: card.querySelector('#gr-firstName').value.trim(),
+                        lastName: card.querySelector('#gr-lastName').value.trim(),
+                        username: card.querySelector('#gr-username').value.trim(),
+                        password: card.querySelector('#gr-password').value,
+                        employmentStatus: card.querySelector('#gr-employment').value,
+                        // Self-registration is always CITIZEN; the server enforces this regardless.
+                        profession: 'CITIZEN'
+                    };
+                    if (!payload.firstName || !payload.lastName || !payload.username || !payload.password) {
+                        errEl.textContent = 'Заполните все поля.'; return;
+                    }
+                    submit.disabled = true; submit.textContent = 'Создаём…';
+                    try {
+                        const { ok, status, data } = await apiJson('/api/auth/register', { method: 'POST', body: payload });
+                        if (!ok) {
+                            let msg = (data && data.message) || 'Не удалось зарегистрироваться';
+                            if (status === 409) msg = (data && data.message) || 'Имя пользователя уже занято';
+                            if (data && data.details) { const f = Object.values(data.details)[0]; if (f) msg = f; }
+                            throw new Error(msg);
+                        }
+                        // Switch the session from guest to the new citizen IN PLACE — no visible logout.
+                        await doLogin(payload.username, payload.password);
+                        await maybeMergeGuest();
+                        close(null);
+                        toast('Аккаунт создан. История гостя сохранена.', 'ok');
+                        // Re-render as the now-registered citizen and replay the scan so they land
+                        // back on the FULL card instead of an empty profile.
+                        if (resumeObjectUid) pendingScanTarget = resumeObjectUid;
+                        route();
+                        consumePendingScan();
+                    } catch (err) {
+                        errEl.textContent = err.message;
+                        submit.disabled = false; submit.textContent = 'Создать аккаунт';
+                    }
+                });
+            }
+        });
     }
 
     function renderCitizenAudit() {
@@ -2618,7 +2695,7 @@
         const overlay = document.getElementById('scanner-overlay');
         overlay.hidden = false;
         if (typeof Html5Qrcode === 'undefined') {
-            toast('Библиотека сканера не загрузилась. Используйте ручной ввод.', 'err');
+            toast('Сканер недоступен. Обновите страницу и попробуйте снова.', 'err');
             overlay.hidden = true;
             return;
         }
@@ -2667,7 +2744,8 @@
     // -------------------------------------------------------------
     function renderTimeMachine() {
         let el = document.getElementById('time-machine');
-        if (!currentUser) { if (el) el.remove(); return; }
+        // Demo-only tool: shown to admins or when DEMO_MODE is on; removed for regular users.
+        if (!currentUser || !demoToolsEnabled()) { if (el) el.remove(); return; }
         if (!el) {
             el = document.createElement('div');
             el.id = 'time-machine';
