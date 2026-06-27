@@ -781,8 +781,8 @@
             <div class="view-nav">
                 <button data-tab="manage" type="button">Управление</button>
                 <button data-tab="users" type="button">Пользователи</button>
+                <button data-tab="sos" type="button">🆘 Тревоги<span id="sos-badge" class="cb-count" hidden>0</span></button>
                 <button data-tab="stats" type="button">Статистика</button>
-                <button data-tab="analytics" type="button">Аналитика</button>
                 <button data-tab="complaints" type="button">Жалобы</button>
                 <button data-tab="audit" type="button">Аудит</button>
             </div>
@@ -797,13 +797,13 @@
 
         switch (adminTab) {
             case 'users': renderAdminUsers(); break;
+            case 'sos': renderAdminSos(); break;
             case 'stats': renderAdminStats(); break;
-            case 'analytics': renderAdminAnalytics(); break;
             case 'complaints': renderAdminComplaints(); break;
-            case 'modules': renderAdminModules(); break;
             case 'audit': renderAdminAudit(); break;
             default: renderAdminManage();
         }
+        refreshSosBadge();
     }
 
     function renderAdminManage() {
@@ -1150,7 +1150,7 @@
                 <div class="section-title">Пользователи системы (${data.totalElements})</div>
                 <p class="muted" style="margin-bottom:14px">Блокировка, изменение роли, уровень доступа и сброс пароля. Все пользователи платформы (режим супер-администратора). Заблокированный пользователь не может войти и выполнять запросы.</p>
                 <div class="table-scroll"><table class="audit-tbl">
-                    <thead><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Trust Score</th><th>Риск</th><th>Действия</th></tr></thead>
+                    <thead><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Доверие</th><th>Риск</th><th>Действия</th></tr></thead>
                     <tbody>${rows.map(u => {
                         const isSelf = me && u.username === me;
                         const specialist = ['DOCTOR', 'INSPECTOR', 'PHARMACIST'].includes(u.profession);
@@ -1176,7 +1176,7 @@
                             <td class="mono" data-label="Логин">${esc(u.username)}</td>
                             <td data-label="Роль">${profBadge}</td>
                             <td data-label="Статус">${statusBadge}${adminBadge}${blockNote}</td>
-                            <td data-label="Trust Score"><strong>${esc(u.trustScore)}</strong> / 100</td>
+                            <td data-label="Доверие"><strong>${esc(u.trustLevel)}</strong> / 100</td>
                             <td data-label="Риск">${esc(u.riskScore || '—')}</td>
                             <td data-label="Действия"><div class="um-actions">${blockBtn}${roleChangeBtn}${adminBtn}${pwBtn}</div></td>
                         </tr>`;
@@ -1304,46 +1304,41 @@
             <div class="stat-val">${esc(value)}</div><div class="stat-label">${esc(label)}</div></div>`;
     }
 
+    // Statistics + Analytics are now ONE tab (P1): the two old pages overlapped, so they are
+    // fetched together and rendered as a single dashboard — no more empty duplicate page.
     function renderAdminStats() {
         const body = document.getElementById('admin-body');
-        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка статистики…')}</section>`;
-        apiJson('/api/admin/stats').then(({ ok, data }) => {
-            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Нет данных.</div></section>`; return; }
-            body.innerHTML = `
-            <section class="panel panel-pad">
-                <div class="section-title">Статистика платформы</div>
-                <div class="stat-grid">
-                    ${statCard('Пользователи', data.users, '👤')}
-                    ${statCard('Гости', data.guests, '👥')}
-                    ${statCard('QR-коды', data.qrCodes, '▦')}
-                    ${statCard('Сканирования', data.scans, '📷')}
-                    ${statCard('Взаимодействия', data.interactions, '🔗')}
-                    ${statCard('Жалобы', data.complaints, '⚠')}
-                </div>
-            </section>`;
-        });
-    }
-
-    function renderAdminAnalytics() {
-        const body = document.getElementById('admin-body');
-        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка аналитики…')}</section>`;
-        apiJson('/api/admin/analytics').then(({ ok, data }) => {
-            if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Нет данных.</div></section>`; return; }
-            const dist = data.professionDistribution || {};
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка статистики и аналитики…')}</section>`;
+        Promise.all([apiJson('/api/admin/stats'), apiJson('/api/admin/analytics')]).then(([s, a]) => {
+            const data = (s.ok && s.data) ? s.data : null;
+            const an = (a.ok && a.data) ? a.data : null;
+            if (!data && !an) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Нет данных.</div></section>`; return; }
+            const dist = (an && an.professionDistribution) || {};
             const distRows = Object.keys(dist).map(k =>
                 `<tr><td>${esc(k)}</td><td style="text-align:right">${esc(dist[k])}</td></tr>`).join('');
             body.innerHTML = `
             <section class="panel panel-pad">
-                <div class="section-title">Аналитика</div>
+                <div class="section-title">Статистика платформы</div>
                 <div class="stat-grid">
-                    ${statCard('Регистрации', data.registeredUsers, '📈')}
-                    ${statCard('Гостевые личности', data.guestIdentities, '👥')}
-                    ${statCard('Конверсия гостей', data.guestConversions, '🔄')}
-                    ${statCard('% конверсии', (data.guestConversionRate || 0) + '%', '✓')}
-                    ${statCard('Просмотры профилей', data.profileViews, '👁')}
-                    ${statCard('Запросы доступа', data.accessRequests, '🔐')}
-                    ${statCard('Доступ подтверждён', data.accessConfirmed, '🤝')}
-                    ${statCard('Всего взаимодействий', data.totalInteractions, '🔗')}
+                    ${statCard('Пользователи', data ? data.users : '—', '👤')}
+                    ${statCard('Гости', data ? data.guests : '—', '👥')}
+                    ${statCard('QR-коды', data ? data.qrCodes : '—', '▦')}
+                    ${statCard('Сканирования', data ? data.scans : '—', '📷')}
+                    ${statCard('Взаимодействия', data ? data.interactions : '—', '🔗')}
+                    ${statCard('Жалобы', data ? data.complaints : '—', '⚠')}
+                </div>
+            </section>
+            <section class="panel panel-pad mt-md">
+                <div class="section-title">Аналитика и конверсия</div>
+                <div class="stat-grid">
+                    ${statCard('Регистрации', an ? an.registeredUsers : '—', '📈')}
+                    ${statCard('Гостевые личности', an ? an.guestIdentities : '—', '👥')}
+                    ${statCard('Конверсия гостей', an ? an.guestConversions : '—', '🔄')}
+                    ${statCard('% конверсии', an ? (an.guestConversionRate || 0) + '%' : '—', '✓')}
+                    ${statCard('Просмотры профилей', an ? an.profileViews : '—', '👁')}
+                    ${statCard('Запросы доступа', an ? an.accessRequests : '—', '🔐')}
+                    ${statCard('Доступ подтверждён', an ? an.accessConfirmed : '—', '🤝')}
+                    ${statCard('Всего взаимодействий', an ? an.totalInteractions : '—', '🔗')}
                 </div>
                 <div class="section-title" style="margin-top:18px">Популярные профили</div>
                 <div class="table-scroll"><table class="audit-tbl">
@@ -1352,6 +1347,56 @@
                 </table></div>
             </section>`;
         });
+    }
+
+    // SOS alert queue (P0): the SOS button finally means something — every SOS surfaces here
+    // for the administrator (across all tenants), who can mark it resolved.
+    function renderAdminSos() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка тревог…')}</section>`;
+        apiJson('/api/admin/sos').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить тревоги.</div></section>`; return; }
+            const open = data.filter(s => s.status !== 'RESOLVED');
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">🆘 Тревоги (SOS) — активных: ${open.length} из ${data.length}</div>
+                <p class="muted" style="margin-bottom:14px">Экстренные запросы со всех организаций. Каждый SOS из терминала попадает сюда — это и есть реальная эскалация. Обработайте и отметьте как решённый.</p>
+                ${data.length === 0 ? '<div class="obj-empty">Тревог нет.</div>' : `
+                <div class="table-scroll"><table class="audit-tbl">
+                    <thead><tr><th>Статус</th><th>От кого</th><th>Сообщение</th><th>Время</th><th></th></tr></thead>
+                    <tbody>${data.map(s => `
+                        <tr>
+                            <td><span class="atag ${s.status === 'RESOLVED' ? 'ok' : 'bad'}">${s.status === 'RESOLVED' ? 'Обработан' : '● Активен'}</span></td>
+                            <td>${esc(s.fromName)}</td>
+                            <td>${esc(s.message || '—')}</td>
+                            <td class="ts">${esc(s.createdAt || '—')}</td>
+                            <td>${s.status === 'RESOLVED' ? '' : `<button class="btn btn-primary btn-sm sos-resolve" type="button" data-id="${esc(s.workflowUid)}">Отметить решённым</button>`}</td>
+                        </tr>`).join('')}</tbody>
+                </table></div>`}
+            </section>`;
+            body.querySelectorAll('.sos-resolve').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    btn.disabled = true; btn.textContent = 'Обработка…';
+                    try {
+                        const { ok: o } = await apiJson(`/api/admin/sos/${btn.dataset.id}/resolve`, { method: 'POST', body: {} });
+                        if (o) { toast('SOS обработан.', 'ok'); renderAdminSos(); refreshSosBadge(); }
+                        else { toast('Не удалось обработать SOS.', 'err'); btn.disabled = false; btn.textContent = 'Отметить решённым'; }
+                    } catch (_) { toast('Ошибка.', 'err'); btn.disabled = false; btn.textContent = 'Отметить решённым'; }
+                });
+            });
+        });
+    }
+
+    async function refreshSosBadge() {
+        const badge = document.getElementById('sos-badge');
+        if (!badge) return;
+        try {
+            const { ok, data } = await apiJson('/api/admin/sos');
+            if (!ok || !Array.isArray(data)) return;
+            const open = data.filter(s => s.status !== 'RESOLVED').length;
+            badge.textContent = open;
+            badge.hidden = open === 0;
+        } catch (_) { /* ignore */ }
     }
 
     let adminComplaintsPage = 0;
@@ -1428,38 +1473,8 @@
         });
     }
 
-    function renderAdminModules() {
-        const body = document.getElementById('admin-body');
-        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка модулей…')}</section>`;
-        apiJson('/api/admin/modules').then(({ ok, data }) => {
-            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить.</div></section>`; return; }
-            body.innerHTML = `
-            <section class="panel panel-pad">
-                <div class="section-title">Модули платформы</div>
-                <p class="muted" style="margin-bottom:14px">Каждый модуль — отдельная сфера взаимодействия. Любой модуль использует единую цепочку: Identity → Request → Decision → Interaction → Event → History.</p>
-                <div class="module-grid">${data.map(m => `
-                    <div class="module-card ${m.status === 'ACTIVE' ? '' : 'off'}" data-id="${esc(m.moduleUid)}">
-                        <div class="mc-top">
-                            <span class="mc-name">${esc(m.name)}</span>
-                            <span class="mc-status ${m.status === 'ACTIVE' ? 'on' : 'off'}">${m.status === 'ACTIVE' ? 'Активен' : 'Отключён'}</span>
-                        </div>
-                        <div class="mc-code mono">${esc(m.code)}</div>
-                        <div class="mc-desc">${esc(m.description || '')}</div>
-                        <button class="btn btn-ghost btn-sm mc-toggle" type="button">${m.status === 'ACTIVE' ? 'Отключить' : 'Включить'}</button>
-                    </div>`).join('')}</div>
-            </section>`;
-            body.querySelectorAll('.module-card').forEach(card => {
-                card.querySelector('.mc-toggle').addEventListener('click', async () => {
-                    const id = card.getAttribute('data-id');
-                    try {
-                        const { ok: o } = await apiJson(`/api/admin/modules/${id}/toggle`, { method: 'POST', body: {} });
-                        if (o) { toast('Статус модуля обновлён.', 'ok'); renderAdminModules(); }
-                        else toast('Не удалось обновить модуль.', 'err');
-                    } catch (_) { toast('Ошибка обновления модуля.', 'err'); }
-                });
-            });
-        });
-    }
+    // (Modules management removed — P1: the tab was unreachable and toggling a module gated
+    //  nothing in the pipeline. The dead UI + its API are gone.)
 
     // =============================================================
     //  CITIZEN VIEW
@@ -1489,9 +1504,7 @@
                 <div class="id-pill"><span class="idp-k">Основной QR</span>
                     <span class="idp-v gold">${esc(shortId(currentUser.primaryQrUid))}</span></div>
                 <div class="id-pill"><span class="idp-k">Уровень доверия</span>
-                    <span class="idp-v">${esc(currentUser.trustLevel)} / 100</span></div>
-                <div class="id-pill"><span class="idp-k">Trust Score</span>
-                    <span class="idp-v gold">${esc(currentUser.trustScore != null ? currentUser.trustScore : '—')} / 100</span></div>
+                    <span class="idp-v gold" title="Единая метрика доверия, на которую опирается движок решений (мед. ≥ 70, инфраструктура ≥ 60)">${esc(currentUser.trustLevel)} / 100</span></div>
                 <div class="id-pill"><span class="idp-k">Роли</span>
                     <span class="idp-v">${esc((currentUser.roles || []).join(', '))}</span></div>
                 <div class="id-pill"><span class="idp-k">Риск</span>
@@ -1702,6 +1715,7 @@
             <div class="scan-actions">
                 <button class="btn btn-primary" id="open-scanner" type="button">📷 Сканировать камерой</button>
             </div>
+            <div class="demo-hint"><span class="demo-tag">DEMO ONLY</span> Ручной ввод идентификатора — только для демонстрации. В реальном продукте доступно лишь сканирование камерой.</div>
             <div class="manual-row">
                 <input id="manual-uid" type="text" placeholder="Идентификатор объекта, напр. CAR_TOYOTA_CAMRY">
                 <button class="btn btn-ghost" id="manual-go" type="button">Проверить</button>
@@ -1712,7 +1726,7 @@
 
         const quick = [
             { name: 'Кроссовки Nike Air Force 1', code: 'RETAIL_NIKE_AF1', tag: 'товар · конверсия гостя' },
-            { name: 'Рецепт №5521', code: 'MED_RX_5521', tag: 'медицина · врач / фармацевт' },
+            { name: 'Медкарта · Айдос', code: 'MED_RX_5521', tag: 'медицина · согласие пациента' },
             { name: 'Вынос мусора (услуга)', code: 'SERVICE_TRASH_PICKUP', tag: 'услуга · Request→Decision→Interaction' },
             { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'авто · передача владельца' },
             { name: 'Умный замок · офис AITU', code: 'LOCK_OFFICE_AITU', tag: 'инфраструктура · доступ по роли' },
@@ -1811,12 +1825,14 @@
         wireReportButtons();
         wirePrescriptions(data.objectUid, result);
         const ctaBtn = document.getElementById('guest-cta-btn');
-        if (ctaBtn) ctaBtn.addEventListener('click', startGuestRegistration);
+        if (ctaBtn) ctaBtn.addEventListener('click', () => startGuestRegistration(data.objectUid));
 
-        // Person-to-person: a profile scan returns REVIEW; poll until the owner confirms so the
-        // SCANNER finally sees the allowed profile (Point 3 — the old flow ended in nothing).
-        if (data.category === 'IDENTITY' && data.outcome === 'REVIEW' && data.interactionUid) {
-            startProfilePoll(data.interactionUid, result);
+        // Owner-Approval poll: a profile scan (IDENTITY) or a medical-card scan (MEDICAL) returns
+        // REVIEW; poll until the owner/patient decides so the SCANNER finally sees the result.
+        // For medical this is the P0 consent gate — the card opens only after the patient agrees.
+        if (data.outcome === 'REVIEW' && data.interactionUid &&
+            (data.category === 'IDENTITY' || data.category === 'MEDICAL')) {
+            startProfilePoll(data.interactionUid, result, data.category === 'MEDICAL');
         }
     }
 
@@ -1825,12 +1841,12 @@
         if (profilePollTimer) { clearInterval(profilePollTimer); profilePollTimer = null; }
     }
 
-    function startProfilePoll(interactionUid, container) {
+    function startProfilePoll(interactionUid, container, medical) {
         stopProfilePoll();
         const slot = container.querySelector('#card-slot') || container;
         const note = document.createElement('div');
         note.className = 'await-banner';
-        note.innerHTML = `<span class="await-dot"></span><span>Ожидаем подтверждения владельца…</span>`;
+        note.innerHTML = `<span class="await-dot"></span><span>${medical ? 'Ожидаем согласия пациента…' : 'Ожидаем подтверждения владельца…'}</span>`;
         slot.appendChild(note);
         let tries = 0;
         profilePollTimer = setInterval(async () => {
@@ -1964,8 +1980,15 @@
     // Guest → registration. The guest UID + one-time merge token were stored at guest
     // login; after the new account is created maybeMergeGuest() folds the guest history
     // in. Logging out returns to the auth screen, where we open the Registration tab.
-    function startGuestRegistration() {
+    // P1: when a guest converts from a scan result, remember WHAT they were looking at, so after
+    // registration we re-run that scan and drop them back on the (now full) card — not an empty
+    // profile. consumePendingScan() (after login/register) replays pendingScanTarget.
+    function startGuestRegistration(resumeObjectUid) {
         pendingRegister = true;
+        if (resumeObjectUid && typeof resumeObjectUid === 'string') {
+            pendingScanTarget = resumeObjectUid;
+        }
+        closeResultPage();
         doLogout();
     }
 
@@ -2005,13 +2028,13 @@
             const { ok, data } = await apiJson('/api/v2/access/pending');
             if (!ok || !Array.isArray(data) || data.length === 0) { box.innerHTML = ''; return; }
             box.innerHTML = `
-                <div class="access-head">🔔 Запросы доступа к вашему профилю</div>
+                <div class="access-head">🔔 Запросы на доступ к вашим данным</div>
                 ${data.map(r => `
-                    <div class="access-row" data-id="${esc(r.interactionUid)}">
+                    <div class="access-row ${r.kind === 'MEDICAL' ? 'medical' : ''}" data-id="${esc(r.interactionUid)}">
                         <div class="access-meta"><strong>${esc(r.fromName)}</strong>
-                            <span>${esc(r.createdAt || '')}</span></div>
+                            <span>${r.kind === 'MEDICAL' ? '🩺 ' : '👤 '}${esc(r.what || 'доступ к профилю')}${r.createdAt ? ' · ' + esc(r.createdAt) : ''}</span></div>
                         <div class="access-actions">
-                            <button class="btn btn-primary btn-sm acc-confirm" type="button">Подтвердить доступ</button>
+                            <button class="btn btn-primary btn-sm acc-confirm" type="button">Подтвердить</button>
                             <button class="btn btn-ghost btn-sm acc-reject" type="button">Отклонить</button>
                         </div>
                     </div>`).join('')}`;
@@ -2138,6 +2161,9 @@
                 (hist.data.scannedByMe || []).forEach(r => interactions.push(r));
                 (hist.data.scansOfMe || []).forEach(r => interactions.push(r));
             }
+            // P2: a general complaint needs no interaction. Offer it as the default option;
+            // a specific interaction can still be chosen (or is pre-selected from history).
+            const generalOpt = `<option value="" ${complaintPrefill ? '' : 'selected'}>Общая жалоба (без привязки)</option>`;
             const options = interactions.map(r =>
                 `<option value="${esc(r.interactionUid)}" ${complaintPrefill === r.interactionUid ? 'selected' : ''}>${esc((INTERACTION_RU[r.type] || r.type) + ' · ' + r.name + ' · ' + (r.createdAt || ''))}</option>`).join('');
             const list = (mine.ok && Array.isArray(mine.data)) ? mine.data : [];
@@ -2147,8 +2173,9 @@
                     <div class="section-title">Подать жалобу</div>
                     <form id="complaint-form" class="form-grid">
                         <div class="field">
-                            <label for="cmp-interaction">Взаимодействие</label>
-                            <select id="cmp-interaction">${options || '<option value="">Нет доступных взаимодействий</option>'}</select>
+                            <label for="cmp-interaction">Взаимодействие (необязательно)</label>
+                            <select id="cmp-interaction">${generalOpt}${options}</select>
+                            <div class="field-hint">Можно подать общую жалобу или выбрать конкретное взаимодействие из истории.</div>
                         </div>
                         <div class="field">
                             <label for="cmp-subject">Тема</label>
@@ -2183,11 +2210,11 @@
                 errEl.textContent = '';
                 const interactionUid = document.getElementById('cmp-interaction').value;
                 const subject = document.getElementById('cmp-subject').value.trim();
-                if (!interactionUid) { errEl.textContent = 'Нет взаимодействия для жалобы. Сначала отсканируйте объект.'; return; }
                 if (!subject) { errEl.textContent = 'Укажите тему жалобы.'; return; }
-                const payload = { interactionUid, subject,
+                const payload = { subject,
                     category: document.getElementById('cmp-category').value,
                     description: document.getElementById('cmp-desc').value.trim() };
+                if (interactionUid) payload.interactionUid = interactionUid;
                 const btn = document.getElementById('cmp-submit');
                 btn.disabled = true; btn.textContent = 'Отправка…';
                 try {
@@ -2658,12 +2685,13 @@
         const mocked = state.mockHour != null;
         const work = state.workingHours;
         el.innerHTML = `
-            <button class="tm-toggle" id="tm-toggle" type="button" title="Машина времени (демо)">
+            <button class="tm-toggle" id="tm-toggle" type="button" title="Машина времени — только для демо">
+                <span class="tm-demo">DEMO</span>
                 <span class="tm-ico">🕓</span>
                 <span class="tm-now ${work === false ? 'off' : work === true ? 'on' : ''}">${hh}${mocked ? ' ⚙' : ''}</span>
             </button>
             <div class="tm-panel" id="tm-panel" hidden>
-                <div class="tm-head">Машина времени · демо</div>
+                <div class="tm-head">Машина времени · <span class="demo-tag">DEMO ONLY</span></div>
                 <div class="tm-sub">Час сессии: <strong>${hh}</strong> ${mocked ? '(имитация)' : '(сервер)'}<br>
                     Рабочее окно 08:00–18:00 ${work === false ? '· сейчас ВНЕ окна' : work === true ? '· сейчас в окне' : ''}</div>
                 <div class="tm-row">

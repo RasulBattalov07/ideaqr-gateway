@@ -97,9 +97,14 @@ public class HistoryController {
         Identity identity = authSupport.requireIdentity(authentication);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Interaction i : gatewayService.pendingAccessRequests(identity.getIdentityUid())) {
+            boolean medical = "MEDICAL_SCAN".equals(i.getInteractionType());
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("interactionUid", i.getInteractionUid().toString());
             m.put("fromName", displayName(i.getIdentityUid()));
+            // What the requester wants access to, so the owner knows what they are consenting to
+            // (a personal profile vs. their medical card — the P0 consent gate).
+            m.put("kind", medical ? "MEDICAL" : "PROFILE");
+            m.put("what", medical ? "доступ к вашей медицинской карте" : "доступ к вашему профилю");
             m.put("createdAt", i.getCreatedAt() != null ? i.getCreatedAt().format(TS) : null);
             rows.add(m);
         }
@@ -146,8 +151,11 @@ public class HistoryController {
 
     private String displayName(UUID identityUid) {
         if (identityUid == null) return "—";
-        return userRepository.findByIdentityUid(identityUid)
-                .map(u -> (u.getFirstName() + " " + u.getLastName()).trim())
+        // Native, tenant-filter-bypassing lookup so a cross-tenant requester (e.g. a hospital
+        // doctor asking a public-tenant patient for medical-card consent) shows their real name,
+        // not a blank "Пользователь" — you cannot consent without knowing who is asking.
+        return userRepository.findDisplayNameByIdentityUid(identityUid)
+                .filter(s -> !s.isBlank())
                 .orElse("Пользователь");
     }
 }

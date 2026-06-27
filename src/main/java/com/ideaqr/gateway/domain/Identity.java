@@ -80,9 +80,11 @@ public class Identity implements TenantScoped {
     private String riskScore = "NORMAL";
 
     /**
-     * Trust Score (0–100) per the brief. Belongs to the Identity, not the account.
-     * Recomputed from interactions, confirmations, successful events and complaints
-     * by {@code TrustScoreService}; this column holds the last computed value.
+     * Legacy column retained for schema compatibility (Flyway {@code validate}). The platform
+     * unified on a SINGLE trust metric — {@link #trustLevel}, the value the policy engine gates
+     * on — so the old gamified "trust score" is no longer computed or surfaced anywhere
+     * (audit-fix: it looked decisive but never influenced a decision). Do not reintroduce a
+     * second number; gate and display {@code trustLevel}.
      */
     @Column(name = "trust_score")
     @Builder.Default

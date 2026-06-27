@@ -54,7 +54,6 @@ public class MedicalService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final EventService eventService;
-    private final TrustScoreService trustScoreService;
     private final ObjectMapper objectMapper;
 
     /** A doctor writes a prescription onto a medical object. */
@@ -104,7 +103,6 @@ public class MedicalService {
                 req.getRequestUid(), decision.getDecisionUid(), rx.getInteractionUid());
         eventService.record(EventType.OBJECT_MODIFIED, doctor.getIdentityUid(), objectUid,
                 rx.getInteractionUid(), "Назначение выписано: " + name.trim());
-        trustScoreService.refresh(doctor);
 
         return listForObject(objectUid);
     }
@@ -135,7 +133,6 @@ public class MedicalService {
                 "Фармацевт выдал препарат по рецепту: " + payload.getOrDefault("name", ""));
         eventService.record(EventType.OBJECT_MODIFIED, pharmacist.getIdentityUid(), rx.getObjectUid(),
                 rx.getInteractionUid(), "Препарат выдан по рецепту.");
-        trustScoreService.refresh(pharmacist);
 
         return listForObject(rx.getObjectUid());
     }

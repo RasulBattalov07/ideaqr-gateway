@@ -38,11 +38,12 @@ public class ComplaintController {
     @PostMapping("/complaints")
     public ResponseEntity<ApiResponse> create(@RequestBody Map<String, String> body, Authentication authentication) {
         Identity identity = authSupport.requireIdentity(authentication);
+        // interactionUid is OPTIONAL now (P2): a blank/absent value files a GENERAL complaint,
+        // not tied to a prior scan; the service mints a governing interaction for it.
         String interactionUid = body.get("interactionUid");
-        if (interactionUid == null || interactionUid.isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Жалоба должна быть привязана к взаимодействию."));
-        }
-        Complaint c = complaintService.create(identity, UUID.fromString(interactionUid.trim()),
+        UUID interaction = (interactionUid != null && !interactionUid.isBlank())
+                ? UUID.fromString(interactionUid.trim()) : null;
+        Complaint c = complaintService.create(identity, interaction,
                 body.get("subject"), body.get("category"), body.get("description"));
         return ResponseEntity.ok(ApiResponse.ok("Жалоба зарегистрирована.")
                 .with("complaintUid", c.getComplaintUid().toString())

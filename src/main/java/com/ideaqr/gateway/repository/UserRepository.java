@@ -21,4 +21,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      */
     @Query("select u from User u where u.identity.identityUid = :identityUid")
     Optional<User> findByIdentityUid(@Param("identityUid") UUID identityUid);
+
+    /**
+     * Display name for the requester of an access/consent request addressed to the caller.
+     * Native on purpose: it bypasses the tenant {@code @Filter} so a patient can see WHO is
+     * asking for their medical card even when that requester (a hospital doctor) belongs to
+     * another tenant — you cannot consent blindly. Scoped to one resolved identity, so it is
+     * not a cross-tenant enumeration.
+     */
+    @Query(value = "select trim(first_name || ' ' || last_name) from users where identity_uid = :uid",
+            nativeQuery = true)
+    Optional<String> findDisplayNameByIdentityUid(@Param("uid") UUID uid);
 }

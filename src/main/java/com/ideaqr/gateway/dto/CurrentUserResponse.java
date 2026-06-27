@@ -28,10 +28,13 @@ public class CurrentUserResponse {
 
     private String identityUid;
     private String primaryQrUid;
-    private int trustLevel;
 
-    /** Trust Score (0–100) belonging to the identity. */
-    private int trustScore;
+    /**
+     * The single trust metric (0–100) — the provisioned level the policy engine actually
+     * gates on (medical ≥ 70, infrastructure ≥ 60). The old duplicate gamified "trust score"
+     * was removed so there is one clear, decision-bearing number (audit-fix).
+     */
+    private int trustLevel;
 
     /** Identity-level risk score (NORMAL | MEDIUM | HIGH). */
     private String riskScore;

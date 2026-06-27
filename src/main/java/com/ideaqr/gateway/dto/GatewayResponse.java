@@ -56,13 +56,6 @@ public class GatewayResponse {
     private String historyUid;
 
     /**
-     * Trust Score (0–100) of the acting identity, recomputed as the final stage of
-     * the pipeline (… → History → <b>Trust Score</b>). Lets the demo show the score
-     * being recalculated on every governed interaction.
-     */
-    private Integer trustScore;
-
-    /**
      * Visibility tier of the returned {@link #data}: {@code PUBLIC} for the guest
      * projection (name / image / short description / rating only) or {@code FULL} for a
      * registered identity. Present only on an approved access.

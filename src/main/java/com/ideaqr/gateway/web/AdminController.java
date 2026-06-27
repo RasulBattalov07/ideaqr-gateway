@@ -3,19 +3,23 @@ package com.ideaqr.gateway.web;
 import com.ideaqr.gateway.domain.Complaint;
 import com.ideaqr.gateway.domain.Event;
 import com.ideaqr.gateway.domain.Identity;
-import com.ideaqr.gateway.domain.PlatformModule;
+import com.ideaqr.gateway.domain.Interaction;
+import com.ideaqr.gateway.domain.RequestRecord;
 import com.ideaqr.gateway.domain.User;
+import com.ideaqr.gateway.domain.Workflow;
 import com.ideaqr.gateway.domain.enums.ComplaintStatus;
+import com.ideaqr.gateway.domain.enums.HistoryEventType;
 import com.ideaqr.gateway.dto.ApiResponse;
 import com.ideaqr.gateway.dto.PageResponse;
+import com.ideaqr.gateway.repository.InteractionRepository;
+import com.ideaqr.gateway.repository.RequestRepository;
 import com.ideaqr.gateway.repository.UserRepository;
+import com.ideaqr.gateway.repository.WorkflowRepository;
 import com.ideaqr.gateway.service.AuditService;
 import com.ideaqr.gateway.service.ComplaintService;
 import com.ideaqr.gateway.service.EventService;
 import com.ideaqr.gateway.service.IdentityService;
-import com.ideaqr.gateway.service.ModuleService;
 import com.ideaqr.gateway.service.StatsService;
-import com.ideaqr.gateway.service.TrustScoreService;
 import com.ideaqr.gateway.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -24,6 +28,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,15 +61,16 @@ public class AdminController {
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final StatsService statsService;
-    private final ModuleService moduleService;
     private final ComplaintService complaintService;
     private final EventService eventService;
     private final UserRepository userRepository;
     private final IdentityService identityService;
-    private final TrustScoreService trustScoreService;
     private final UserService userService;
     private final AuditService auditService;
     private final AuthSupport authSupport;
+    private final WorkflowRepository workflowRepository;
+    private final RequestRepository requestRepository;
+    private final InteractionRepository interactionRepository;
 
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> stats(Authentication authentication) {
@@ -79,10 +85,11 @@ public class AdminController {
     }
 
     /**
-     * Paginated user list — name, profession, identity, trust score, roles, risk.
-     * Pagination (audit 3.1) bounds the result set; identities are batch-loaded and
-     * the Trust Score is read from its cached column rather than recomputed per row
-     * (audit 3.2 N+1 / 3.3 no work on GET). Query params: {@code ?page=0&size=25}.
+     * Paginated user list — name, profession, identity, trust level, roles, risk.
+     * Pagination (audit 3.1) bounds the result set; identities are batch-loaded
+     * (audit 3.2 N+1) and trust is the single provisioned {@code trustLevel} the policy
+     * engine actually gates on (audit-fix: the duplicate gamified score is gone).
+     * Query params: {@code ?page=0&size=25}.
      */
     @GetMapping("/users")
     public ResponseEntity<PageResponse<Map<String, Object>>> users(
@@ -110,7 +117,6 @@ public class AdminController {
             m.put("blockedAt", u.getBlockedAt() != null ? u.getBlockedAt().format(TS) : null);
             m.put("identityUid", u.getIdentityUid().toString());
             m.put("trustLevel", id != null ? id.getTrustLevel() : null);
-            m.put("trustScore", id != null ? trustScoreService.cachedOrCompute(id) : null);
             m.put("riskScore", id != null ? id.getRiskScore() : null);
             m.put("guest", id != null ? id.getIdentityType().name() : null);
             m.put("roles", id != null
@@ -138,28 +144,55 @@ public class AdminController {
         return ResponseEntity.ok(m);
     }
 
-    @GetMapping("/modules")
-    public ResponseEntity<List<Map<String, Object>>> modules(Authentication authentication) {
+    /**
+     * SOS alert queue (P0 — the SOS button now means something). Every SOS request seeds a
+     * {@link Workflow} of type {@code SOS_ESCALATION}; this surfaces them — across every tenant,
+     * since the admin runs unscoped — so an administrator actually sees the emergency instead of
+     * the request dead-ending in the sender's own notifications. Newest first.
+     */
+    @GetMapping("/sos")
+    public ResponseEntity<List<Map<String, Object>>> sosQueue(Authentication authentication) {
         authSupport.requireUser(authentication);
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (PlatformModule mod : moduleService.list()) {
+        for (Workflow w : workflowRepository.findByWorkflowTypeOrderByCreatedAtDesc("SOS_ESCALATION")) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("moduleUid", mod.getModuleUid().toString());
-            m.put("code", mod.getCode());
-            m.put("name", mod.getName());
-            m.put("description", mod.getDescription());
-            m.put("status", mod.getStatus().name());
+            m.put("workflowUid", w.getWorkflowUid().toString());
+            m.put("status", w.getStatus());
+            m.put("createdAt", w.getCreatedAt() != null ? w.getCreatedAt().format(TS) : null);
+            RequestRecord req = requestRepository.findById(w.getRequestUid()).orElse(null);
+            String fromName = "—";
+            String objectUid = null;
+            String message = null;
+            if (req != null) {
+                objectUid = req.getObjectUid();
+                fromName = displayName(req.getIdentityUid());
+                List<Interaction> ints = interactionRepository.findByRequestUid(req.getRequestUid());
+                if (!ints.isEmpty()) {
+                    message = ints.get(0).getDetail();
+                }
+            }
+            m.put("fromName", fromName);
+            m.put("objectUid", objectUid);
+            m.put("message", message);
             rows.add(m);
         }
         return ResponseEntity.ok(rows);
     }
 
-    @PostMapping("/modules/{id}/toggle")
-    public ResponseEntity<ApiResponse> toggleModule(@PathVariable("id") String id, Authentication authentication) {
+    /** Administrator marks an SOS request handled (closes the escalation workflow). */
+    @PostMapping("/sos/{workflowUid}/resolve")
+    @Transactional
+    public ResponseEntity<ApiResponse> resolveSos(@PathVariable("workflowUid") String workflowUid,
+                                                  Authentication authentication) {
         authSupport.requireUser(authentication);
-        PlatformModule mod = moduleService.toggle(UUID.fromString(id));
-        return ResponseEntity.ok(ApiResponse.ok("Статус модуля обновлён: " + mod.getStatus().name())
-                .with("status", mod.getStatus().name()));
+        Workflow w = workflowRepository.findById(UUID.fromString(workflowUid))
+                .orElseThrow(() -> new IllegalArgumentException("SOS-запрос не найден."));
+        w.setStatus("RESOLVED");
+        workflowRepository.save(w);
+        requestRepository.findById(w.getRequestUid()).ifPresent(r ->
+                auditService.record(r.getIdentityUid(), r.getObjectUid(), HistoryEventType.SOS_CREATED,
+                        "SOS-запрос обработан администратором."));
+        return ResponseEntity.ok(ApiResponse.ok("SOS-запрос отмечен как обработанный."));
     }
 
     @GetMapping("/complaints")
@@ -233,8 +266,17 @@ public class AdminController {
         m.put("category", c.getCategory());
         m.put("description", c.getDescription());
         m.put("status", c.getStatus().name());
-        m.put("interactionUid", c.getInteractionUid().toString());
+        m.put("interactionUid", c.getInteractionUid() != null ? c.getInteractionUid().toString() : null);
         m.put("createdAt", c.getCreatedAt() != null ? c.getCreatedAt().format(TS) : null);
         return m;
+    }
+
+    private String displayName(UUID identityUid) {
+        if (identityUid == null) {
+            return "—";
+        }
+        return userRepository.findByIdentityUid(identityUid)
+                .map(u -> (u.getFirstName() + " " + u.getLastName()).trim())
+                .orElse("Пользователь");
     }
 }

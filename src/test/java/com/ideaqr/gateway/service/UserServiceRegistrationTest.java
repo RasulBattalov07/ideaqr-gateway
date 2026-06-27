@@ -39,7 +39,6 @@ class UserServiceRegistrationTest {
     @Mock private IdentityService identityService;
     @Mock private QrService qrService;
     @Mock private AuditService auditService;
-    @Mock private TrustScoreService trustScoreService;
     @Mock private PasswordEncoder passwordEncoder;
 
     @InjectMocks private UserService userService;

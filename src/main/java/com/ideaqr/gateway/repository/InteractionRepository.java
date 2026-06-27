@@ -3,6 +3,8 @@ package com.ideaqr.gateway.repository;
 import com.ideaqr.gateway.domain.Interaction;
 import com.ideaqr.gateway.domain.enums.InteractionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +28,19 @@ public interface InteractionRepository extends JpaRepository<Interaction, UUID> 
 
     /** Prescriptions (and other typed interactions) attached to an object, newest first. */
     List<Interaction> findByObjectUidAndInteractionTypeOrderByCreatedAtDesc(String objectUid, String interactionType);
+
+    /** Interactions tied to a request (used to surface the SOS message in the admin alert queue). */
+    List<Interaction> findByRequestUid(UUID requestUid);
+
+    /**
+     * Pending access/consent requests addressed TO an owner. Native on purpose: it bypasses the
+     * tenant {@code @Filter} so a request from a specialist in another tenant (e.g. a hospital
+     * doctor requesting a public-tenant patient's medical card) is still visible to its target.
+     * The target is the authenticated caller themselves, so this is correct, not a cross-tenant leak.
+     */
+    @Query(value = "select * from interactions where target_identity_uid = :uid and status = 'PENDING' "
+            + "order by created_at desc", nativeQuery = true)
+    List<Interaction> findPendingRequestsForTarget(@Param("uid") UUID uid);
 
     long countByIdentityUid(UUID identityUid);
 

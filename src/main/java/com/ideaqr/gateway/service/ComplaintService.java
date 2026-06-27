@@ -3,12 +3,16 @@ package com.ideaqr.gateway.service;
 import com.ideaqr.gateway.domain.Complaint;
 import com.ideaqr.gateway.domain.Identity;
 import com.ideaqr.gateway.domain.Interaction;
+import com.ideaqr.gateway.domain.RequestRecord;
 import com.ideaqr.gateway.domain.enums.ComplaintStatus;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
+import com.ideaqr.gateway.domain.enums.InteractionStatus;
+import com.ideaqr.gateway.domain.enums.RequestStatus;
+import com.ideaqr.gateway.domain.enums.RequestType;
 import com.ideaqr.gateway.repository.ComplaintRepository;
-import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
+import com.ideaqr.gateway.repository.RequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,29 +34,34 @@ public class ComplaintService {
 
     private final ComplaintRepository complaintRepository;
     private final InteractionRepository interactionRepository;
-    private final IdentityRepository identityRepository;
+    private final RequestRepository requestRepository;
     private final AuditService auditService;
     private final EventService eventService;
     private final NotificationService notificationService;
-    private final TrustScoreService trustScoreService;
 
     @Transactional
     public Complaint create(Identity author, UUID interactionUid, String subject, String category, String description) {
-        if (interactionUid == null) {
-            throw new IllegalArgumentException("Жалоба должна быть привязана к взаимодействию.");
-        }
-        Interaction interaction = interactionRepository.findById(interactionUid)
-                .orElseThrow(() -> new IllegalArgumentException("Взаимодействие для жалобы не найдено."));
-        // Audit M-4 (IDOR): a user may only attach a complaint to an interaction they were
-        // party to — one they initiated, or one targeting them. findById bypasses any scoping,
-        // so this ownership check is enforced explicitly.
-        boolean involved = author.getIdentityUid().equals(interaction.getIdentityUid())
-                || author.getIdentityUid().equals(interaction.getTargetIdentityUid());
-        if (!involved) {
-            throw new AccessDeniedException("Жалобу можно подать только по вашему взаимодействию.");
-        }
         if (subject == null || subject.isBlank()) {
             throw new IllegalArgumentException("Укажите тему жалобы.");
+        }
+        Interaction interaction;
+        if (interactionUid != null) {
+            interaction = interactionRepository.findById(interactionUid)
+                    .orElseThrow(() -> new IllegalArgumentException("Взаимодействие для жалобы не найдено."));
+            // Audit M-4 (IDOR): a user may only attach a complaint to an interaction they were
+            // party to — one they initiated, or one targeting them. findById bypasses any scoping,
+            // so this ownership check is enforced explicitly.
+            boolean involved = author.getIdentityUid().equals(interaction.getIdentityUid())
+                    || author.getIdentityUid().equals(interaction.getTargetIdentityUid());
+            if (!involved) {
+                throw new AccessDeniedException("Жалобу можно подать только по вашему взаимодействию.");
+            }
+        } else {
+            // GENERAL complaint (P2): not tied to a prior scan. We still mint a governing
+            // interaction so the complaint keeps a real, auditable anchor (the platform's
+            // "everything is an interaction" model) — so no nullable-column schema change is
+            // needed and the immutable trail stays intact.
+            interaction = openGeneralInteraction(author, subject.trim());
         }
 
         Complaint complaint = complaintRepository.save(Complaint.builder()
@@ -96,9 +105,6 @@ public class ComplaintService {
         complaint = complaintRepository.save(complaint);
         notificationService.notify(complaint.getIdentityUid(), "COMPLAINT",
                 "Статус вашей жалобы обновлён: " + statusLabel(status));
-        // Trust Score reacts to resolution (TrustScoreService formula): resolving a complaint
-        // lifts the author's score; an open / rejected one keeps it lowered.
-        refreshAuthorTrust(complaint.getIdentityUid());
         return complaint;
     }
 
@@ -123,12 +129,27 @@ public class ComplaintService {
         auditService.record(complaint.getIdentityUid(), null, HistoryEventType.COMPLAINT_CREATED,
                 "Администратор ответил по жалобе «" + complaint.getSubject() + "» — "
                         + statusLabel(complaint.getStatus()));
-        refreshAuthorTrust(complaint.getIdentityUid());
         return complaint;
     }
 
-    private void refreshAuthorTrust(UUID authorIdentityUid) {
-        identityRepository.findById(authorIdentityUid).ifPresent(trustScoreService::refresh);
+    /**
+     * Mint a governing interaction for a general (non-scan) complaint: Request → Interaction,
+     * so the complaint has a real anchor without a nullable-FK schema change.
+     */
+    private Interaction openGeneralInteraction(Identity author, String subject) {
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(author.getIdentityUid())
+                .requestType(RequestType.REPORT_ISSUE)
+                .status(RequestStatus.PROCESSED)
+                .build());
+        String detail = "Общая жалоба: " + subject;
+        return interactionRepository.save(Interaction.builder()
+                .identityUid(author.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .interactionType("GENERAL_COMPLAINT")
+                .status(InteractionStatus.CONFIRMED)
+                .detail(detail.length() > 380 ? detail.substring(0, 380) : detail)
+                .build());
     }
 
     private String statusLabel(ComplaintStatus status) {

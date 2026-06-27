@@ -36,7 +36,6 @@ public class UserService {
     private final IdentityService identityService;
     private final QrService qrService;
     private final AuditService auditService;
-    private final TrustScoreService trustScoreService;
     private final PasswordEncoder passwordEncoder;
 
     // --- Profession keys -------------------------------------------------
@@ -167,9 +166,6 @@ public class UserService {
         Set<String> roleNames = identity.getRoles().stream()
                 .map(Enum::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        // SECURITY/PERF (audit 3.3): a GET must not write. Read the cached Trust Score
-        // computed by the last state change (scan / confirmation); never persist here.
-        int trustScore = trustScoreService.cachedOrCompute(identity);
         return CurrentUserResponse.builder()
                 .authenticated(true)
                 .username(user.getUsername())
@@ -182,7 +178,6 @@ public class UserService {
                 .identityUid(identity.getIdentityUid().toString())
                 .primaryQrUid(identity.getPrimaryQrUid() != null ? identity.getPrimaryQrUid().toString() : null)
                 .trustLevel(identity.getTrustLevel())
-                .trustScore(trustScore)
                 .riskScore(identity.getRiskScore())
                 .guest(identity.getIdentityType() == IdentityType.GUEST)
                 .mustChangePassword(user.isMustChangePassword())

@@ -42,7 +42,7 @@ public class RegistryClient {
     @PostConstruct
     void loadDemoRegistry() {
         demoRegistry.put("RETAIL_NIKE_AF1", new Demo(ObjectCategory.RETAIL, "Кроссовки Nike Air Force 1", RETAIL_NIKE_AF1));
-        demoRegistry.put("MED_RX_5521", new Demo(ObjectCategory.MEDICAL, "Рецепт №5521 · Амоксициллин", MED_RX_5521));
+        demoRegistry.put("MED_RX_5521", new Demo(ObjectCategory.MEDICAL, "Медкарта · Серіков Айдос", MED_RX_5521));
         demoRegistry.put("SERVICE_TRASH_PICKUP", new Demo(ObjectCategory.GENERAL, "Вынос мусора от двери квартиры", SERVICE_TRASH_PICKUP));
         demoRegistry.put("CAR_TOYOTA_CAMRY", new Demo(ObjectCategory.RETAIL, "Toyota Camry 2024", CAR_TOYOTA_CAMRY));
         demoRegistry.put("LOCK_OFFICE_AITU", new Demo(ObjectCategory.INFRASTRUCTURE, "Умный замок · офис AITU", LOCK_OFFICE_AITU));
@@ -130,23 +130,28 @@ public class RegistryClient {
             }
             """;
 
+    // The patient of record is carried in {@code patientIdentityUid} (the demo "Айдос" identity,
+    // a fixed-UUID account seeded by DataSeeder). The gateway uses it to require the PATIENT'S
+    // explicit consent before a doctor/pharmacist can open this card (Owner-Approval for medical
+    // records) — the professional gates alone are no longer enough.
     private static final String MED_RX_5521 = """
             {
-              "patientName": "Рецепт №5521",
+              "patientIdentityUid": "aaaaaaaa-0000-0000-0000-000000000007",
+              "patientName": "Серіков Айдос Бағланұлы",
               "patientId": "MED_RX_5521",
-              "age": 52, "gender": "Женский", "bloodType": "I (O) Rh−",
-              "iinMasked": "8•••••••••03",
-              "allergies": ["Сульфаниламиды"],
-              "chronicConditions": ["Хронический бронхит"],
+              "age": 21, "gender": "Мужской", "bloodType": "II (A) Rh+",
+              "iinMasked": "0•••••••••57",
+              "allergies": ["Пенициллин"],
+              "chronicConditions": ["Бронхиальная астма (лёгкая форма)"],
               "medications": [
-                {"name": "Амоксициллин", "dose": "500 мг", "schedule": "3 раза в день, 7 дней"},
-                {"name": "Амброксол", "dose": "30 мг", "schedule": "2 раза в день"}
+                {"name": "Сальбутамол", "dose": "100 мкг", "schedule": "по потребности (ингалятор)"},
+                {"name": "Будесонид", "dose": "200 мкг", "schedule": "2 раза в день"}
               ],
               "recentVisits": [
-                {"date": "2026-06-20", "clinic": "Поликлиника №2", "reason": "Острый бронхит", "doctor": "Терапевт Алиев"}
+                {"date": "2026-06-18", "clinic": "Студенческая поликлиника AITU", "reason": "Профилактический осмотр", "doctor": "Терапевт Ким"}
               ],
-              "aiNotes": "Курс антибиотика 7 дней. Контрольный осмотр при сохранении симптомов.",
-              "note": "Рецепт. Доступ разрешён врачам и фармацевтам в рабочее время (08:00–18:00)."
+              "aiNotes": "Состояние стабильное. Контроль ингаляционной терапии, повторный осмотр через 6 месяцев.",
+              "note": "Медкарта пациента. Доступ — врачам и фармацевтам в рабочее время И только с согласия пациента."
             }
             """;
 
