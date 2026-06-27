@@ -1731,7 +1731,7 @@
             { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'авто · передача владельца' },
             { name: 'Умный замок · офис AITU', code: 'LOCK_OFFICE_AITU', tag: 'инфраструктура · доступ по роли' },
             { name: 'Студбилет AITU', code: 'DOC_STUDENT_AITU', tag: 'документ · образование' },
-            { name: 'Цифровая визитка', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'личность · Owner Approval + Trust Score' }
+            { name: 'Цифровая визитка', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'личность · Owner Approval + Trust Level' }
         ];
         const chipBox = document.getElementById('quick-chips');
         chipBox.innerHTML = quick.map((q, i) => `
@@ -2050,9 +2050,13 @@
         try {
             const { ok, data } = await apiJson(`/api/v2/access/${interactionUid}/${action}`,
                 { method: 'POST', body: {} });
-            if (ok) toast(action === 'confirm' ? 'Доступ к профилю подтверждён.' : 'Доступ отклонён.',
-                action === 'confirm' ? 'ok' : 'info');
-            else toast((data && data.reason) || 'Не удалось обработать запрос.', 'err');
+            if (ok) {
+                // Message follows the object type (medical card vs personal profile) reported by
+                // the server, so confirming a medical request no longer says "профиль".
+                const target = (data && data.category === 'MEDICAL') ? 'к медицинской карте' : 'к профилю';
+                const okMsg = action === 'confirm' ? `Доступ ${target} предоставлен.` : 'Доступ отклонён.';
+                toast(okMsg, action === 'confirm' ? 'ok' : 'info');
+            } else toast((data && data.reason) || 'Не удалось обработать запрос.', 'err');
         } catch (_) { toast('Ошибка обработки запроса.', 'err'); }
         loadAccessRequests();
         refreshNotifications();
