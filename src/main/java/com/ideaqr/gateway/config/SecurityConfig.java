@@ -124,7 +124,16 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         // Register sessions (unlimited concurrency) so they can be
                         // revoked on demand when a user's privileges change (audit 3.9).
-                        .maximumSessions(-1).sessionRegistry(sessionRegistry))
+                        .maximumSessions(-1).sessionRegistry(sessionRegistry)
+                        // D-1 fix: when a session is revoked (admin role/password change) or
+                        // expires, the next request gets a clean JSON 401 — not the Spring
+                        // default HTTP 200 plaintext "session expired…" body, which the SPA
+                        // could not parse and which masked the lost session. The SPA's existing
+                        // 401 handler then drops to the login screen and re-primes the
+                        // XSRF-TOKEN cookie, so the re-login succeeds on the first attempt.
+                        .expiredSessionStrategy(event ->
+                                writeJson(event.getResponse(), HttpServletResponse.SC_UNAUTHORIZED,
+                                        "{\"error\":\"Session expired\"}")))
                 .authorizeHttpRequests(auth -> {
                     // Public shell + self-hosted static assets.
                     auth.requestMatchers(
@@ -145,6 +154,9 @@ public class SecurityConfig {
                     }
                     // Governance panel is admin-only.
                     auth.requestMatchers("/api/admin/**").hasRole("ADMIN");
+                    // Demo "time machine" is an admin-only presentation lever (hardening):
+                    // a regular user must not be able to shift their working-hours gate.
+                    auth.requestMatchers("/api/v2/dev/**").hasRole("ADMIN");
                     // Everything else under the API requires a session.
                     auth.requestMatchers("/api/**").authenticated();
                     auth.anyRequest().authenticated();

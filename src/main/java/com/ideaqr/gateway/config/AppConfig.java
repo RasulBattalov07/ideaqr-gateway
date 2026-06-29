@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Profile;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 /**
@@ -14,15 +15,20 @@ import java.time.ZoneOffset;
 @Configuration
 public class AppConfig {
 
+    /** The business timezone the working-hours policy is expressed in (Kazakhstan, UTC+5). */
+    public static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Almaty");
+
     /**
      * The server clock used by time-sensitive policies (e.g. the working-hours gate
-     * in {@code ValidationService}). Production (and local/dev) always uses the real
-     * system clock — the client never influences it (audit 4.3).
+     * in {@code ValidationService}). Pinned to the business timezone {@code Asia/Almaty}
+     * (UTC+5) so "08:00–18:00" means local Kazakhstan time, not the host's UTC clock —
+     * otherwise a Render/UTC host would shift the working window by five hours. The client
+     * never influences it (audit 4.3); only the wall-clock zone is fixed to the business one.
      */
     @Bean
     @Profile("!test")
     public Clock clock() {
-        return Clock.systemDefaultZone();
+        return Clock.system(BUSINESS_ZONE);
     }
 
     /**

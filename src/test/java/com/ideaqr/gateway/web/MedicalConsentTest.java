@@ -37,10 +37,8 @@ class MedicalConsentTest {
     @WithMockUser(username = "doctor", roles = "USER")
     void doctorMustGetPatientConsentBeforeMedicalCardOpens() throws Exception {
         MockHttpSession session = new MockHttpSession();
-        // Force working hours deterministically (server-side session mock, never client-trusted).
-        mvc.perform(post("/api/v2/dev/time").session(session).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"hour\":10}"))
-                .andExpect(status().isOk());
+        // Working hours are guaranteed by the deterministic test clock (10:00, see AppConfig#testClock);
+        // the "time machine" is now admin-only, so the doctor relies on the real (pinned) clock here.
         // Doctor goes on the clock — working mode gates professional categories.
         mvc.perform(post("/api/v2/mode/work").session(session).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))

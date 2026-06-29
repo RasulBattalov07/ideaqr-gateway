@@ -378,6 +378,11 @@
         currentUser = null;
         const bar = document.getElementById('appbar');
         if (bar) bar.hidden = true;
+        // D-1: the session was lost (expired, or revoked by an admin role/password change, which
+        // the server now reports as a clean JSON 401). Proactively re-prime the XSRF-TOKEN cookie
+        // so the upcoming re-login matches on the FIRST attempt instead of bouncing off a stale
+        // token with a 403 Forbidden.
+        primeCsrf();
         toast('Сессия истекла. Войдите снова.', 'err');
         renderAuth();
     }
@@ -2986,7 +2991,7 @@
             </button>
             <div class="tm-panel" id="tm-panel" hidden>
                 <div class="tm-head">Машина времени · <span class="demo-tag">DEMO ONLY</span></div>
-                <div class="tm-sub">Час сессии: <strong>${hh}</strong> ${mocked ? '(имитация)' : '(сервер)'}<br>
+                <div class="tm-sub">Демо-час платформы: <strong>${hh}</strong> ${mocked ? '(имитация)' : '(сервер)'}<br>
                     Рабочее окно 08:00–18:00 ${work === false ? '· сейчас ВНЕ окна' : work === true ? '· сейчас в окне' : ''}</div>
                 <div class="tm-row">
                     <button class="btn btn-sm btn-ghost tm-set" data-h="10" type="button">10:00 рабочее</button>
