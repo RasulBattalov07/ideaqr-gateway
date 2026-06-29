@@ -36,6 +36,7 @@ public class UserService {
     private final IdentityService identityService;
     private final QrService qrService;
     private final AuditService auditService;
+    private final EmploymentService employmentService;
     private final PasswordEncoder passwordEncoder;
 
     // --- Profession keys -------------------------------------------------
@@ -112,6 +113,14 @@ public class UserService {
         auditService.record(identity.getIdentityUid(), null, HistoryEventType.USER_REGISTERED,
                 "Зарегистрирован пользователь «" + username + "» (" + professionLabel(professionKey) + ")");
 
+        // 5. Employment intent (public sign-up only). "Трудоустроен" + a chosen employer raises a
+        // verification request the company admin must approve — it grants no role by itself, so the
+        // choice now carries real business meaning instead of being inert. Trusted/seeded accounts
+        // wire their own ACTIVE memberships and are skipped.
+        if (!trusted && employment == EmploymentStatus.EMPLOYED) {
+            employmentService.submitRequest(identity.getIdentityUid(), request.getOrganizationUid());
+        }
+
         return user;
     }
 
@@ -166,6 +175,7 @@ public class UserService {
         Set<String> roleNames = identity.getRoles().stream()
                 .map(Enum::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        EmploymentService.Affiliation affiliation = employmentService.affiliationOf(identity.getIdentityUid());
         return CurrentUserResponse.builder()
                 .authenticated(true)
                 .username(user.getUsername())
@@ -174,6 +184,8 @@ public class UserService {
                 .profession(user.getProfession())
                 .professionLabel(professionLabel(user.getProfession()))
                 .employmentStatus(user.getEmploymentStatus().name())
+                .employmentState(affiliation.state())
+                .organizationName(affiliation.organizationName())
                 .admin(user.isAdmin())
                 .identityUid(identity.getIdentityUid().toString())
                 .primaryQrUid(identity.getPrimaryQrUid() != null ? identity.getPrimaryQrUid().toString() : null)

@@ -1201,3 +1201,76 @@ body.no-scroll { overflow: hidden; }
     border-radius: 4px; padding: 0 4px; margin-right: 4px;
 }
 .access-row.medical { border-left: 3px solid #F2706B; padding-left: 11px; }
+
+/* ============================================================
+   Guest Welcome / Landing (Point 1) — first screen a signed-out
+   visitor sees after scanning a platform QR.
+   ============================================================ */
+.welcome-wrap { display: flex; justify-content: center; padding: 18px 0 40px; }
+.welcome-card {
+    position: relative; overflow: hidden;
+    width: 100%; max-width: 600px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-xl); padding: 32px 30px 26px;
+    box-shadow: var(--shadow-lg); text-align: center;
+}
+.welcome-glow {
+    position: absolute; inset: -40% 30% auto -10%; height: 280px;
+    background: radial-gradient(60% 60% at 50% 30%, rgba(60,201,232,0.22), transparent 70%);
+    filter: blur(10px); pointer-events: none; z-index: 0;
+}
+.welcome-card > * { position: relative; z-index: 1; }
+.welcome-badge {
+    display: inline-block; font-size: 12px; letter-spacing: 0.04em;
+    color: var(--sky); background: var(--primary-softer);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; margin-bottom: 18px;
+}
+.welcome-scan {
+    display: flex; align-items: center; gap: 12px; text-align: left;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 22px;
+}
+.welcome-scan .ws-ico { font-size: 22px; }
+.welcome-scan .ws-txt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.welcome-scan .ws-txt strong { color: var(--ink); font-size: 14px; }
+.welcome-scan .ws-txt span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.welcome-scan .ws-code {
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--gold-bright);
+    background: var(--gold-soft); border-radius: 6px; padding: 4px 8px;
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.welcome-card h1 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.015em;
+    color: var(--ink); margin: 4px 0 12px;
+}
+.welcome-card h1 .accent { color: var(--sky); }
+.welcome-lead { color: var(--text); font-size: 14.5px; line-height: 1.6; max-width: 48ch; margin: 0 auto 24px; }
+.welcome-pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 26px; }
+.welcome-pillar {
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-radius: var(--r-md); padding: 16px 12px; text-align: center;
+}
+.welcome-pillar .wp-ico { font-size: 22px; }
+.welcome-pillar .wp-h { color: var(--ink); font-weight: 700; font-size: 13px; margin: 8px 0 4px; }
+.welcome-pillar .wp-s { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.welcome-actions { display: flex; flex-direction: column; gap: 10px; }
+.welcome-sub { display: flex; gap: 10px; }
+.welcome-sub .btn { flex: 1; }
+.welcome-foot { color: var(--faint); font-size: 11.5px; line-height: 1.5; margin: 16px 0 0; }
+
+@media (max-width: 620px) {
+    .welcome-card { padding: 26px 18px 22px; border-radius: var(--r-lg); }
+    .welcome-card h1 { font-size: 25px; }
+    .welcome-pillars { grid-template-columns: 1fr; }
+    .welcome-scan .ws-code { max-width: 36%; }
+    .welcome-sub { flex-direction: column; }
+}
+
+/* Employment affiliation pills (Problem 4) on the citizen identity strip. */
+.id-pill .idp-v.emp-ok { color: var(--ok); font-family: var(--font-ui); font-weight: 600; }
+.id-pill .idp-v.emp-pending { color: var(--review); font-family: var(--font-ui); font-weight: 600; }
+
+/* Admin employment queue: approve / decline buttons sit on one row. */
+.emp-actions { white-space: nowrap; }
+.emp-actions .btn { margin-left: 6px; }
+.field-hint.emp-hint { color: var(--muted); }

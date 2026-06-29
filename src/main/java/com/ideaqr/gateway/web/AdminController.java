@@ -16,6 +16,7 @@ import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.repository.WorkflowRepository;
 import com.ideaqr.gateway.service.AuditService;
 import com.ideaqr.gateway.service.ComplaintService;
+import com.ideaqr.gateway.service.EmploymentService;
 import com.ideaqr.gateway.service.IdentityService;
 import com.ideaqr.gateway.service.StatsService;
 import com.ideaqr.gateway.service.UserService;
@@ -65,6 +66,7 @@ public class AdminController {
     private final UserService userService;
     private final AuditService auditService;
     private final AuthSupport authSupport;
+    private final EmploymentService employmentService;
     private final WorkflowRepository workflowRepository;
     private final RequestRepository requestRepository;
     private final InteractionRepository interactionRepository;
@@ -190,6 +192,36 @@ public class AdminController {
                 auditService.record(r.getIdentityUid(), r.getObjectUid(), HistoryEventType.SOS_CREATED,
                         "SOS-запрос обработан администратором."));
         return ResponseEntity.ok(ApiResponse.ok("SOS-запрос отмечен как обработанный."));
+    }
+
+    /**
+     * Employment-verification queue (Problem 4 — the «Трудоустроен» choice now means something).
+     * A public sign-up that claims employment raises a PENDING organization membership; this lists
+     * the ones awaiting a decision so the company administrator can confirm or decline. The admin
+     * runs unscoped, so requests for any organization are visible (each row names the employer).
+     */
+    @GetMapping("/employment/pending")
+    public ResponseEntity<List<EmploymentService.PendingRequest>> pendingEmployment(Authentication authentication) {
+        authSupport.requireUser(authentication);
+        return ResponseEntity.ok(employmentService.pendingRequests());
+    }
+
+    /** Confirm an employment claim → the applicant becomes a verified, ACTIVE member of the org. */
+    @PostMapping("/employment/{membershipUid}/approve")
+    public ResponseEntity<ApiResponse> approveEmployment(@PathVariable("membershipUid") String membershipUid,
+                                                         Authentication authentication) {
+        authSupport.requireUser(authentication);
+        employmentService.approve(UUID.fromString(membershipUid));
+        return ResponseEntity.ok(ApiResponse.ok("Трудоустройство подтверждено."));
+    }
+
+    /** Decline an employment claim → the membership is rejected; the applicant stays a citizen. */
+    @PostMapping("/employment/{membershipUid}/reject")
+    public ResponseEntity<ApiResponse> rejectEmployment(@PathVariable("membershipUid") String membershipUid,
+                                                        Authentication authentication) {
+        authSupport.requireUser(authentication);
+        employmentService.reject(UUID.fromString(membershipUid));
+        return ResponseEntity.ok(ApiResponse.ok("Заявка на трудоустройство отклонена."));
     }
 
     @GetMapping("/complaints")

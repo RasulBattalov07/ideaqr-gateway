@@ -78,7 +78,7 @@ public class GatewayService {
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
-        String objectUid = request.getObjectUid().trim();
+        String objectUid = normalizeIdentifier(request.getObjectUid());
 
         // Person-to-person: scanning another user's primary QR is a profile-access
         // request that the owner must confirm — not a direct object read.
@@ -658,6 +658,33 @@ public class GatewayService {
             throw new IllegalArgumentException("Запрос уже обработан.");
         }
         return interaction;
+    }
+
+    /**
+     * Peel a scanned value back to its bare registry identifier. The platform mints QR codes
+     * that encode an absolute deep link ({@code <origin>/s/<identifier>}) so a phone's stock
+     * camera can open the app (see {@link QrService#toScanUrl}). When that whole URL is fed
+     * back into the scan API — e.g. an in-app reader hands us the decoded URL verbatim — the
+     * registry would look up the URL string, miss, and wrongly report "не найдено в реестре".
+     * Stripping the {@code <origin>/s/} wrapper here makes a freshly created object or a
+     * personal {@code IDENTITY:} QR resolve immediately, no matter which reader produced it.
+     */
+    static String normalizeIdentifier(String raw) {
+        String v = raw == null ? "" : raw.trim();
+        int marker = v.indexOf("/s/");
+        if (marker >= 0 && (v.startsWith("http://") || v.startsWith("https://"))) {
+            v = v.substring(marker + 3).trim();
+            int cut = v.indexOf('?');
+            if (cut >= 0) v = v.substring(0, cut);
+            cut = v.indexOf('#');
+            if (cut >= 0) v = v.substring(0, cut);
+            try {
+                v = java.net.URLDecoder.decode(v, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                // keep the raw path segment if it isn't valid percent-encoding
+            }
+        }
+        return v.trim();
     }
 
     /**

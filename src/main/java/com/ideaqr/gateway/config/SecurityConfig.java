@@ -135,6 +135,9 @@ public class SecurityConfig {
                             "/s/**").permitAll();
                     // Public endpoints.
                     auth.requestMatchers("/api/health", "/api/auth/register", "/api/auth/guest").permitAll();
+                    // The sign-up employer picker is public (read-only org names) so a visitor can
+                    // pick an employer before they have an account.
+                    auth.requestMatchers(org.springframework.http.HttpMethod.GET, "/api/auth/organizations").permitAll();
                     auth.requestMatchers("/login", "/logout").permitAll();
                     // H2 console is routable only when explicitly enabled (local dev).
                     if (h2ConsoleEnabled) {

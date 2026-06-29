@@ -12,4 +12,7 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     List<OrganizationMembership> findByIdentityUid(UUID identityUid);
 
     Optional<OrganizationMembership> findByIdentityUidAndOrganizationUid(UUID identityUid, UUID organizationUid);
+
+    /** Employment requests awaiting an admin decision — feeds the admin "Трудоустройство" queue. */
+    List<OrganizationMembership> findByStatusOrderByCreatedAtDesc(String status);
 }

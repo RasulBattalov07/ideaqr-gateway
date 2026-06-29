@@ -23,6 +23,16 @@ public class CurrentUserResponse {
 
     private String employmentStatus;
 
+    /**
+     * Verified employment affiliation derived from organization memberships: {@code ACTIVE}
+     * (confirmed member), {@code PENDING} (awaiting the company admin's approval) or
+     * {@code NONE}. Lets the SPA show "на проверке" / "подтверждён" without a second call.
+     */
+    private String employmentState;
+
+    /** Name of the affiliated organization for {@link #employmentState}, when any. */
+    private String organizationName;
+
     /** True → administrator governance panel; false → citizen terminal. */
     private boolean admin;
 

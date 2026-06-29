@@ -1,10 +1,12 @@
 package com.ideaqr.gateway.web;
 
+import com.ideaqr.gateway.domain.Organization;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.dto.ApiResponse;
 import com.ideaqr.gateway.dto.ChangePasswordRequest;
 import com.ideaqr.gateway.dto.CurrentUserResponse;
 import com.ideaqr.gateway.dto.RegistrationRequest;
+import com.ideaqr.gateway.service.OrganizationService;
 import com.ideaqr.gateway.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Account endpoints: register a new user and report the current session's
  * profile. Login and logout are handled by Spring Security ({@code /login},
@@ -28,7 +34,29 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final UserService userService;
+    private final OrganizationService organizationService;
     private final AuthSupport authSupport;
+
+    /**
+     * Public list of organizations for the sign-up "employer" picker (shown when the
+     * applicant chooses «Трудоустроен»). Read-only and unauthenticated by design — it only
+     * exposes an organization's id and display name so a new citizen can request to join;
+     * approval still rests with that organization's administrator.
+     */
+    @GetMapping("/organizations")
+    public ResponseEntity<List<Map<String, Object>>> organizations() {
+        List<Map<String, Object>> rows = organizationService.listOrganizations().stream()
+                .map(this::organizationRow).toList();
+        return ResponseEntity.ok(rows);
+    }
+
+    private Map<String, Object> organizationRow(Organization org) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("organizationUid", org.getOrganizationUid().toString());
+        m.put("name", org.getName());
+        m.put("type", org.getType());
+        return m;
+    }
 
     /**
      * Register a new account. Returns the username and Russian profession label;

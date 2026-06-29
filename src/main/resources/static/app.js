@@ -27,7 +27,6 @@
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
     let pendingScanTarget = null;  // identifier from a /s/<id> deep link or a guest conversion
     let profilePollTimer = null;   // polls for the owner's confirmation after a profile scan
-    let citizenTabsForGuest = ['terminal', 'myqr']; // guests never see history / complaints
 
     // Demo-only tooling (the "time machine" + manual UID entry) is hidden from regular users
     // so the product reads as a real scan-first app. Admins always see it; flip DEMO_MODE to
@@ -58,6 +57,23 @@
     function shortId(uid) {
         if (!uid) return '—';
         return String(uid).replace(/-/g, '').substring(0, 8).toUpperCase();
+    }
+
+    // A platform QR encodes an absolute deep link (<origin>/s/<identifier>) so a phone's stock
+    // camera can open the app. The in-app reader, however, hands back that whole URL — so peel it
+    // back to the bare identifier before scanning, otherwise the gateway looks up the URL string,
+    // misses, and wrongly reports «Объект не найден в реестре» for a perfectly valid fresh object
+    // or personal IDENTITY: QR. Bare identifiers pass through unchanged.
+    function normalizeScanInput(text) {
+        let v = String(text === null || text === undefined ? '' : text).trim();
+        const i = v.indexOf('/s/');
+        if (i >= 0 && /^https?:\/\//i.test(v)) {
+            v = v.slice(i + 3);
+            const q = v.search(/[?#]/);
+            if (q >= 0) v = v.slice(0, q);
+            try { v = decodeURIComponent(v); } catch (_) { /* keep the raw path segment */ }
+        }
+        return v.trim();
     }
 
     function fmtPrice(value, currency) {
@@ -513,7 +529,11 @@
         renderTimeMachine();
         if (!currentUser) {
             document.getElementById('appbar').hidden = true;
-            renderAuth();
+            // A visitor who arrived by scanning a platform QR (a /s/<id> deep link) meets a
+            // styled Welcome page that explains the platform and invites them in — instead of
+            // being dumped onto a bare login form (Point 1). Everyone else sees the auth screen.
+            if (pendingScanTarget) renderGuestWelcome();
+            else renderAuth();
             return;
         }
         showAppbar();
@@ -540,9 +560,67 @@
     }
 
     // =============================================================
+    //  GUEST WELCOME (Point 1) — shown when a visitor lands by scanning a
+    //  platform QR while signed out. A real product greets them; it does not
+    //  drop them on a bare login form.
+    // =============================================================
+    function renderGuestWelcome() {
+        const scanned = pendingScanTarget || '';
+        const isIdentity = scanned.toUpperCase().startsWith('IDENTITY:');
+        const scannedLabel = isIdentity ? 'Цифровая личность' : scanned;
+        app().innerHTML = `
+        <div class="welcome-wrap fade-in">
+            <section class="welcome-card">
+                <div class="welcome-glow" aria-hidden="true"></div>
+                <span class="welcome-badge">▦ Цифровой шлюз · умный доступ</span>
+                <div class="welcome-scan">
+                    <span class="ws-ico">📷</span>
+                    <div class="ws-txt">
+                        <strong>Вы отсканировали ${isIdentity ? 'цифровую личность' : 'объект'}</strong>
+                        <span>Чтобы открыть содержимое и пройти проверку доступа — войдите или создайте аккаунт.</span>
+                    </div>
+                    <code class="ws-code">${esc(scannedLabel)}</code>
+                </div>
+                <h1>Добро пожаловать в <span class="accent">IDEAQR</span></h1>
+                <p class="welcome-lead">Это платформа умного доступа. QR-код — лишь ключ-идентификатор:
+                    сами данные остаются в защищённых реестрах, а каждый доступ проходит через движок
+                    политик и навсегда фиксируется в неизменяемом журнале.</p>
+                <div class="welcome-pillars">
+                    <div class="welcome-pillar">
+                        <div class="wp-ico">🔐</div>
+                        <div class="wp-h">Данные под контролем</div>
+                        <div class="wp-s">Вы видите ровно то, что разрешено вашей ролью и контекстом</div>
+                    </div>
+                    <div class="welcome-pillar">
+                        <div class="wp-ico">⚖️</div>
+                        <div class="wp-h">Каждый доступ — решение</div>
+                        <div class="wp-s">Роль, доверие, время и риск проверяются на лету</div>
+                    </div>
+                    <div class="welcome-pillar">
+                        <div class="wp-ico">📜</div>
+                        <div class="wp-h">Полная прослеживаемость</div>
+                        <div class="wp-s">Журнал только дополняется — действия нельзя подделать</div>
+                    </div>
+                </div>
+                <div class="welcome-actions">
+                    <button class="btn btn-primary btn-block" id="wel-register" type="button">Зарегистрироваться и открыть</button>
+                    <div class="welcome-sub">
+                        <button class="btn btn-ghost" id="wel-login" type="button">У меня есть аккаунт</button>
+                        <button class="btn btn-ghost" id="wel-guest" type="button">Продолжить как гость</button>
+                    </div>
+                </div>
+                <p class="welcome-foot">Продолжая, вы соглашаетесь с тем, что действия в системе фиксируются в журнале доступа.</p>
+            </section>
+        </div>`;
+        document.getElementById('wel-register').addEventListener('click', () => renderAuth('register'));
+        document.getElementById('wel-login').addEventListener('click', () => renderAuth('login'));
+        document.getElementById('wel-guest').addEventListener('click', doGuest);
+    }
+
+    // =============================================================
     //  AUTH VIEW
     // =============================================================
-    function renderAuth() {
+    function renderAuth(initialTab) {
         app().innerHTML = `
         ${pendingScanTarget ? `<div class="scan-intent">
             <span class="si-ico">📷</span>
@@ -625,22 +703,30 @@
                         <label for="re-password">Пароль</label>
                         <input id="re-password" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры">
                     </div>
-                    <div class="form-row">
-                        <div class="field">
-                            <label for="re-employment">Статус занятости</label>
-                            <select id="re-employment">
-                                <option value="EMPLOYED">Трудоустроен(а)</option>
-                                <option value="UNEMPLOYED">Не трудоустроен(а)</option>
-                            </select>
+                    <div class="field">
+                        <label for="re-employment">Статус занятости</label>
+                        <select id="re-employment">
+                            <option value="UNEMPLOYED">Не трудоустроен(а)</option>
+                            <option value="EMPLOYED">Трудоустроен(а)</option>
+                        </select>
+                    </div>
+                    <div class="field" id="re-org-field" hidden>
+                        <label for="re-organization">Компания-работодатель</label>
+                        <select id="re-organization">
+                            <option value="">Выберите компанию…</option>
+                        </select>
+                        <div class="field-hint emp-hint">
+                            Мы отправим заявку на трудоустройство администратору компании.
+                            До подтверждения вы пользуетесь системой как гражданин.
                         </div>
-                        <div class="field">
-                            <label>Роль при регистрации</label>
-                            <div class="field-static">Гражданин</div>
-                            <div class="field-hint">
-                                Самостоятельная регистрация всегда создаёт роль «Гражданин».
-                                Специализированные роли (врач, инспектор, администратор)
-                                назначает администратор после проверки.
-                            </div>
+                    </div>
+                    <div class="field">
+                        <label>Роль при регистрации</label>
+                        <div class="field-static">Гражданин</div>
+                        <div class="field-hint">
+                            Самостоятельная регистрация всегда создаёт роль «Гражданин».
+                            Специализированные роли (врач, инспектор, администратор)
+                            назначает администратор после проверки.
                         </div>
                     </div>
                     <div class="field-error" id="register-error"></div>
@@ -671,6 +757,7 @@
         }
         tabLogin.addEventListener('click', () => activate('login'));
         tabRegister.addEventListener('click', () => activate('register'));
+        if (initialTab === 'register') activate('register');
 
         const guestBtn = document.getElementById('guest-btn');
         if (guestBtn) guestBtn.addEventListener('click', doGuest);
@@ -704,10 +791,33 @@
             });
         }
 
-        // Self-service registration always provisions a CITIZEN (audit 4.1/4.2), so the
-        // employment selector no longer gates a profession picker — there isn't one.
-        // Demo account passwords are intentionally NOT printed on the login screen
-        // (audit 1.3); they live in the README for evaluators only.
+        // Self-service registration always provisions a CITIZEN (audit 4.1/4.2). The employment
+        // choice no longer gates a *role*, but it is no longer inert either (Problem 4): choosing
+        // «Трудоустроен» reveals an employer picker and raises a membership request the company
+        // admin must approve. Demo account passwords are intentionally NOT printed on the login
+        // screen (audit 1.3); they live in the README for evaluators only.
+        const employmentSel = document.getElementById('re-employment');
+        const orgField = document.getElementById('re-org-field');
+        const orgSel = document.getElementById('re-organization');
+        let orgsLoaded = false;
+        async function loadRegisterOrganizations() {
+            if (orgsLoaded) return;
+            orgsLoaded = true;
+            try {
+                const { ok, data } = await apiJson('/api/auth/organizations');
+                if (ok && Array.isArray(data)) {
+                    orgSel.innerHTML = '<option value="">Выберите компанию…</option>'
+                        + data.map(o => `<option value="${esc(o.organizationUid)}">${esc(o.name)}</option>`).join('');
+                }
+            } catch (_) { orgsLoaded = false; /* allow a retry on next toggle */ }
+        }
+        function syncEmployment() {
+            const employed = employmentSel.value === 'EMPLOYED';
+            orgField.hidden = !employed;
+            if (employed) loadRegisterOrganizations();
+        }
+        employmentSel.addEventListener('change', syncEmployment);
+        syncEmployment();
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -734,15 +844,21 @@
             e.preventDefault();
             const errEl = document.getElementById('register-error');
             errEl.textContent = '';
+            const employmentStatus = document.getElementById('re-employment').value;
             const payload = {
                 firstName: document.getElementById('re-firstName').value.trim(),
                 lastName: document.getElementById('re-lastName').value.trim(),
                 username: document.getElementById('re-username').value.trim(),
                 password: document.getElementById('re-password').value,
-                employmentStatus: document.getElementById('re-employment').value,
+                employmentStatus,
                 // Self-registration is always CITIZEN; the server enforces this regardless.
                 profession: 'CITIZEN'
             };
+            // Employed applicants may name an employer — it raises a verification request, not a role.
+            if (employmentStatus === 'EMPLOYED') {
+                const orgVal = (document.getElementById('re-organization') || {}).value || '';
+                if (orgVal) payload.organizationUid = orgVal;
+            }
             if (!payload.firstName || !payload.lastName || !payload.username || !payload.password) {
                 errEl.textContent = 'Заполните все поля.'; return;
             }
@@ -784,6 +900,7 @@
             <div class="view-nav">
                 <button data-tab="manage" type="button">Управление</button>
                 <button data-tab="users" type="button">Пользователи</button>
+                <button data-tab="employment" type="button">Трудоустройство<span id="emp-badge" class="cb-count" hidden>0</span></button>
                 <button data-tab="sos" type="button">🆘 Тревоги<span id="sos-badge" class="cb-count" hidden>0</span></button>
                 <button data-tab="stats" type="button">Статистика</button>
                 <button data-tab="complaints" type="button">Жалобы</button>
@@ -800,6 +917,7 @@
 
         switch (adminTab) {
             case 'users': renderAdminUsers(); break;
+            case 'employment': renderAdminEmployment(); break;
             case 'sos': renderAdminSos(); break;
             case 'stats': renderAdminStats(); break;
             case 'complaints': renderAdminComplaints(); break;
@@ -807,6 +925,7 @@
             default: renderAdminManage();
         }
         refreshSosBadge();
+        refreshEmploymentBadge();
     }
 
     function renderAdminManage() {
@@ -1402,6 +1521,76 @@
         } catch (_) { /* ignore */ }
     }
 
+    // -------------------------------------------------------------
+    //  Admin: employment verification queue (Problem 4). Citizens who
+    //  registered as «Трудоустроен» + named an employer appear here as
+    //  PENDING requests the company admin confirms or declines.
+    // -------------------------------------------------------------
+    function renderAdminEmployment() {
+        const body = document.getElementById('admin-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка заявок…')}</section>`;
+        apiJson('/api/admin/employment/pending').then(({ ok, data }) => {
+            if (!ok || !Array.isArray(data)) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить заявки.</div></section>`; return; }
+            body.innerHTML = `
+            <section class="panel panel-pad">
+                <div class="section-title">Заявки на трудоустройство — ожидают: ${data.length}</div>
+                <p class="muted" style="margin-bottom:14px">Гражданин при регистрации указал, что трудоустроен, и выбрал компанию.
+                    Подтвердите, чтобы сделать его проверенным сотрудником организации (откроется рабочий режим),
+                    или отклоните. До решения он пользуется системой как обычный гражданин.</p>
+                ${data.length === 0 ? '<div class="obj-empty">Нет новых заявок на трудоустройство.</div>' : `
+                <div class="table-scroll"><table class="audit-tbl">
+                    <thead><tr><th>Заявитель</th><th>Логин</th><th>Компания</th><th>Роль</th><th>Подана</th><th></th></tr></thead>
+                    <tbody>${data.map(r => `
+                        <tr data-id="${esc(r.membershipUid)}">
+                            <td>${esc(r.userName)}</td>
+                            <td class="mono">${esc(r.username)}</td>
+                            <td>${esc(r.organizationName)}</td>
+                            <td>${esc(r.workRole || '—')}</td>
+                            <td class="ts">${esc(r.createdAt || '—')}</td>
+                            <td class="emp-actions">
+                                <button class="btn btn-primary btn-sm emp-approve" type="button" data-id="${esc(r.membershipUid)}">Подтвердить</button>
+                                <button class="btn btn-ghost btn-sm emp-reject" type="button" data-id="${esc(r.membershipUid)}">Отклонить</button>
+                            </td>
+                        </tr>`).join('')}</tbody>
+                </table></div>`}
+            </section>`;
+            body.querySelectorAll('.emp-approve').forEach(btn =>
+                btn.addEventListener('click', () => decideEmployment(btn.dataset.id, 'approve', btn)));
+            body.querySelectorAll('.emp-reject').forEach(btn =>
+                btn.addEventListener('click', () => decideEmployment(btn.dataset.id, 'reject', btn)));
+        });
+    }
+
+    async function decideEmployment(membershipUid, action, btn) {
+        const row = btn.closest('tr');
+        if (row) row.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try {
+            const { ok, data } = await apiJson(`/api/admin/employment/${membershipUid}/${action}`, { method: 'POST', body: {} });
+            if (ok) {
+                toast(action === 'approve' ? 'Трудоустройство подтверждено.' : 'Заявка отклонена.', 'ok');
+                renderAdminEmployment();
+                refreshEmploymentBadge();
+            } else {
+                toast((data && data.message) || 'Не удалось обработать заявку.', 'err');
+                if (row) row.querySelectorAll('button').forEach(b => { b.disabled = false; });
+            }
+        } catch (_) {
+            toast('Ошибка обработки заявки.', 'err');
+            if (row) row.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        }
+    }
+
+    async function refreshEmploymentBadge() {
+        const badge = document.getElementById('emp-badge');
+        if (!badge) return;
+        try {
+            const { ok, data } = await apiJson('/api/admin/employment/pending');
+            if (!ok || !Array.isArray(data)) return;
+            badge.textContent = data.length;
+            badge.hidden = data.length === 0;
+        } catch (_) { /* ignore */ }
+    }
+
     let adminComplaintsPage = 0;
     function renderAdminComplaints(page = adminComplaintsPage) {
         adminComplaintsPage = page;
@@ -1482,12 +1671,33 @@
     // =============================================================
     //  CITIZEN VIEW
     // =============================================================
+    // Affiliation pill for the identity strip (Problem 4): a confirmed employee shows their
+    // organization with a check; a still-unconfirmed claim shows "на проверке" so the applicant
+    // can see their employment request is pending the company admin's decision.
+    function employmentPillHtml() {
+        if (!currentUser || currentUser.guest) return '';
+        const state = currentUser.employmentState;
+        const org = currentUser.organizationName;
+        if (!org) return '';
+        if (state === 'ACTIVE') {
+            return `<div class="id-pill"><span class="idp-k">Организация</span>
+                <span class="idp-v emp-ok" title="Трудоустройство подтверждено администратором">${esc(org)} ✓</span></div>`;
+        }
+        if (state === 'PENDING') {
+            return `<div class="id-pill"><span class="idp-k">Трудоустройство</span>
+                <span class="idp-v emp-pending" title="Заявка ожидает подтверждения администратора компании">${esc(org)} · на проверке</span></div>`;
+        }
+        return '';
+    }
+
     function renderCitizen() {
         const guest = !!currentUser.guest;
-        // Guests get a deliberately reduced surface: no personal history / complaints tabs —
-        // their actions are tracked silently and only surface after they register (Point 6).
+        // Guests get a deliberately reduced surface. They have NO personal QR to demonstrate —
+        // an unregistered visitor is here to scan, not to be scanned — so the "Мой QR" tab is
+        // hidden for them (it returns after they register). History / complaints are likewise
+        // tracked silently and only surface post-registration (Point 6).
         const tabs = guest
-            ? [['terminal', 'Терминал'], ['myqr', 'Мой QR']]
+            ? [['terminal', 'Терминал']]
             : [['terminal', 'Терминал'], ['myqr', 'Мой QR'], ['objects', 'Мои объекты'],
                ['history', 'Моя история'], ['complaints', 'Жалобы']];
         if (!tabs.some(t => t[0] === citizenTab)) citizenTab = 'terminal';
@@ -1504,8 +1714,9 @@
             <div class="identity-strip">
                 <div class="id-pill"><span class="idp-k">Личность</span>
                     <span class="idp-v primary">${esc(shortId(currentUser.identityUid))}</span></div>
-                <div class="id-pill"><span class="idp-k">Основной QR</span>
-                    <span class="idp-v gold">${esc(shortId(currentUser.primaryQrUid))}</span></div>
+                ${currentUser.guest ? '' : `<div class="id-pill"><span class="idp-k">Основной QR</span>
+                    <span class="idp-v gold">${esc(shortId(currentUser.primaryQrUid))}</span></div>`}
+                ${employmentPillHtml()}
                 <div class="id-pill"><span class="idp-k">Уровень доверия</span>
                     <span class="idp-v gold" title="Единая метрика доверия, на которую опирается движок решений (мед. ≥ 70, инфраструктура ≥ 60)">${esc(currentUser.trustLevel)} / 100</span></div>
                 <div class="id-pill"><span class="idp-k">Роли</span>
@@ -1771,7 +1982,7 @@
     }
 
     async function doScan(objectUid) {
-        const cleaned = String(objectUid).trim();
+        const cleaned = normalizeScanInput(objectUid);
         // Result now opens as a full-screen page (Point 2) instead of the desktop sidebar, so
         // it reads as a real "scan result" screen on a phone. The owner-confirmation flow for
         // identity QRs is handled by the server and surfaced via polling below.
@@ -2706,9 +2917,10 @@
             { fps: 10, qrbox: { width: 240, height: 240 } },
             (decodedText) => {
                 closeScanner();
+                const id = normalizeScanInput(decodedText);
                 const input = document.getElementById('manual-uid');
-                if (input) input.value = decodedText;
-                doScan(decodedText);
+                if (input) input.value = id;
+                doScan(id);
             },
             () => { /* per-frame miss: ignore */ }
         ).catch(err => {

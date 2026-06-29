@@ -48,6 +48,11 @@ public class OrganizationService {
         return membershipRepository.findByIdentityUid(identityUid);
     }
 
+    /** All organizations — used to populate the public sign-up "employer" picker. */
+    public List<Organization> listOrganizations() {
+        return organizationRepository.findAll();
+    }
+
     public Organization find(UUID organizationUid) {
         return organizationUid == null ? null : organizationRepository.findById(organizationUid).orElse(null);
     }

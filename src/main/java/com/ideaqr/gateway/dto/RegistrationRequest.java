@@ -45,6 +45,14 @@ public class RegistrationRequest {
     @Pattern(regexp = "EMPLOYED|UNEMPLOYED", message = "Недопустимый статус занятости")
     private String employmentStatus;
 
+    /**
+     * Organization the applicant claims to work for, chosen at sign-up when
+     * {@code employmentStatus = EMPLOYED}. Optional and never trusted: it does not grant a
+     * role — it raises a membership request that the organization's administrator must
+     * approve (see {@code EmploymentService}). Ignored for UNEMPLOYED sign-ups.
+     */
+    private String organizationUid;
+
     /** Profession key: DOCTOR, RETAIL_ADMIN, INSPECTOR, CITIZEN. */
     @NotBlank(message = "Укажите профессию")
     private String profession;
