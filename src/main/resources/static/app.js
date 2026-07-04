@@ -28,10 +28,12 @@
     let pendingScanTarget = null;  // identifier from a /s/<id> deep link or a guest conversion
     let profilePollTimer = null;   // polls for the owner's confirmation after a profile scan
 
-    // Demo-only tooling (the "time machine" + manual UID entry) is hidden from regular users
-    // so the product reads as a real scan-first app. Admins always see it; flip DEMO_MODE to
-    // true to expose it to everyone for a live presentation.
-    const DEMO_MODE = false;
+    // Demo tooling. Manual UID entry + quick-scenario chips are exposed to EVERY logged-in user
+    // for the live presentation (DEMO_MODE = true). The "time machine" is the deliberate exception:
+    // it drives the ROLE_ADMIN-only /api/v2/dev/time endpoint (SecurityConfig + @PreAuthorize), so it
+    // stays admin-only in renderTimeMachine() to avoid 403s for non-admins. Set DEMO_MODE = false to
+    // hide the manual tools again in a real deployment.
+    const DEMO_MODE = true;
     function demoToolsEnabled() { return DEMO_MODE || !!(currentUser && currentUser.admin); }
 
     const app = () => document.getElementById('app');
@@ -2961,8 +2963,10 @@
     // -------------------------------------------------------------
     function renderTimeMachine() {
         let el = document.getElementById('time-machine');
-        // Demo-only tool: shown to admins or when DEMO_MODE is on; removed for regular users.
-        if (!currentUser || !demoToolsEnabled()) { if (el) el.remove(); return; }
+        // Admin-only tool — the time machine drives /api/v2/dev/time, which is ROLE_ADMIN
+        // (SecurityConfig + @PreAuthorize). Gating on demoToolsEnabled() would render it for every
+        // user under DEMO_MODE and 403 on use, so it stays strictly admin-only regardless of DEMO_MODE.
+        if (!currentUser || !currentUser.admin) { if (el) el.remove(); return; }
         if (!el) {
             el = document.createElement('div');
             el.id = 'time-machine';

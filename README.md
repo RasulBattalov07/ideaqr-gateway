@@ -12,7 +12,7 @@
 mvn spring-boot:run            # → http://localhost:8080
 
 mvn clean package              # fat jar → target/ideaqr-gateway.jar
-mvn clean test                 # весь сьют (51 тест)
+mvn clean test                 # весь сьют (57 тестов)
 mvn test -Dtest=ИмяКласса      # один класс
 
 # Docker
@@ -53,7 +53,7 @@ src/main/java/com/ideaqr/gateway/
 │     ObjectLifecycleService   ← жизненный цикл + transfer (передача владельца + уведомление получателю)
 │     GuestService             ← слияние истории гостя (IDOR-safe merge token)
 │     DevTimeService           ← «Машина времени»: мок часа сессии для демо рабочего окна
-│     TrustScoreService · AuditService · EventService · UserService · UserAdminService …
+│     AuditService · EventService · UserService · UserAdminService …
 ├── web/               REST-контроллеры + TenantInterceptor (+ SpaForwardController для /s/**)
 ├── tenant/            TenantContext (ThreadLocal) · TenantFilterAspect (AOP) · TenantListener (@PrePersist)
 ├── config/            SecurityConfig · RateLimitingFilter · DataSeeder   ← СИДИРОВАНИЕ ЗДЕСЬ
@@ -65,9 +65,9 @@ src/main/java/com/ideaqr/gateway/
 ### 🔗 Золотой Конвейер
 Любое действие проходит единую цепочку — обход запрещён архитектурно:
 ```
-Identity → Role → Request → Decision → Interaction → Event → History → (Trust Score) → Audit
+Identity → Role → Request → Decision → Interaction → Event → History → Audit
 ```
-`GatewayService.scan()`: резолв объекта → `Request(PENDING)` → `ValidationService` выносит `Decision` (APPROVED/REJECTED/REVIEW) → `Interaction` → многоуровневая видимость (гость = публичная проекция, зарегистрированный = полная) → `Event` + `History` (хэш-цепочка) → пересчёт `Trust Score`. Отказ = HTTP 200 + `success:false` (это бизнес-вердикт, не ошибка).
+`GatewayService.scan()`: резолв объекта → `Request(PENDING)` → `ValidationService` выносит `Decision` (APPROVED/REJECTED/REVIEW) → `Interaction` → многоуровневая видимость (гость = публичная проекция, зарегистрированный = полная) → `Event` + `History` (хэш-цепочка). Отказ = HTTP 200 + `success:false` (это бизнес-вердикт, не ошибка).
 
 **Админ = кросс-тенантный супер-админ** (видит и управляет всеми тенантами). Изоляция тенантов действует для всех НЕ-админов.
 
@@ -86,7 +86,7 @@ Identity → Role → Request → Decision → Interaction → Event → History
 - **Рабочий режим теперь гейтит** мед/инфра-доступ: в личном режиме — `WORKING_MODE_REQUIRED`.
 - **Машина времени** — виджет 🕓 внизу слева мокает час сессии, чтобы показать блокировку вне `08:00–18:00`.
 - **Жалобы:** админ «Открыть и ответить» → полный текст + смена статуса + ответ пользователю (уведомлением).
-- **Trust Score динамический:** +5 за решённую жалобу, −2 за отклонённый скан, +2 за подтверждённое действие.
+- **Единый Уровень доверия (Trust Level 0–100):** одна метрика `Identity.trustLevel` — она и отображается, и гейтит доступ (медицина ≥ 70, инфраструктура ≥ 60). Второй, «геймифицированной» метрики в логике решений нет.
 - **Гость:** вкладки истории/жалоб скрыты; история гостя реально переносится в новый профиль при регистрации (read-union по `linkedGuestUids`).
 - Фикс логина «с первого раза ошибка» (CSRF-прайминг + ретрай на 403); чип `pharmacist` добавлен на экран входа.
 
@@ -124,19 +124,19 @@ Identity → Role → Request → Decision → Interaction → Event → History
 | 4 | `CAR_TOYOTA_CAMRY` | Авто (DB-объект) | **Передача владельца** (Transfer) — реальный объект в базе | citizen → ДОСТУП · admin → передаёт владельца |
 | 5 | `LOCK_OFFICE_AITU` | Инфраструктура | **Запрос доступа** (умный замок офиса AITU) | citizen → ОТКАЗ · inspector → ДОСТУП* |
 | 6 | `DOC_STUDENT_AITU` | Документ | **Образование** — студбилет AITU | любой → ДОСТУП |
-| 7 | `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` | Личность | **P2P + Trust Score** (визитка «Айдос Серіков», TS 78) | citizen → REVIEW (запрос владельцу) |
+| 7 | `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` | Личность | **P2P / Owner Approval** (визитка «Айдос Серіков», Trust Level 80) | citizen → REVIEW (запрос владельцу) |
 
 \* Медицина и инфраструктура требуют **рабочего режима** (иначе `WORKING_MODE_REQUIRED`) и **рабочего времени 08:00–18:00** (иначе `OUTSIDE_WORKING_HOURS`). Час сессии подменяется «Машиной времени» 🕓.
 
 ### Сценарии демо «по кнопкам»
 1. **Guest Conversion** — выйти/гость → скан `RETAIL_NIKE_AF1` → урезанная карточка + кнопка «Зарегистрироваться» → регистрация → та же карточка, но с ценой/отзывами/историей (история гостя сливается; вкладки истории у гостя скрыты).
-2. **Owner Approval / P2P** — войти `citizen` → скан `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` → статус REVIEW, владельцу ушло уведомление. В другой сессии войти `aidos` → «Запросы доступа» → подтвердить → у сканера автоматически открывается профиль + Trust Score.
+2. **Owner Approval / P2P** — войти `citizen` → скан `IDENTITY:aaaaaaaa-0000-0000-0000-000000000007` → статус REVIEW, владельцу ушло уведомление. В другой сессии войти `aidos` → «Запросы доступа» → подтвердить → у сканера автоматически открывается профиль владельца.
 3. **Врач → Фармацевт** — `doctor`: 🕓 `10:00` + **рабочий режим** → скан `MED_RX_5521` → ДОСТУП → «+ Выписать рецепт». Затем `pharmacist` (тоже рабочий режим) → скан того же → «Выдать». В личном режиме → `WORKING_MODE_REQUIRED`; в `22:00` → `OUTSIDE_WORKING_HOURS`; `citizen` → отказ по роли.
 4. **Request→Decision→Interaction** — любой логин, скан `SERVICE_TRASH_PICKUP` → анимированный конвейер с UUID каждого звена.
 5. **Передача владельца** — `admin` → «Управление» → `CAR_TOYOTA_CAMRY` → «Передать владельца» → выбрать `seller` (история = `OBJECT_TRANSFERRED`). Войти `seller` → вкладка **«Мои объекты»**: объект с QR + пришло уведомление.
 6. **Access Request (инфра)** — `citizen` скан `LOCK_OFFICE_AITU` → ОТКАЗ; `inspector` (рабочий режим + 🕓 рабочее время) → ДОСТУП.
 7. **Машина времени** — виджет 🕓 → `22:00` → скан мед/инфра врачом/инспектором в рабочем режиме → отказ по времени; верни `10:00` → ДОСТУП.
-8. **Жалоба + ответ** — `citizen` после скана → вкладка «Жалобы» → подать; `admin` → «Жалобы» → «Открыть и ответить» → статус «Решена» + текст → пользователю приходит уведомление, Trust Score растёт.
+8. **Жалоба + ответ** — `citizen` после скана → вкладка «Жалобы» → подать; `admin` → «Жалобы» → «Открыть и ответить» → статус «Решена» + текст → пользователю приходит уведомление.
 
 ---
 
@@ -164,5 +164,5 @@ Identity → Role → Request → Decision → Interaction → Event → History
 
 ---
 
-## 🧪 Тесты (51, все зелёные)
+## 🧪 Тесты (57, все зелёные)
 Ключевые инварианты: `ValidationServiceTest` (политики + фармацевт), `GuestServiceMergeTest` (IDOR-safe merge), `ObjectLifecycleServiceTransferTest` (transfer без пересоздания), `PublicCardTest` (проекция гостя), `AuditServiceChainTest` (tamper-evidence), `TenantIsolationTest` (изоляция на уровне БД), `TenantHttpIsolationTest` (админ видит все тенанты), `ForeignKeyIntegrityTest`, `SecurityIntegrationTest`, `RateLimitingTest`, `UserManagementTest`, `PasswordLifecycleTest`. Сценарии оверхола (врач→фармацевт, рабочий режим, машина времени, transfer→«Мои объекты», слияние истории гостя, ответ на жалобу) проверены живым прогоном.
