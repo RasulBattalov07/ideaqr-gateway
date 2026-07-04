@@ -677,7 +677,18 @@ a { color: var(--sky); text-underline-offset: 3px; }
 .chart-wrap { background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-md); padding: 16px; }
 .chart-legend { display: flex; gap: 18px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .legend-item { display: flex; align-items: center; gap: 6px; }
-.legend-swatch { width: 14px; height: 3px; border-radius: 2px; }
+.legend-swatch { width: 14px; height: 3px; border-radius: 2px; background: var(--vc-c, var(--muted)); }
+
+/* Theme-aware vitals chart (audit FB-8): axes, labels and series read the theme tokens, so the
+   light theme gets readable dark axes instead of hardcoded white. In the dark theme the series
+   tokens resolve to the exact previous colours (#3CC9E8 / #F3CC73 / #F2706B) — zero visual change. */
+.chart-wrap .vc-grid { stroke: var(--line); }
+.chart-wrap .vc-label { fill: var(--muted); }
+.vc-k-systolic { --vc-c: var(--sky); }
+.vc-k-diastolic { --vc-c: var(--gold-bright); }
+.vc-k-pulse { --vc-c: var(--reject); }
+.chart-wrap .vc-line { stroke: var(--vc-c); }
+.chart-wrap .vc-dot { fill: var(--vc-c); }
 
 .gauge { display: flex; align-items: center; gap: 18px; }
 .gauge-ring {

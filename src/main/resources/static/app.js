@@ -27,6 +27,9 @@
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
     let pendingScanTarget = null;  // identifier from a /s/<id> deep link or a guest conversion
     let profilePollTimer = null;   // polls for the owner's confirmation after a profile scan
+    let accessPollTimer = null;    // auto-refreshes incoming owner/patient approvals (audit FB-1)
+    let accessPollTick = 0;
+    let lastAccessSig = null;      // fingerprint of the rendered access-request list (skip no-op repaints)
 
     // Demo tooling. Manual UID entry + quick-scenario chips are exposed to EVERY logged-in user
     // for the live presentation (DEMO_MODE = true). The "time machine" is the deliberate exception:
@@ -378,6 +381,7 @@
     function handleUnauthorized() {
         if (!currentUser) return;
         currentUser = null;
+        stopAccessPolling();
         const bar = document.getElementById('appbar');
         if (bar) bar.hidden = true;
         // D-1: the session was lost (expired, or revoked by an admin role/password change, which
@@ -451,6 +455,7 @@
     async function doLogout() {
         try { await apiForm('/logout', {}); } catch (_) { /* ignore */ }
         currentUser = null;
+        stopAccessPolling();
         document.getElementById('appbar').hidden = true;
         renderAuth();
     }
@@ -491,6 +496,27 @@
             localStorage.removeItem('ideaqr_guest_uid');
             localStorage.removeItem('ideaqr_guest_token');
         } catch (_) { /* ignore */ }
+    }
+
+    // Public employer directory shared by BOTH registration forms (audit FB-3: the guest
+    // modal offered «Трудоустроен(а)» but no employer picker, so the claim raised nothing).
+    // Fetched once per page load; a failed fetch stays uncached so the next toggle retries.
+    let orgListCache = null;
+    async function fetchOrganizations() {
+        if (orgListCache) return orgListCache;
+        try {
+            const { ok, data } = await apiJson('/api/auth/organizations');
+            if (ok && Array.isArray(data) && data.length) orgListCache = data;
+        } catch (_) { /* keep null */ }
+        return orgListCache || [];
+    }
+
+    async function fillOrganizationSelect(sel) {
+        if (!sel || sel.options.length > 1) return; // already populated — keep the user's choice
+        const orgs = await fetchOrganizations();
+        if (!orgs.length) return;
+        sel.innerHTML = '<option value="">Выберите компанию…</option>'
+            + orgs.map(o => `<option value="${esc(o.organizationUid)}">${esc(o.name)}</option>`).join('');
     }
 
     // -------------------------------------------------------------
@@ -534,6 +560,7 @@
     // -------------------------------------------------------------
     function route() {
         renderTimeMachine();
+        if (!currentUser || currentUser.admin) stopAccessPolling();
         if (!currentUser) {
             document.getElementById('appbar').hidden = true;
             // A visitor who arrived by scanning a platform QR (a /s/<id> deep link) meets a
@@ -806,22 +833,10 @@
         const employmentSel = document.getElementById('re-employment');
         const orgField = document.getElementById('re-org-field');
         const orgSel = document.getElementById('re-organization');
-        let orgsLoaded = false;
-        async function loadRegisterOrganizations() {
-            if (orgsLoaded) return;
-            orgsLoaded = true;
-            try {
-                const { ok, data } = await apiJson('/api/auth/organizations');
-                if (ok && Array.isArray(data)) {
-                    orgSel.innerHTML = '<option value="">Выберите компанию…</option>'
-                        + data.map(o => `<option value="${esc(o.organizationUid)}">${esc(o.name)}</option>`).join('');
-                }
-            } catch (_) { orgsLoaded = false; /* allow a retry on next toggle */ }
-        }
         function syncEmployment() {
             const employed = employmentSel.value === 'EMPLOYED';
             orgField.hidden = !employed;
-            if (employed) loadRegisterOrganizations();
+            if (employed) fillOrganizationSelect(orgSel);
         }
         employmentSel.addEventListener('change', syncEmployment);
         syncEmployment();
@@ -1646,9 +1661,20 @@
                 <div class="field" style="margin-top:10px"><label for="cmp-new-status">Новый статус</label>
                     <select id="cmp-new-status">${statuses.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${esc(COMPLAINT_RU[s])}</option>`).join('')}</select></div>
                 <div class="field" style="margin-top:10px"><label for="cmp-response">Ответ пользователю</label>
-                    <textarea id="cmp-response" placeholder="Опишите принятое решение — пользователь получит уведомление"></textarea></div>`,
+                    <textarea id="cmp-response" maxlength="140" placeholder="Кратко опишите решение — пользователь получит его одним уведомлением"></textarea>
+                    <div class="field-hint" id="cmp-resp-count"></div></div>`,
             dismissValue: null,
             onBody: (card, { close }) => {
+                // The reply travels inside a notification title capped at 240 chars together
+                // with the complaint subject (audit FB-4) — cap the input from the subject's
+                // length so the send can never overflow and fail server-side.
+                const respEl = card.querySelector('#cmp-response');
+                const countEl = card.querySelector('#cmp-resp-count');
+                const cap = Math.max(30, Math.min(140, 190 - String(c.subject || '').length));
+                respEl.maxLength = cap;
+                const syncCap = () => { countEl.textContent = respEl.value.length + ' / ' + cap; };
+                respEl.addEventListener('input', syncCap);
+                syncCap();
                 const box = card.querySelector('.modal-actions');
                 box.innerHTML = `
                     <button class="btn btn-ghost" type="button" id="cmp-cancel">Закрыть</button>
@@ -1767,6 +1793,7 @@
         wireContextBar();
         loadCitizenContext();
         loadAccessRequests();
+        startAccessPolling();
 
         if (citizenTab === 'terminal') renderCitizenTerminal();
         else if (citizenTab === 'myqr') renderCitizenMyQr();
@@ -1873,9 +1900,14 @@
             const { ok, data } = await apiJson('/api/v2/sos',
                 { method: 'POST', body: { message: 'SOS из терминала' } });
             if (ok && data) {
-                toast('SOS-запрос зарегистрирован и эскалирован.', 'ok');
+                toast('SOS-сигнал зарегистрирован.', 'ok');
+                // Honest copy (audit FB-6): an SOS is not an access verdict, and the alert is a
+                // queue the administrator opens in «Тревоги» — not a delivered notification.
                 const slot = openResultPage(
-                    `${verdictHtml('APPROVED', data.reason, data.riskLevel)}<div class="pipeline" id="sos-pipeline"></div>`);
+                    `${verdictHtml('APPROVED',
+                        'SOS-сигнал зафиксирован в неизменяемом журнале и передан в панель «Тревоги» администратора.',
+                        data.riskLevel, 'SOS-сигнал отправлен')}<div class="pipeline" id="sos-pipeline"></div>`,
+                    'SOS');
                 animatePipeline(slot.querySelector('#sos-pipeline'), data, 'APPROVED');
                 refreshNotifications();
             } else {
@@ -2008,7 +2040,7 @@
 
     // Full-screen scan-result page (Point 2). Covers the viewport with a back button so the
     // result is a proper page on mobile, not a cramped sidebar that "ломает весь опыт".
-    function openResultPage(innerHtml) {
+    function openResultPage(innerHtml, barTitle) {
         let overlay = document.getElementById('result-overlay');
         if (!overlay) {
             overlay = document.createElement('div');
@@ -2020,7 +2052,7 @@
             <div class="result-page">
                 <div class="result-bar">
                     <button class="btn btn-ghost btn-sm result-back" id="result-back" type="button">← Назад</button>
-                    <span class="result-bar-title">Результат сканирования</span>
+                    <span class="result-bar-title">${esc(barTitle || 'Результат сканирования')}</span>
                     <span class="result-bar-spacer"></span>
                 </div>
                 <div class="result-body" id="result-body">${innerHtml}</div>
@@ -2231,9 +2263,17 @@
                     <input id="gr-password" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры"></div>
                 <div class="field"><label for="gr-employment">Статус занятости</label>
                     <select id="gr-employment">
-                        <option value="EMPLOYED">Трудоустроен(а)</option>
                         <option value="UNEMPLOYED" selected>Не трудоустроен(а)</option>
+                        <option value="EMPLOYED">Трудоустроен(а)</option>
                     </select></div>
+                <div class="field" id="gr-org-field" hidden>
+                    <label for="gr-organization">Компания-работодатель</label>
+                    <select id="gr-organization"><option value="">Выберите компанию…</option></select>
+                    <div class="field-hint emp-hint">
+                        Мы отправим заявку на трудоустройство администратору компании.
+                        До подтверждения вы пользуетесь системой как гражданин.
+                    </div>
+                </div>
                 <div class="field-error" id="gr-error"></div>
                 <button class="btn btn-primary btn-block" id="gr-submit" type="button">Создать аккаунт</button>
             </div>`;
@@ -2245,6 +2285,16 @@
             onBody: (card, { close }) => {
                 const errEl = card.querySelector('#gr-error');
                 const submit = card.querySelector('#gr-submit');
+                // Parity with the main registration form (audit FB-3): choosing «Трудоустроен(а)»
+                // reveals the employer picker — otherwise the claim silently raises no request.
+                const empSel = card.querySelector('#gr-employment');
+                const orgField = card.querySelector('#gr-org-field');
+                const orgSel = card.querySelector('#gr-organization');
+                empSel.addEventListener('change', () => {
+                    const employed = empSel.value === 'EMPLOYED';
+                    orgField.hidden = !employed;
+                    if (employed) fillOrganizationSelect(orgSel);
+                });
                 submit.addEventListener('click', async () => {
                     errEl.textContent = '';
                     const payload = {
@@ -2256,6 +2306,10 @@
                         // Self-registration is always CITIZEN; the server enforces this regardless.
                         profession: 'CITIZEN'
                     };
+                    // An employed applicant may name an employer — raises a verification request.
+                    if (payload.employmentStatus === 'EMPLOYED' && orgSel.value) {
+                        payload.organizationUid = orgSel.value;
+                    }
                     if (!payload.firstName || !payload.lastName || !payload.username || !payload.password) {
                         errEl.textContent = 'Заполните все поля.'; return;
                     }
@@ -2321,7 +2375,15 @@
         if (!box) return;
         try {
             const { ok, data } = await apiJson('/api/v2/access/pending');
-            if (!ok || !Array.isArray(data) || data.length === 0) { box.innerHTML = ''; return; }
+            if (!ok || !Array.isArray(data)) return;
+            if (data.length === 0) { lastAccessSig = ''; box.innerHTML = ''; return; }
+            // Fingerprint the list so the background poll repaints only on real changes —
+            // a mid-click repaint would otherwise swallow the owner's «Подтвердить» tap.
+            const sig = data.map(r => r.interactionUid).join('|');
+            if (sig === lastAccessSig && box.childElementCount) return;
+            const prev = lastAccessSig ? lastAccessSig.split('|') : [];
+            const arrived = lastAccessSig !== null && data.some(r => !prev.includes(r.interactionUid));
+            lastAccessSig = sig;
             box.innerHTML = `
                 <div class="access-head">🔔 Запросы на доступ к вашим данным</div>
                 ${data.map(r => `
@@ -2338,7 +2400,27 @@
                 row.querySelector('.acc-confirm').addEventListener('click', () => decideAccess(id, 'confirm'));
                 row.querySelector('.acc-reject').addEventListener('click', () => decideAccess(id, 'reject'));
             });
-        } catch (_) { box.innerHTML = ''; }
+            if (arrived) toast('Новый запрос на доступ к вашим данным.', 'info');
+        } catch (_) { /* transient failure — keep the current list on screen */ }
+    }
+
+    // FB-1: the scanner side polls for the verdict, so the owner/patient side must refresh
+    // too — otherwise the flagship consent flow stalls until a manual F5. One shared ticker
+    // for the citizen view; it skips background tabs and tears itself down elsewhere.
+    function startAccessPolling() {
+        if (accessPollTimer) return;
+        accessPollTick = 0;
+        accessPollTimer = setInterval(() => {
+            if (!currentUser || currentUser.admin) { stopAccessPolling(); return; }
+            if (document.hidden || !document.getElementById('access-requests')) return;
+            loadAccessRequests();
+            // Notifications (complaint replies, consent outcomes) ride along every 3rd tick.
+            if (++accessPollTick % 3 === 0) refreshNotifications();
+        }, 4000);
+    }
+
+    function stopAccessPolling() {
+        if (accessPollTimer) { clearInterval(accessPollTimer); accessPollTimer = null; }
     }
 
     async function decideAccess(interactionUid, action) {
@@ -2478,7 +2560,7 @@
                         </div>
                         <div class="field">
                             <label for="cmp-subject">Тема</label>
-                            <input id="cmp-subject" type="text" placeholder="Кратко о проблеме">
+                            <input id="cmp-subject" type="text" maxlength="200" placeholder="Кратко о проблеме">
                         </div>
                         <div class="field">
                             <label for="cmp-category">Категория</label>
@@ -2491,7 +2573,7 @@
                         </div>
                         <div class="field">
                             <label for="cmp-desc">Описание</label>
-                            <textarea id="cmp-desc" placeholder="Подробности"></textarea>
+                            <textarea id="cmp-desc" maxlength="1000" placeholder="Подробности"></textarea>
                         </div>
                         <div class="field-error" id="cmp-error"></div>
                         <button class="btn btn-primary btn-block" id="cmp-submit" type="submit">Отправить жалобу</button>
@@ -2578,7 +2660,9 @@
     // -------------------------------------------------------------
     //  Shared: verdict + pipeline
     // -------------------------------------------------------------
-    function verdictHtml(outcome, reason, riskLevel) {
+    // `titleOverride` replaces the access-verdict headline for flows that are not access
+    // decisions at all (SOS, issue reports) — audit FB-6: «Доступ разрешён» on an SOS is absurd.
+    function verdictHtml(outcome, reason, riskLevel, titleOverride) {
         const map = {
             APPROVED: { cls: 'ok', ico: '✓', title: 'Доступ разрешён' },
             REJECTED: { cls: 'reject', ico: '✕', title: 'Доступ запрещён' },
@@ -2590,7 +2674,7 @@
             <div class="verdict ${v.cls}">
                 <div class="v-ico">${v.ico}</div>
                 <div class="v-body">
-                    <div class="v-title">${v.title}</div>
+                    <div class="v-title">${esc(titleOverride || v.title)}</div>
                     <div class="v-reason">${esc(reason)}</div>
                 </div>
                 ${risk}
@@ -2694,9 +2778,9 @@
             ${vitals.length ? `<div class="dc-section"><h4>Динамика давления и пульса</h4>
                 <div class="chart-wrap">${vitalsChart(vitals)}
                 <div class="chart-legend">
-                    <span class="legend-item"><span class="legend-swatch" style="background:#3CC9E8"></span>Систолическое</span>
-                    <span class="legend-item"><span class="legend-swatch" style="background:#F3CC73"></span>Диастолическое</span>
-                    <span class="legend-item"><span class="legend-swatch" style="background:#F2706B"></span>Пульс</span>
+                    <span class="legend-item"><span class="legend-swatch vc-k-systolic"></span>Систолическое</span>
+                    <span class="legend-item"><span class="legend-swatch vc-k-diastolic"></span>Диастолическое</span>
+                    <span class="legend-item"><span class="legend-swatch vc-k-pulse"></span>Пульс</span>
                 </div></div></div>` : ''}
             ${visits.length ? `<div class="dc-section"><h4>История посещений</h4>
                 <table class="tbl"><thead><tr><th>Дата</th><th>Клиника</th><th>Причина</th><th>Врач</th></tr></thead><tbody>${visitRows}</tbody></table></div>` : ''}
@@ -2713,7 +2797,6 @@
         const W = 560, H = 200, padL = 38, padR = 14, padT = 14, padB = 26;
         const innerW = W - padL - padR, innerH = H - padT - padB;
         const keys = ['systolic', 'diastolic', 'pulse'];
-        const colors = { systolic: '#3CC9E8', diastolic: '#F3CC73', pulse: '#F2706B' };
         const all = [];
         series.forEach(d => keys.forEach(k => { if (typeof d[k] === 'number') all.push(d[k]); }));
         if (all.length === 0) return '';
@@ -2724,19 +2807,21 @@
         const xFor = i => padL + (n <= 1 ? innerW / 2 : innerW * i / (n - 1));
         const yFor = v => padT + innerH * (1 - (v - min) / (max - min));
 
+        // Colours come from CSS classes bound to theme tokens (audit FB-8): the old hardcoded
+        // white grid/labels vanished on the light theme. Dark theme keeps the exact same look.
         let grid = '';
         for (let g = 0; g <= 3; g++) {
             const yy = padT + innerH * g / 3;
             const val = Math.round(max - (max - min) * g / 3);
-            grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>`;
-            grid += `<text x="${padL - 6}" y="${yy + 3}" text-anchor="end" font-size="9" fill="rgba(226,238,247,0.42)">${val}</text>`;
+            grid += `<line class="vc-grid" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke-width="1"/>`;
+            grid += `<text class="vc-label" x="${padL - 6}" y="${yy + 3}" text-anchor="end" font-size="9">${val}</text>`;
         }
         const lines = keys.map(k => {
             const pts = series.map((d, i) => `${xFor(i).toFixed(1)},${yFor(d[k]).toFixed(1)}`).join(' ');
-            const dots = series.map((d, i) => `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(d[k]).toFixed(1)}" r="2.6" fill="${colors[k]}"/>`).join('');
-            return `<polyline points="${pts}" fill="none" stroke="${colors[k]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+            const dots = series.map((d, i) => `<circle class="vc-dot vc-k-${k}" cx="${xFor(i).toFixed(1)}" cy="${yFor(d[k]).toFixed(1)}" r="2.6"/>`).join('');
+            return `<polyline class="vc-line vc-k-${k}" points="${pts}" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
         }).join('');
-        const labels = series.map((d, i) => `<text x="${xFor(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9.5" fill="rgba(226,238,247,0.42)">${esc(d.label)}</text>`).join('');
+        const labels = series.map((d, i) => `<text class="vc-label" x="${xFor(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9.5">${esc(d.label)}</text>`).join('');
         return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="График показателей">${grid}${lines}${labels}</svg>`;
     }
 
@@ -2896,7 +2981,7 @@
                     if (!ok || !res) throw new Error((res && res.message) || 'Не удалось отправить обращение');
                     toast('Обращение зарегистрировано.', 'ok');
                     const slot = document.getElementById('card-slot');
-                    slot.innerHTML = `${verdictHtml('APPROVED', res.reason, res.riskLevel)}<div class="pipeline" id="report-pipeline"></div>`;
+                    slot.innerHTML = `${verdictHtml('APPROVED', res.reason, res.riskLevel, 'Обращение принято')}<div class="pipeline" id="report-pipeline"></div>`;
                     animatePipeline(document.getElementById('report-pipeline'), res, 'APPROVED');
                 } catch (err) {
                     toast(err.message, 'err');
@@ -3044,6 +3129,11 @@
 
         checkHealth();
         setInterval(checkHealth, 30000);
+
+        // Coming back to the tab refreshes incoming approvals at once (the poll skips hidden tabs).
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && currentUser && !currentUser.admin) loadAccessRequests();
+        });
 
         try { await loadMe(); } catch (_) { currentUser = null; }
         route();
