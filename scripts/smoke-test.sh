@@ -32,7 +32,7 @@ TMP="$(mktemp -d)"
 PASS=0; FAIL=0
 RND="$RANDOM$RANDOM"
 TESTER="tester_$RND"
-TESTER_PW="Test123!"
+TESTER_PW="SmokeTester2026!"   # ≥12 chars — registration policy (audit 4.9)
 
 trap 'rm -rf "$TMP"' EXIT
 

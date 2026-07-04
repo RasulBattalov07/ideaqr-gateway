@@ -2,8 +2,10 @@
 target/
 *.jar.original
 
-# Local H2 database (runtime data — never commit)
-data/
+# Local H2 database (runtime data — never commit). The binary DB stays ignored, but the
+# folder's _INFO.md IS tracked: it's the client-facing description of the seeded demo data.
+data/*
+!data/_INFO.md
 
 # Logs
 *.log
