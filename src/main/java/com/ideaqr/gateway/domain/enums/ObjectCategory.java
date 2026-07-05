@@ -10,5 +10,7 @@ public enum ObjectCategory {
     ECO,
     INFRASTRUCTURE,
     GENERAL,
+    /** Legal dossier: criminal-record certificate, fines, legal status. POLICE-gated, SECRET tier. */
+    LEGAL,
     UNKNOWN
 }

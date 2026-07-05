@@ -21,7 +21,8 @@
     let currentUser = null;
     let html5QrInstance = null;
     let adminTab = 'manage';
-    let citizenTab = 'terminal';
+    let citizenTab = 'home';
+    let dossierInfo = null;    // мой цифровой пакет (медкарта/досье/визитка) — грузится для дашборда
     let sessionInfo = null;
     let notifList = [];
     let complaintPrefill = null;   // interactionUid pre-selected when filing from history
@@ -330,10 +331,19 @@
     function categoryLabel(category) {
         const labels = {
             MEDICAL: 'Медицинская карта', RETAIL: 'Товар / коммерция', ECO: 'Экологический объект',
-            INFRASTRUCTURE: 'Инфраструктурный объект', GENERAL: 'Общий объект', UNKNOWN: 'Неизвестно'
+            INFRASTRUCTURE: 'Инфраструктурный объект', GENERAL: 'Общий объект',
+            LEGAL: 'Правовое досье', UNKNOWN: 'Неизвестно'
         };
         return labels[category] || category;
     }
+
+    const PROF_RU = {
+        DOCTOR: 'Врач', PHARMACIST: 'Фармацевт', POLICE: 'Сотрудник полиции',
+        INSPECTOR: 'Инспектор инфраструктуры', SELLER: 'Продавец',
+        SERVICE_OPERATOR: 'Оператор услуг', RETAIL_ADMIN: 'Администратор торговли',
+        CITIZEN: 'Гражданин'
+    };
+    function professionRu(key) { return PROF_RU[key] || 'Гражданин'; }
 
     // Server-side pagination controls (audit 3.1). `pageData` is the PageResponse
     // envelope { content, page, size, totalElements, totalPages, hasNext, hasPrevious }.
@@ -440,6 +450,7 @@
     }
 
     async function loadMe() {
+        dossierInfo = null; // цифровой пакет привязан к сессии — при смене пользователя перезагружаем
         const { ok, data } = await apiJson('/api/auth/me');
         if (ok && data && data.authenticated) { currentUser = data; return true; }
         currentUser = null;
@@ -697,7 +708,7 @@
             <section class="panel auth-card">
                 <div class="tabs">
                     <button class="tab active" id="tab-login" type="button">Вход</button>
-                    <button class="tab" id="tab-register" type="button">Регистрация</button>
+                    <button class="tab" id="tab-register" type="button">eGov · по телефону</button>
                 </div>
 
                 <form id="login-form" class="form-grid">
@@ -718,53 +729,22 @@
                     </div>
                 </form>
 
-                <form id="register-form" class="form-grid hidden">
-                    <div class="form-row">
-                        <div class="field">
-                            <label for="re-firstName">Имя</label>
-                            <input id="re-firstName" type="text" placeholder="Имя">
-                        </div>
-                        <div class="field">
-                            <label for="re-lastName">Фамилия</label>
-                            <input id="re-lastName" type="text" placeholder="Фамилия">
+                <form id="register-form" class="form-grid hidden" autocomplete="off">
+                    <div class="egov-head">
+                        <span class="egov-logo" aria-hidden="true">eGov</span>
+                        <div class="egov-head-txt">
+                            <strong>Умная регистрация</strong>
+                            <span>Только номер телефона — ФИО, ИИН и адрес подтянутся из госбазы (демо-имитация)</span>
                         </div>
                     </div>
                     <div class="field">
-                        <label for="re-username">Имя пользователя</label>
-                        <input id="re-username" type="text" autocomplete="username" placeholder="Латиница, от 3 символов">
+                        <label for="eg-phone">Номер телефона</label>
+                        <input id="eg-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 777 777 77 77">
+                        <div class="field-hint">Демо-подсказка: номер, оканчивающийся на <b>7</b>, найдёт «Расула Батталова».</div>
                     </div>
-                    <div class="field">
-                        <label for="re-password">Пароль</label>
-                        <input id="re-password" type="password" autocomplete="new-password" placeholder="Не менее 12 символов, буквы и цифры">
-                    </div>
-                    <div class="field">
-                        <label for="re-employment">Статус занятости</label>
-                        <select id="re-employment">
-                            <option value="UNEMPLOYED">Не трудоустроен(а)</option>
-                            <option value="EMPLOYED">Трудоустроен(а)</option>
-                        </select>
-                    </div>
-                    <div class="field" id="re-org-field" hidden>
-                        <label for="re-organization">Компания-работодатель</label>
-                        <select id="re-organization">
-                            <option value="">Выберите компанию…</option>
-                        </select>
-                        <div class="field-hint emp-hint">
-                            Мы отправим заявку на трудоустройство администратору компании.
-                            До подтверждения вы пользуетесь системой как гражданин.
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label>Роль при регистрации</label>
-                        <div class="field-static">Гражданин</div>
-                        <div class="field-hint">
-                            Самостоятельная регистрация всегда создаёт роль «Гражданин».
-                            Специализированные роли (врач, инспектор, администратор)
-                            назначает администратор после проверки.
-                        </div>
-                    </div>
-                    <div class="field-error" id="register-error"></div>
-                    <button class="btn btn-primary btn-block" id="register-submit" type="submit">Создать аккаунт</button>
+                    <div class="field-error" id="eg-error"></div>
+                    <button class="btn btn-primary btn-block" id="eg-lookup" type="submit">Найти меня в eGov</button>
+                    <div id="eg-result"></div>
                 </form>
 
                 <div class="guest-divider"><span>или</span></div>
@@ -803,6 +783,7 @@
             { role: 'Продавец', user: 'seller', pass: 'Seller123!', badge: 'user' },
             { role: 'Врач', user: 'doctor', pass: 'Doctor123!', badge: 'user' },
             { role: 'Фармацевт', user: 'pharmacist', pass: 'Pharma123!', badge: 'user' },
+            { role: 'Полицейский', user: 'police', pass: 'Police123!', badge: 'user' },
             { role: 'Инспектор', user: 'inspector', pass: 'Inspect123!', badge: 'user' },
             { role: 'Гражданин', user: 'citizen', pass: 'Citizen123!', badge: 'user' }
         ];
@@ -825,21 +806,114 @@
             });
         }
 
-        // Self-service registration always provisions a CITIZEN (audit 4.1/4.2). The employment
-        // choice no longer gates a *role*, but it is no longer inert either (Problem 4): choosing
-        // «Трудоустроен» reveals an employer picker and raises a membership request the company
-        // admin must approve. Demo account passwords are intentionally NOT printed on the login
-        // screen (audit 1.3); they live in the README for evaluators only.
-        const employmentSel = document.getElementById('re-employment');
-        const orgField = document.getElementById('re-org-field');
-        const orgSel = document.getElementById('re-organization');
-        function syncEmployment() {
-            const employed = employmentSel.value === 'EMPLOYED';
-            orgField.hidden = !employed;
-            if (employed) fillOrganizationSelect(orgSel);
+        // ---- eGov smart onboarding (Phase 2): телефон → плашка «Это вы?» → профиль ----
+        // Публичный путь по-прежнему НИКОГДА не выдаёт привилегированную роль: сервер
+        // создаёт CITIZEN + полный цифровой пакет (медкарта, правовой статус, визитка).
+        let egPhone = null;
+        const egResult = document.getElementById('eg-result');
+        const egErr = document.getElementById('eg-error');
+
+        function egovPlate(data) {
+            const p = data.person;
+            const initials = ((p.firstName || '')[0] || '') + ((p.lastName || '')[0] || '');
+            const already = data.alreadyRegistered;
+            return `
+            <div class="egov-plate fade-in">
+                <div class="ep-badge">✓ Найдено в базе eGov <span class="demo-tag">DEMO</span></div>
+                <div class="ep-person">
+                    <div class="ep-avatar">${esc(initials.toUpperCase())}</div>
+                    <div class="ep-info">
+                        <div class="ep-name">${esc(p.fullName)}</div>
+                        <div class="ep-kv"><span>ИИН</span><code>${esc(p.iin)}</code></div>
+                        <div class="ep-kv"><span>Дата рождения</span><b>${esc(p.birthDate)}</b></div>
+                        <div class="ep-kv"><span>Адрес</span><b>${esc(p.address)}</b></div>
+                        <div class="ep-kv"><span>Телефон</span><b>${esc(data.phoneDisplay)}</b></div>
+                    </div>
+                </div>
+                ${already ? `
+                <div class="ep-q">Этот номер уже зарегистрирован — войдите по SMS-коду</div>
+                <div class="otp-row">
+                    <input id="eg-otp" type="text" inputmode="numeric" maxlength="4" placeholder="Код из SMS" autocomplete="one-time-code">
+                    <button class="btn btn-primary" id="eg-otp-login" type="button">Войти</button>
+                </div>
+                <div class="field-hint">Демо-код: <b>1234</b> (SMS-шлюз в демо не подключён).</div>` : `
+                <div class="ep-q">Это вы?</div>
+                <div class="ep-actions">
+                    <button class="btn btn-gold btn-block" id="eg-confirm" type="button">✓ Да, это я — создать цифровой профиль</button>
+                    <button class="btn btn-ghost btn-block" id="eg-not-me" type="button">Это не я</button>
+                </div>
+                <p class="ep-note">Будут созданы автоматически: цифровая личность, единый QR, медкарта,
+                правовой статус и визитка. Вход в дальнейшем — по SMS-коду.</p>`}
+            </div>`;
         }
-        employmentSel.addEventListener('change', syncEmployment);
-        syncEmployment();
+
+        async function egovLookup() {
+            egErr.textContent = '';
+            const raw = document.getElementById('eg-phone').value.trim();
+            if (!raw) { egErr.textContent = 'Введите номер телефона.'; return; }
+            const btn = document.getElementById('eg-lookup');
+            btn.disabled = true; btn.textContent = 'Запрашиваем eGov…';
+            try {
+                const { ok, data } = await apiJson('/api/auth/egov/lookup', { method: 'POST', body: { phone: raw } });
+                if (!ok || !data || !data.person) throw new Error((data && data.message) || 'Гражданин не найден.');
+                egPhone = data.phone;
+                egResult.innerHTML = egovPlate(data);
+                wireEgovPlate(data);
+            } catch (err) {
+                egErr.textContent = err.message;
+            } finally {
+                btn.disabled = false; btn.textContent = 'Найти меня в eGov';
+            }
+        }
+
+        function wireEgovPlate(data) {
+            const confirm = document.getElementById('eg-confirm');
+            if (confirm) confirm.addEventListener('click', async () => {
+                confirm.disabled = true; confirm.textContent = 'Создаём цифровой профиль…';
+                try {
+                    const { ok, data: res } = await apiJson('/api/auth/egov/register',
+                        { method: 'POST', body: { phone: egPhone } });
+                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Не удалось создать профиль.');
+                    currentUser = res.user;
+                    dossierInfo = null;
+                    toast('Личность подтверждена через eGov. Профиль создан!', 'ok');
+                    await maybeMergeGuest();
+                    route();
+                    consumePendingScan();
+                } catch (err) {
+                    egErr.textContent = err.message;
+                    confirm.disabled = false; confirm.textContent = '✓ Да, это я — создать цифровой профиль';
+                }
+            });
+            const notMe = document.getElementById('eg-not-me');
+            if (notMe) notMe.addEventListener('click', () => {
+                egResult.innerHTML = '';
+                const ph = document.getElementById('eg-phone');
+                ph.value = ''; ph.focus();
+            });
+            const otpLogin = document.getElementById('eg-otp-login');
+            if (otpLogin) otpLogin.addEventListener('click', async () => {
+                const code = (document.getElementById('eg-otp').value || '').trim();
+                if (!code) { egErr.textContent = 'Введите SMS-код (демо: 1234).'; return; }
+                otpLogin.disabled = true; otpLogin.textContent = 'Проверяем…';
+                try {
+                    const { ok, data: res } = await apiJson('/api/auth/egov/login',
+                        { method: 'POST', body: { phone: egPhone, code } });
+                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Код неверен.');
+                    currentUser = res.user;
+                    dossierInfo = null;
+                    toast('Вход выполнен. Добро пожаловать!', 'ok');
+                    route();
+                    enforcePasswordChange();
+                    consumePendingScan();
+                } catch (err) {
+                    egErr.textContent = err.message;
+                    otpLogin.disabled = false; otpLogin.textContent = 'Войти';
+                }
+            });
+        }
+
+        registerForm.addEventListener('submit', (e) => { e.preventDefault(); egovLookup(); });
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -862,48 +936,6 @@
             }
         });
 
-        registerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const errEl = document.getElementById('register-error');
-            errEl.textContent = '';
-            const employmentStatus = document.getElementById('re-employment').value;
-            const payload = {
-                firstName: document.getElementById('re-firstName').value.trim(),
-                lastName: document.getElementById('re-lastName').value.trim(),
-                username: document.getElementById('re-username').value.trim(),
-                password: document.getElementById('re-password').value,
-                employmentStatus,
-                // Self-registration is always CITIZEN; the server enforces this regardless.
-                profession: 'CITIZEN'
-            };
-            // Employed applicants may name an employer — it raises a verification request, not a role.
-            if (employmentStatus === 'EMPLOYED') {
-                const orgVal = (document.getElementById('re-organization') || {}).value || '';
-                if (orgVal) payload.organizationUid = orgVal;
-            }
-            if (!payload.firstName || !payload.lastName || !payload.username || !payload.password) {
-                errEl.textContent = 'Заполните все поля.'; return;
-            }
-            const btn = document.getElementById('register-submit');
-            btn.disabled = true; btn.textContent = 'Создаём…';
-            try {
-                const { ok, status, data } = await apiJson('/api/auth/register', { method: 'POST', body: payload });
-                if (!ok) {
-                    let msg = (data && data.message) || 'Не удалось зарегистрироваться';
-                    if (status === 409) msg = (data && data.message) || 'Имя пользователя уже занято';
-                    if (data && data.details) { const f = Object.values(data.details)[0]; if (f) msg = f; }
-                    throw new Error(msg);
-                }
-                toast('Аккаунт создан. Выполняем вход…', 'ok');
-                await doLogin(payload.username, payload.password);
-                await maybeMergeGuest();
-                route();
-                consumePendingScan();
-            } catch (err) {
-                errEl.textContent = err.message;
-                btn.disabled = false; btn.textContent = 'Создать аккаунт';
-            }
-        });
     }
 
     // =============================================================
@@ -1731,16 +1763,20 @@
         // tracked silently and only surface post-registration (Point 6).
         const tabs = guest
             ? [['terminal', 'Терминал']]
-            : [['terminal', 'Терминал'], ['myqr', 'Мой QR'], ['objects', 'Мои объекты'],
+            : [['home', 'Главная'], ['terminal', 'Терминал'], ['myqr', 'Мой QR'], ['objects', 'Мои объекты'],
                ['history', 'Моя история'], ['complaints', 'Жалобы']];
-        if (!tabs.some(t => t[0] === citizenTab)) citizenTab = 'terminal';
+        // Модульные вью (Медицина / Услуги / Бизнес) открываются с «Главной» и не дублируются в навигации.
+        const moduleTabs = ['medicine', 'services', 'business'];
+        if (!tabs.some(t => t[0] === citizenTab) && !(!guest && moduleTabs.includes(citizenTab))) {
+            citizenTab = guest ? 'terminal' : 'home';
+        }
         app().innerHTML = `
         <div class="fade-in">
             <div class="page-head">
                 <div>
-                    <h2>Терминал доступа</h2>
-                    <p>Отсканируйте QR-код объекта камерой. Шлюз проверит ваши права и контекст,
-                    затем покажет доступные данные из реестра.</p>
+                    <h2>Единый национальный QR</h2>
+                    <p>Один личный QR — разные данные для разных ролей: врач видит медкарту,
+                    фармацевт — рецепты, полицейский — правовой статус, гражданин — визитку.</p>
                 </div>
             </div>
 
@@ -1786,7 +1822,8 @@
 
         const nav = app().querySelector('.view-nav');
         nav.querySelectorAll('button').forEach(b => {
-            b.classList.toggle('active', b.dataset.tab === citizenTab);
+            b.classList.toggle('active', b.dataset.tab === citizenTab
+                || (b.dataset.tab === 'home' && moduleTabs.includes(citizenTab)));
             b.addEventListener('click', () => { citizenTab = b.dataset.tab; renderCitizen(); });
         });
 
@@ -1795,12 +1832,301 @@
         loadAccessRequests();
         startAccessPolling();
 
-        if (citizenTab === 'terminal') renderCitizenTerminal();
+        if (citizenTab === 'home') renderCitizenHome();
+        else if (citizenTab === 'terminal') renderCitizenTerminal();
         else if (citizenTab === 'myqr') renderCitizenMyQr();
         else if (citizenTab === 'objects') renderCitizenObjects();
         else if (citizenTab === 'history') renderCitizenHistory();
         else if (citizenTab === 'complaints') renderCitizenComplaints();
+        else if (citizenTab === 'medicine') renderCitizenMedicine();
+        else if (citizenTab === 'services') renderCitizenServices();
+        else if (citizenTab === 'business') renderCitizenBusiness();
         else renderCitizenTerminal();
+    }
+
+    // =============================================================
+    //  PHASE 2 — ДАШБОРД: «Главная» с тремя модулями
+    //  (Медицина и здоровье · Услуги и быт · Бизнес и магазины)
+    // =============================================================
+    async function loadDossier(force) {
+        if (dossierInfo && !force) return dossierInfo;
+        try {
+            const { ok, data } = await apiJson('/api/v2/dossier/me');
+            if (ok && data && data.available) dossierInfo = data;
+        } catch (_) { /* ignore */ }
+        return dossierInfo;
+    }
+
+    function moduleBack() {
+        return `<button class="btn btn-ghost btn-sm mod-back" id="mod-back" type="button">← Главная</button>`;
+    }
+    function wireModuleBack() {
+        const b = document.getElementById('mod-back');
+        if (b) b.addEventListener('click', () => { citizenTab = 'home'; renderCitizen(); });
+    }
+
+    function renderCitizenHome() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Собираем ваш цифровой профиль…')}</section>`;
+        loadDossier().then(d => {
+            const name = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim();
+            const initials = ((currentUser.firstName || '')[0] || '') + ((currentUser.lastName || '')[0] || '');
+            const egov = (d && d.egov) || {};
+            const rxActive = d ? Number(d.prescriptionsActive || 0) : 0;
+            body.innerHTML = `
+            <div class="dash fade-in">
+                <section class="dash-hero panel">
+                    <div class="dh-glow" aria-hidden="true"></div>
+                    <div class="dh-id">
+                        <div class="dh-avatar">${esc(initials.toUpperCase())}</div>
+                        <div class="dh-meta">
+                            <div class="dh-name">${esc(name)}</div>
+                            <div class="dh-sub">${esc(currentUser.professionLabel || 'Гражданин')} · подтверждено eGov <span class="demo-tag">DEMO</span></div>
+                            <div class="dh-kv">
+                                ${egov.iinMasked ? `<span class="dh-pill">ИИН <code>${esc(egov.iinMasked)}</code></span>` : ''}
+                                ${egov.address ? `<span class="dh-pill">📍 ${esc(egov.address)}</span>` : ''}
+                            </div>
+                        </div>
+                        <button class="btn btn-gold dh-qr-btn" id="dh-myqr" type="button">▦ Мой единый QR</button>
+                    </div>
+                    ${d ? `<div class="dh-docs">
+                        <span class="dh-docs-label">Мои документы:</span>
+                        <button class="dh-doc" data-scan="${esc(d.medicalObjectUid)}" type="button">🩺 Медкарта</button>
+                        <button class="dh-doc" data-scan="${esc(d.legalObjectUid)}" type="button">📜 Справка о несудимости</button>
+                        <button class="dh-doc" data-scan="${esc(d.vcardObjectUid)}" type="button">👤 Визитка</button>
+                    </div>` : ''}
+                </section>
+
+                <div class="dash-modules">
+                    <button class="module-card mod-med" data-mod="medicine" type="button">
+                        <div class="mc-ico">🫀</div>
+                        <div class="mc-name">Медицина и здоровье</div>
+                        <div class="mc-sub">Медкарта · приёмы · рецепты</div>
+                        <div class="mc-stat">${rxActive > 0
+                            ? `<span class="mc-badge">${rxActive} активн. рецепт${rxActive === 1 ? '' : 'а'}</span>`
+                            : '<span class="mc-badge quiet">Показатели в норме</span>'}</div>
+                        <span class="mc-arrow" aria-hidden="true">→</span>
+                    </button>
+                    <button class="module-card mod-serv" data-mod="services" type="button">
+                        <div class="mc-ico">🏠</div>
+                        <div class="mc-name">Услуги и быт</div>
+                        <div class="mc-sub">ЖКХ · вывоз мусора · мастера</div>
+                        <div class="mc-stat"><span class="mc-badge quiet">Заявка в 1 клик — адрес из eGov</span></div>
+                        <span class="mc-arrow" aria-hidden="true">→</span>
+                    </button>
+                    <button class="module-card mod-biz" data-mod="business" type="button">
+                        <div class="mc-ico">🛍</div>
+                        <div class="mc-name">Бизнес и магазины</div>
+                        <div class="mc-sub">Покупки · скидочная карта · мои вещи</div>
+                        <div class="mc-stat"><span class="mc-badge quiet">Единый QR = карта лояльности</span></div>
+                        <span class="mc-arrow" aria-hidden="true">→</span>
+                    </button>
+                </div>
+
+                <section class="panel panel-pad dash-how">
+                    <div class="section-title">Как работает контекстный QR</div>
+                    <p class="muted" style="margin-bottom:12px">QR один и тот же — данные разные: платформа
+                    смотрит на роль и рабочий режим того, кто сканирует.</p>
+                    <div class="how-grid">
+                        <div class="how-item"><span class="hi-ico">👤</span><b>Гражданин</b><span>видит вашу визитку</span></div>
+                        <div class="how-item"><span class="hi-ico">🩺</span><b>Врач</b><span>медкарту — только с вашего согласия</span></div>
+                        <div class="how-item"><span class="hi-ico">💊</span><b>Фармацевт</b><span>только рецепты к выдаче</span></div>
+                        <div class="how-item"><span class="hi-ico">👮</span><b>Полицейский</b><span>правовой статус и штрафы</span></div>
+                    </div>
+                </section>
+            </div>`;
+            const qrBtn = document.getElementById('dh-myqr');
+            if (qrBtn) qrBtn.addEventListener('click', () => { citizenTab = 'myqr'; renderCitizen(); });
+            body.querySelectorAll('.module-card').forEach(c =>
+                c.addEventListener('click', () => { citizenTab = c.dataset.mod; renderCitizen(); }));
+            body.querySelectorAll('.dh-doc').forEach(b =>
+                b.addEventListener('click', () => doScan(b.dataset.scan)));
+        });
+    }
+
+    // ---- Модуль 1: МЕДИЦИНА И ЗДОРОВЬЕ ----
+    function renderCitizenMedicine() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка модуля…')}</section>`;
+        loadDossier().then(async d => {
+            let rxHtml = '<div class="obj-empty">Назначений пока нет.</div>';
+            if (d) {
+                try {
+                    const { ok, data } = await apiJson(`/api/v2/medical/${encodeURIComponent(d.medicalObjectUid)}/prescriptions`);
+                    if (ok && Array.isArray(data) && data.length) rxHtml = prescriptionsSection(data, d.medicalObjectUid);
+                } catch (_) { /* keep empty */ }
+            }
+            body.innerHTML = `
+            <div class="module-view fade-in">
+                <div class="module-head mod-med-head">
+                    ${moduleBack()}
+                    <div class="mh-title"><span class="mh-ico">🫀</span> Медицина и здоровье</div>
+                </div>
+                <div class="mod-actions">
+                    <button class="mod-action" id="med-open-card" type="button" ${d ? '' : 'disabled'}>
+                        <span class="ma-ico">🩺</span>
+                        <span class="ma-txt"><b>Моя медицинская карта</b><span>аллергии, назначения, динамика давления</span></span>
+                        <span class="ma-arrow">→</span>
+                    </button>
+                    <button class="mod-action" id="med-goto-qr" type="button">
+                        <span class="ma-ico">▦</span>
+                        <span class="ma-txt"><b>Показать QR врачу</b><span>врач откроет карту только с вашего согласия</span></span>
+                        <span class="ma-arrow">→</span>
+                    </button>
+                </div>
+                <section class="panel panel-pad">
+                    <div class="section-title">Мои рецепты</div>
+                    ${rxHtml}
+                </section>
+                <section class="panel panel-pad scenario-strip">
+                    <div class="section-title">Сценарий «Пациент → Врач → Фармацевт»</div>
+                    <div class="steps">
+                        <div class="step"><span class="st-n">1</span><b>Пациент</b><span>показывает единый QR</span></div>
+                        <div class="step"><span class="st-n">2</span><b>Врач</b><span>сканирует, получает согласие, выписывает рецепт</span></div>
+                        <div class="step"><span class="st-n">3</span><b>Фармацевт</b><span>сканирует тот же QR и видит только рецепты</span></div>
+                    </div>
+                </section>
+            </div>`;
+            wireModuleBack();
+            const open = document.getElementById('med-open-card');
+            if (open && d) open.addEventListener('click', () => doScan(d.medicalObjectUid));
+            const qr = document.getElementById('med-goto-qr');
+            if (qr) qr.addEventListener('click', () => { citizenTab = 'myqr'; renderCitizen(); });
+            wirePrescriptions(d ? d.medicalObjectUid : null, body);
+        });
+    }
+
+    // ---- Модуль 2: УСЛУГИ И БЫТ ----
+    function renderCitizenServices() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка каталога услуг…')}</section>`;
+        Promise.all([apiJson('/api/v2/services/catalog'), apiJson('/api/v2/services/mine'), loadDossier()])
+            .then(([cat, mine, d]) => {
+                const catalog = (cat.ok && Array.isArray(cat.data)) ? cat.data : [];
+                const orders = (mine.ok && Array.isArray(mine.data)) ? mine.data : [];
+                const address = d && d.egov && d.egov.address ? d.egov.address : null;
+                body.innerHTML = `
+                <div class="module-view fade-in">
+                    <div class="module-head mod-serv-head">
+                        ${moduleBack()}
+                        <div class="mh-title"><span class="mh-ico">🏠</span> Услуги и быт</div>
+                    </div>
+                    ${address ? `<div class="serv-addr">📍 Заявки привязываются к вашему адресу из eGov: <b>${esc(address)}</b></div>` : ''}
+                    <div class="serv-grid">
+                        ${catalog.map(c => `
+                        <div class="serv-card">
+                            <div class="sc-ico">${esc(c.icon)}</div>
+                            <div class="sc-name">${esc(c.label)}</div>
+                            <div class="sc-desc">${esc(c.description)}</div>
+                            <div class="sc-meta">${esc(c.operator)} · ${esc(c.price)} · ${esc(c.eta)}</div>
+                            <button class="btn btn-primary btn-sm sc-order" type="button" data-key="${esc(c.key)}">Заказать</button>
+                        </div>`).join('')}
+                    </div>
+                    <section class="panel panel-pad">
+                        <div class="section-title">Мои заявки</div>
+                        <div id="serv-orders">${serviceOrdersHtml(orders)}</div>
+                    </section>
+                </div>`;
+                wireModuleBack();
+                body.querySelectorAll('.sc-order').forEach(btn => btn.addEventListener('click', async () => {
+                    btn.disabled = true; btn.textContent = 'Оформляем…';
+                    try {
+                        const { ok, data } = await apiJson('/api/v2/services/order',
+                            { method: 'POST', body: { service: btn.dataset.key } });
+                        if (!ok) throw new Error((data && data.message) || 'Не удалось оформить заявку.');
+                        toast(`Заявка принята: ${data.label}. Оператор: ${data.operator}.`, 'ok');
+                        refreshNotifications();
+                        renderCitizenServices();
+                    } catch (e) {
+                        toast(e.message, 'err');
+                        btn.disabled = false; btn.textContent = 'Заказать';
+                    }
+                }));
+                wireServiceOrderActions(body);
+            });
+    }
+
+    function serviceOrdersHtml(orders) {
+        if (!orders.length) return '<div class="obj-empty">Заявок пока нет. Закажите услугу выше — она привяжется к вашему профилю.</div>';
+        return orders.map(o => `
+            <div class="order-row">
+                <span class="or-ico">${esc(o.icon || '🧾')}</span>
+                <div class="or-main">
+                    <div class="or-name">${esc(o.label || o.service)}</div>
+                    <div class="or-meta">${esc([o.address, o.operator, o.orderedAt].filter(Boolean).join(' · '))}</div>
+                </div>
+                <div class="or-right">
+                    ${o.status === 'COMPLETED'
+                        ? '<span class="atag ok">Выполнена</span>'
+                        : `<span class="atag review">В работе</span>
+                           <button class="btn btn-ghost btn-sm or-complete" type="button" data-id="${esc(o.orderUid)}" title="Демо: имитация закрытия оператором">Выполнена ✓</button>`}
+                </div>
+            </div>`).join('');
+    }
+
+    function wireServiceOrderActions(scope) {
+        scope.querySelectorAll('.or-complete').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+                const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/complete`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось обновить заявку.');
+                toast('Услуга отмечена выполненной.', 'ok');
+                renderCitizenServices();
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+        }));
+    }
+
+    // ---- Модуль 3: БИЗНЕС И МАГАЗИНЫ ----
+    function renderCitizenBusiness() {
+        const body = document.getElementById('citizen-body');
+        body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка модуля…')}</section>`;
+        Promise.all([apiJson('/api/v2/my-qr'), apiJson('/api/v2/my-objects')]).then(([qr, obj]) => {
+            const qrData = qr.ok ? qr.data : null;
+            const objects = (obj.ok && Array.isArray(obj.data)) ? obj.data : [];
+            body.innerHTML = `
+            <div class="module-view fade-in">
+                <div class="module-head mod-biz-head">
+                    ${moduleBack()}
+                    <div class="mh-title"><span class="mh-ico">🛍</span> Бизнес и магазины</div>
+                </div>
+                <div class="biz-grid">
+                    <section class="loyalty-card">
+                        <div class="lc-glow" aria-hidden="true"></div>
+                        <div class="lc-brand">IDEAQR <span>PAY&nbsp;ID</span></div>
+                        <div class="lc-name">${esc(qrData ? qrData.fullName : '')}</div>
+                        ${qrData ? `<img class="lc-qr" src="${esc(qrData.qrImageDataUri)}" alt="QR карты лояльности">` : ''}
+                        <div class="lc-num mono">${esc(shortId(currentUser.identityUid))} · скидка 10%</div>
+                        <div class="lc-note">Единый QR — это и карта лояльности: продавец увидит только скидку, не личные данные.</div>
+                    </section>
+                    <section class="panel panel-pad biz-side">
+                        <div class="section-title">Демо-сценарии покупки</div>
+                        <div class="quick-chips">
+                            <button class="quick-chip" type="button" data-scan="RETAIL_NIKE_AF1">
+                                <span class="qc-name">Nike Air Force 1</span><span class="qc-code">RETAIL_NIKE_AF1</span>
+                                <span class="qc-tag">товар · цены и наличие</span></button>
+                            <button class="quick-chip" type="button" data-scan="CAR_TOYOTA_CAMRY">
+                                <span class="qc-name">Toyota Camry 2024</span><span class="qc-code">CAR_TOYOTA_CAMRY</span>
+                                <span class="qc-tag">авто · владение и передача</span></button>
+                        </div>
+                    </section>
+                </div>
+                <section class="panel panel-pad">
+                    <div class="section-title">Мои вещи (${objects.length})</div>
+                    ${objects.length ? `<div class="myobj-grid">
+                        ${objects.map(o => `
+                        <div class="myobj-card">
+                            <img class="myobj-qr" src="${esc(o.qrImageDataUri)}" alt="QR ${esc(o.displayName)}">
+                            <div class="myobj-name">${esc(o.displayName)}</div>
+                            <div class="myobj-uid mono">${esc(o.objectUid)}</div>
+                            <button class="btn btn-ghost btn-sm myobj-open" type="button" data-uid="${esc(o.objectUid)}">Открыть карточку</button>
+                        </div>`).join('')}
+                    </div>` : '<div class="obj-empty">Пока пусто. Когда вам передадут объект (например, автомобиль) — он появится здесь с QR-кодом.</div>'}
+                </section>
+            </div>`;
+            wireModuleBack();
+            body.querySelectorAll('[data-scan]').forEach(b => b.addEventListener('click', () => doScan(b.dataset.scan)));
+            body.querySelectorAll('.myobj-open').forEach(b => b.addEventListener('click', () => doScan(b.dataset.uid)));
+        });
     }
 
     // -------------------------------------------------------------
@@ -1993,7 +2319,7 @@
             { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'авто · передача владельца' },
             { name: 'Умный замок · офис AITU', code: 'LOCK_OFFICE_AITU', tag: 'инфраструктура · доступ по роли' },
             { name: 'Студбилет AITU', code: 'DOC_STUDENT_AITU', tag: 'документ · образование' },
-            { name: 'Цифровая визитка', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'личность · Owner Approval + Trust Level' }
+            { name: 'Единый QR · Айдос', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'контекстный QR · данные зависят от вашей роли' }
         ];
         const chipBox = document.getElementById('quick-chips');
         chipBox.innerHTML = quick.map((q, i) => `
@@ -2075,10 +2401,15 @@
         const result = slot || openResultPage('');
         const approved = data.outcome === 'APPROVED';
         let cardHtml = '';
-        if (approved && data.data) cardHtml = renderCardByCategory(data.category, data.data, data.objectUid);
+        // Контекстный QR (Phase 2): визитка приходит с data при outcome=REVIEW (полный
+        // профиль ждёт подтверждения владельца) — карточку показываем сразу.
+        if (data.data && (approved || data.contextView === 'BUSINESS_CARD')) {
+            cardHtml = renderContextCard(data);
+        }
         const tierHtml = (approved && data.accessTier) ? accessTierHtml(data.accessTier) : '';
         const ctaHtml = data.registrationRequired ? guestCtaHtml(data.cta) : '';
         result.innerHTML = `
+            ${contextRibbon(data)}
             ${verdictHtml(data.outcome, data.reason, data.riskLevel)}
             <div class="pipeline" id="scan-pipeline"></div>
             <div id="card-slot" class="mt-md">${tierHtml}${cardHtml}${ctaHtml}</div>`;
@@ -2364,8 +2695,9 @@
     //  Citizen: incoming access requests ("Подтвердить доступ")
     // -------------------------------------------------------------
     const INTERACTION_RU = {
-        SCAN: 'Скан объекта', PROFILE_SCAN: 'Скан профиля',
-        REPORT: 'Обращение', SOS: 'SOS', QR_CREATION: 'Создание QR'
+        SCAN: 'Скан объекта', PROFILE_SCAN: 'Скан профиля', MEDICAL_SCAN: 'Запрос к медкарте',
+        REPORT: 'Обращение', SOS: 'SOS', QR_CREATION: 'Создание QR',
+        PRESCRIPTION: 'Рецепт', SERVICE_ORDER: 'Заявка на услугу'
     };
     const ISTATUS_RU = { PENDING: 'Ожидает', CONFIRMED: 'Подтверждено', REJECTED: 'Отклонено' };
     const COMPLAINT_RU = { NEW: 'Новая', IN_PROGRESS: 'В работе', RESOLVED: 'Решена', REJECTED: 'Отклонена' };
@@ -2721,12 +3053,134 @@
             case 'RETAIL': return retailCard(d, objectUid);
             case 'ECO': return ecoCard(d, objectUid);
             case 'INFRASTRUCTURE': return infraCard(d, objectUid);
+            case 'LEGAL': return legalCard(d, objectUid);
             default: return generalCard(d, objectUid);
         }
     }
 
+    // -------------------------------------------------------------
+    //  Phase 2 — контекстный QR: карточка подбирается по представлению,
+    //  которое вернул сервер для роли сканирующего.
+    // -------------------------------------------------------------
+    function renderContextCard(res) {
+        const d = res.data || {};
+        if (res.contextView === 'BUSINESS_CARD' || res.category === 'IDENTITY') return businessCard(d);
+        if (res.contextView === 'PRESCRIPTIONS') return rxOnlyCard(d, res.objectUid);
+        return renderCardByCategory(res.category, d, res.objectUid);
+    }
+
+    /** Полоска контекста: кто сканирует — то и открывается (ключевой месседж демо). */
+    function contextRibbon(res) {
+        const map = {
+            MEDICAL: { ico: '🩺', txt: 'Контекст: медицинский работник → медицинская карта (по согласию пациента)' },
+            PRESCRIPTIONS: { ico: '💊', txt: 'Контекст: фармацевт → только рецепты (минимальный доступ по роли)' },
+            LEGAL: { ico: '👮', txt: 'Контекст: полиция при исполнении → правовой статус' },
+            BUSINESS_CARD: { ico: '👤', txt: 'Контекст: гражданин → цифровая визитка' }
+        };
+        const v = map[res.contextView];
+        if (!v) return '';
+        return `<div class="ctx-ribbon ctx-${esc((res.contextView || '').toLowerCase())}">
+            <span class="cr-ico">${v.ico}</span>
+            <span class="cr-txt">${esc(v.txt)}</span>
+            ${res.subjectName ? `<span class="cr-subject">${esc(res.subjectName)}</span>` : ''}
+        </div>`;
+    }
+
+    /** Цифровая визитка (единый QR, скан гражданином). fullProfile ⇒ раскрыта закрытая часть. */
+    function businessCard(d) {
+        const name = d.fullName || d.title || 'Пользователь';
+        const initials = name.split(/\s+/).map(w => w[0] || '').join('').substring(0, 2).toUpperCase();
+        const chips = [
+            d.phone ? { ico: '📞', v: d.phone } : null,
+            d.telegram ? { ico: '✈️', v: d.telegram } : null,
+            d.email ? { ico: '✉️', v: d.email } : null,
+            d.city ? { ico: '📍', v: d.city } : null
+        ].filter(Boolean).map(c =>
+            `<span class="vc-chip"><span>${c.ico}</span>${esc(c.v)}</span>`).join('');
+        const full = !!d.fullProfile;
+        const fullBlock = full ? `
+            <div class="vc-full">
+                <div class="vc-full-head">🔓 Закрытая часть — раскрыта владельцем</div>
+                <div class="kv-grid">
+                    ${kv('Уровень доверия', (d.trustLevel != null ? d.trustLevel + ' / 100' : '—'))}
+                    ${kv('Риск', d.riskScore || 'NORMAL')}
+                    ${d.profession ? kv('Профессия', professionRu(d.profession)) : ''}
+                </div>
+            </div>` : (d.trustLevel != null ? `
+            <div class="vc-trust" title="Единая метрика доверия платформы">
+                <span class="vc-trust-k">Доверие</span><span class="vc-trust-v">${esc(d.trustLevel)} / 100</span>
+            </div>` : '');
+        return `
+        <div class="card data-card vcard fade-in">
+            <div class="vc-top">
+                <div class="vc-avatar">${esc(initials)}</div>
+                <div class="vc-id">
+                    <div class="vc-name">${esc(name)}</div>
+                    <div class="vc-sub">${esc(d.profession ? professionRu(d.profession) : (d.about || 'Цифровая визитка'))}</div>
+                </div>
+                <span class="vc-mark" aria-hidden="true">▦</span>
+            </div>
+            ${chips ? `<div class="vc-chips">${chips}</div>` : ''}
+            ${d.about && d.profession ? `<div class="dc-section"><p class="muted">${esc(d.about)}</p></div>` : ''}
+            ${fullBlock}
+            ${d.note ? `<div class="dc-section vc-note"><p class="muted">${esc(d.note)}</p></div>` : ''}
+        </div>`;
+    }
+
+    /** Правовое досье (скан полицейским): статус, штрафы, розыск. */
+    function legalCard(d, objectUid) {
+        const cr = d.criminalRecord || {};
+        const fines = Array.isArray(d.fines) ? d.fines : [];
+        const dl = d.drivingLicense || null;
+        const fineRows = fines.map(f => `
+            <tr>
+                <td class="mono">${esc(f.date || '—')}</td>
+                <td>${esc(f.article || '—')}</td>
+                <td class="mono">${esc(fmtPrice(f.amount, '₸'))}</td>
+                <td>${f.status === 'ОПЛАЧЕН'
+                    ? '<span class="atag ok">Оплачен</span>'
+                    : '<span class="atag bad">Не оплачен</span>'}</td>
+            </tr>`).join('');
+        return `
+        <div class="card data-card legal-card fade-in">
+            ${cardHead(d.fullName || 'Гражданин', 'ИИН: ' + (d.iin || '—'), 'LEGAL')}
+            <div class="legal-status">
+                <div class="ls-main ok">
+                    <span class="ls-ico">✓</span>
+                    <div><div class="ls-title">${esc(cr.status || 'НЕ СУДИМ(А)')}</div>
+                    <div class="ls-sub">Справка ${esc(cr.certificateNo || '—')} · ${esc(cr.source || '')}</div></div>
+                </div>
+                <div class="ls-wanted">${esc(d.wanted || 'В розыске не числится')}</div>
+            </div>
+            <div class="dc-section">
+                <div class="kv-grid">
+                    ${kv('Дата рождения', d.birthDate || '—', true)}
+                    ${kv('Адрес регистрации', d.address || '—')}
+                    ${dl ? kv('Вод. удостоверение', dl.number + ' · кат. ' + dl.categories, true) : ''}
+                    ${dl ? kv('Действительно до', dl.validTill, true) : ''}
+                </div>
+            </div>
+            <div class="dc-section"><h4>Административные штрафы</h4>
+                ${fines.length ? `<table class="tbl"><thead><tr><th>Дата</th><th>Статья</th><th>Сумма</th><th>Статус</th></tr></thead>
+                <tbody>${fineRows}</tbody></table>` : '<div class="obj-empty">Штрафов нет — чистая история.</div>'}
+            </div>
+            ${d.restrictions ? `<div class="dc-section">${kv('Ограничения', d.restrictions)}</div>` : ''}
+            ${d.note ? `<div class="dc-section"><p class="muted">${esc(d.note)}</p></div>` : ''}
+        </div>`;
+    }
+
+    /** Срез «только рецепты» (скан фармацевтом): полная карта не раскрывается. */
+    function rxOnlyCard(d, objectUid) {
+        return `
+        <div class="card data-card rx-only fade-in">
+            ${cardHead(d.patientName || 'Пациент', 'ID: ' + (d.patientId || objectUid), 'MEDICAL')}
+            ${d.scope ? `<div class="rx-scope"><span>🔒</span>${esc(d.scope)}</div>` : ''}
+            ${prescriptionsSection(d.prescriptions, objectUid)}
+        </div>`;
+    }
+
     function cardHead(title, sub, category) {
-        const labels = { MEDICAL: 'Медицина', RETAIL: 'Товар', ECO: 'Экология', INFRASTRUCTURE: 'Инфраструктура', GENERAL: 'Объект' };
+        const labels = { MEDICAL: 'Медицина', RETAIL: 'Товар', ECO: 'Экология', INFRASTRUCTURE: 'Инфраструктура', LEGAL: 'Правовой статус', GENERAL: 'Объект' };
         const cls = (category || 'general').toLowerCase();
         return `
             <div class="dc-head">

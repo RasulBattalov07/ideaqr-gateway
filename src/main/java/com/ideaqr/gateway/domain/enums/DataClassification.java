@@ -24,6 +24,7 @@ public enum DataClassification {
         }
         return switch (category) {
             case MEDICAL -> CONFIDENTIAL;
+            case LEGAL -> SECRET;
             case INFRASTRUCTURE -> RESTRICTED;
             case RETAIL, ECO, GENERAL -> PUBLIC;
             default -> RESTRICTED;

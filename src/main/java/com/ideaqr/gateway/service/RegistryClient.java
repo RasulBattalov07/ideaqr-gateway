@@ -55,9 +55,13 @@ public class RegistryClient {
             return new Resolved(false, ObjectCategory.UNKNOWN, "—", minimal(key, "Пустой идентификатор."));
         }
 
-        // 1. Objects minted through the admin panel / seeded into the DB.
-        Optional<RegistryObject> dbObject = registryObjectRepository.findByObjectUid(key);
-        if (dbObject.isPresent()) {
+        // 1. Objects minted through the admin panel / seeded into the DB. The lookup runs
+        // across tenants (a QR identifier is scannable by anyone — access to the CONTENT is
+        // decided by the policy engine), then the tenant guard is re-applied by hand: only
+        // same-tenant, public-tenant or unscoped (admin) callers may see the object at all.
+        // This is what lets a hospital doctor / police officer resolve a citizen's dossier.
+        Optional<RegistryObject> dbObject = registryObjectRepository.findByObjectUidAnyTenant(key);
+        if (dbObject.isPresent() && visibleToCurrentTenant(dbObject.get())) {
             RegistryObject o = dbObject.get();
             return new Resolved(true, o.getCategory(), o.getDisplayName(), parse(o.getDataJson()));
         }
@@ -77,9 +81,25 @@ public class RegistryClient {
                 minimal(key, "Объект распознан по префиксу, но подробные данные в реестре отсутствуют."));
     }
 
+    /**
+     * Tenant guard for the cross-tenant uid lookup (audit H-2 discipline): unscoped callers
+     * (admin/system) see everything; everyone else sees own-tenant and public-tenant objects.
+     */
+    private boolean visibleToCurrentTenant(RegistryObject o) {
+        java.util.UUID caller = com.ideaqr.gateway.tenant.TenantContext.getTenantId();
+        if (caller == null) {
+            return true;
+        }
+        java.util.UUID tenant = o.getTenantId();
+        return tenant == null
+                || tenant.equals(com.ideaqr.gateway.tenant.TenantContext.PUBLIC_TENANT)
+                || tenant.equals(caller);
+    }
+
     private ObjectCategory inferCategory(String key) {
         String u = key.toUpperCase(Locale.ROOT);
         if (u.startsWith("PATIENT") || u.startsWith("MED") || u.startsWith("RX")) return ObjectCategory.MEDICAL;
+        if (u.startsWith("LEGAL") || u.startsWith("DOSSIER")) return ObjectCategory.LEGAL;
         if (u.startsWith("CAR") || u.startsWith("AUTO") || u.startsWith("VEHICLE") || u.startsWith("TOYOTA")
                 || u.startsWith("RETAIL") || u.startsWith("NIKE") || u.startsWith("PROD")) return ObjectCategory.RETAIL;
         if (u.startsWith("INFRA") || u.startsWith("SUBSTATION") || u.startsWith("LOCK")) return ObjectCategory.INFRASTRUCTURE;

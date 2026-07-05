@@ -75,6 +75,7 @@ public class GatewayService {
     private final SessionService sessionService;
     private final DevTimeService devTimeService;
     private final MedicalService medicalService;
+    private final CitizenDossierService citizenDossierService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -103,6 +104,20 @@ public class GatewayService {
         ValidationService.Verdict verdict = validationService.decideAccess(
                 identity, resolved.category(), resolved.known(), organizationUid, workingMode, overrideHour);
         boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
+
+        // OWNER OVERRIDE (Phase 2 — единый QR): субъект данных всегда вправе открыть СВОЮ
+        // медкарту и СВОЁ правовое досье (справка о несудимости о самом себе) из личного
+        // кабинета. Профессиональные ворота (роль врача/полиции) охраняют ЧУЖИЕ данные;
+        // для владельца отказ по роли заменяется решением OWNER_ACCESS — с полной записью
+        // в журнал, как и любое другое решение.
+        UUID subjectUid = subjectOfRecord(resolved.data());
+        boolean ownData = subjectUid != null && subjectUid.equals(identity.getIdentityUid());
+        if (!approved && !guest && ownData
+                && (resolved.category() == ObjectCategory.MEDICAL || resolved.category() == ObjectCategory.LEGAL)) {
+            verdict = new ValidationService.Verdict(DecisionOutcome.APPROVED, "OWNER_ACCESS",
+                    "Вы — субъект этих данных: доступ владельцу предоставлен.", "LOW");
+            approved = true;
+        }
 
         // PATIENT CONSENT (P0 — securing medical records): passing the professional gates
         // (role + trust + working mode + hours) is necessary but NOT sufficient to open a
@@ -387,7 +402,31 @@ public class GatewayService {
                     .build();
         }
 
-        String reason = "Запрос доступа к профилю отправлен. Ожидается подтверждение владельца.";
+        // ==============================================================
+        // PHASE 2 — КОНТЕКСТНЫЙ QR (единый национальный QR). Один и тот же личный QR
+        // раскрывает РАЗНЫЕ данные в зависимости от роли и режима сканирующего:
+        //   • врач при исполнении       → медкарта (через согласие пациента);
+        //   • фармацевт при исполнении  → только срез рецептов (минимальный доступ);
+        //   • полицейский при исполнении→ правовое досье (без согласия — властное полномочие);
+        //   • все остальные (и любой специалист в ЛИЧНОМ режиме) → публичная визитка
+        //     + Owner-Approval-запрос на полный профиль.
+        // Контекст = роль × рабочий режим: тот же врач вне смены — просто гражданин.
+        // ==============================================================
+        boolean scannerWorking = sessionService.current(scanner.getIdentityUid()).getMode() == SessionMode.WORKING;
+        java.util.Set<com.ideaqr.gateway.domain.enums.RoleType> scannerRoles = scanner.getRoles();
+        if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.DOCTOR)) {
+            return scanRoutedToDossier(scanner, owner,
+                    CitizenDossierService.medicalUidFor(owner.getIdentityUid()), "MEDICAL");
+        }
+        if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.PHARMACIST)) {
+            return scanPrescriptionsView(scanner, owner);
+        }
+        if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.POLICE)) {
+            return scanRoutedToDossier(scanner, owner,
+                    CitizenDossierService.legalUidFor(owner.getIdentityUid()), "LEGAL");
+        }
+
+        String reason = "Визитка открыта. Запрос на полный профиль отправлен владельцу.";
         Organization scannerOrg = organizationService.resolveActingOrganization(scanner.getIdentityUid());
         RequestRecord req = requestRepository.save(RequestRecord.builder()
                 .identityUid(scanner.getIdentityUid())
@@ -428,10 +467,11 @@ public class GatewayService {
         notificationService.notify(owner.getIdentityUid(), "ACCESS_REQUEST",
                 "Запрос доступа к профилю: " + displayName(scanner.getIdentityUid()) + ". Подтвердите или отклоните.");
 
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("title", displayName(owner.getIdentityUid()));
-        data.put("description", "Запрос отправлен. Сканирование — это только просмотр.");
-        data.put("note", "Полный профиль откроется после подтверждения владельцем.");
+        // Публичная визитка открывается СРАЗУ (это и есть «цифровая визитка» гражданина);
+        // Owner-Approval при этом продолжает охранять ПОЛНЫЙ профиль — сканер полирует
+        // /access/{id}/result до решения владельца, как и раньше.
+        Map<String, Object> data = publicBusinessCard(owner);
+        data.put("note", "Полный профиль (доверие, организация, статус) откроется после подтверждения владельцем.");
 
         return GatewayResponse.builder()
                 .success(false)
@@ -441,12 +481,144 @@ public class GatewayService {
                 .category("IDENTITY")
                 .objectUid(qrValue)
                 .data(data)
+                .contextView("BUSINESS_CARD")
+                .subjectName(displayName(owner.getIdentityUid()))
                 .identityUid(scanner.getIdentityUid().toString())
                 .requestUid(req.getRequestUid().toString())
                 .decisionUid(decision.getDecisionUid().toString())
                 .interactionUid(interaction.getInteractionUid().toString())
                 .historyUid(history.getHistoryUid().toString())
                 .build();
+    }
+
+    // ------------------------------------------------------------------
+    //  Phase 2 — контекстные представления единого личного QR
+    // ------------------------------------------------------------------
+
+    /**
+     * Специалист при исполнении отсканировал личный QR → маршрутизируем на профильный
+     * объект досье (медкарта для врача, правовое досье для полиции) и прогоняем его через
+     * СТАНДАРТНЫЙ конвейер {@link #scan}: те же ворота (роль, доверие, режим, время), тот же
+     * консент для медкарты, те же записи в журнал. Досье лениво доусоздаётся для аккаунтов,
+     * появившихся до Phase 2.
+     */
+    private GatewayResponse scanRoutedToDossier(Identity scanner, Identity owner,
+                                                String dossierObjectUid, String contextView) {
+        ensureDossier(owner);
+        ScanRequest routed = new ScanRequest();
+        routed.setObjectUid(dossierObjectUid);
+        GatewayResponse res = scan(scanner, routed);
+        res.setContextView(contextView);
+        res.setSubjectName(displayName(owner.getIdentityUid()));
+        return res;
+    }
+
+    /**
+     * Фармацевт при исполнении видит НЕ карту, а только срез рецептов (принцип минимального
+     * доступа: пациент предъявил свой QR у аптечной стойки — это и есть согласие на выдачу).
+     * Профессиональные ворота проверяются полностью; полная медкарта фармацевту не
+     * раскрывается ни при каком исходе.
+     */
+    @Transactional
+    public GatewayResponse scanPrescriptionsView(Identity scanner, Identity owner) {
+        ensureDossier(owner);
+        String medUid = CitizenDossierService.medicalUidFor(owner.getIdentityUid());
+        RegistryClient.Resolved resolved = registryClient.resolve(medUid);
+        Organization actingOrg = organizationService.resolveActingOrganization(scanner.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+        ValidationService.Verdict verdict = validationService.decideAccess(scanner,
+                ObjectCategory.MEDICAL, resolved.known(), organizationUid, true, devTimeService.currentMockHour());
+        boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
+        if (approved) {
+            verdict = new ValidationService.Verdict(DecisionOutcome.APPROVED, "RX_SLICE_GRANTED",
+                    "Роль «Фармацевт»: предоставлен ограниченный срез — только назначения и рецепты.",
+                    "MEDIUM");
+        }
+
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(scanner.getIdentityUid())
+                .organizationUid(organizationUid)
+                .objectUid(medUid)
+                .requestType(RequestType.ACCESS)
+                .status(RequestStatus.PENDING)
+                .build());
+        Decision decision = decisionRepository.save(Decision.builder()
+                .requestUid(req.getRequestUid())
+                .identityUid(scanner.getIdentityUid())
+                .outcome(verdict.outcome())
+                .reasonCode(verdict.reasonCode())
+                .reason(verdict.reason())
+                .riskLevel(verdict.riskLevel())
+                .build());
+        Interaction interaction = interactionRepository.save(Interaction.builder()
+                .identityUid(scanner.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .objectUid(medUid)
+                .targetIdentityUid(owner.getIdentityUid())
+                .interactionType("SCAN")
+                .detail("Фармацевт: просмотр рецептов пациента " + displayName(owner.getIdentityUid())
+                        + " → " + verdict.outcome().name())
+                .build());
+        req.setStatus(approved ? RequestStatus.PROCESSED : RequestStatus.FAILED);
+        requestRepository.save(req);
+
+        History history = auditService.record(scanner.getIdentityUid(), medUid,
+                approved ? HistoryEventType.ACCESS_GRANTED : HistoryEventType.ACCESS_DENIED,
+                verdict.reason(), req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+        eventService.record(approved ? EventType.DECISION_APPROVED : EventType.DECISION_REJECTED,
+                scanner.getIdentityUid(), medUid, interaction.getInteractionUid(),
+                "Срез рецептов по личному QR → " + verdict.outcome().name(), EventSource.QR_SCAN);
+
+        Map<String, Object> data = null;
+        if (approved) {
+            data = new LinkedHashMap<>();
+            data.put("patientName", displayName(owner.getIdentityUid()));
+            data.put("patientId", medUid);
+            data.put("scope", "Минимальный доступ по роли: только назначения и рецепты. Полная карта не раскрывается.");
+            data.put("prescriptions", medicalService.listForObject(medUid));
+        }
+
+        return GatewayResponse.builder()
+                .success(approved)
+                .outcome(verdict.outcome().name())
+                .reason(verdict.reason())
+                .riskLevel(verdict.riskLevel())
+                .category(ObjectCategory.MEDICAL.name())
+                .dataClassification(DataClassification.forCategory(ObjectCategory.MEDICAL).name())
+                .policy(validationService.governingPolicy(ObjectCategory.MEDICAL))
+                .objectUid(medUid)
+                .data(data)
+                .contextView("PRESCRIPTIONS")
+                .subjectName(displayName(owner.getIdentityUid()))
+                .identityUid(scanner.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
+                .requestUid(req.getRequestUid().toString())
+                .decisionUid(decision.getDecisionUid().toString())
+                .interactionUid(interaction.getInteractionUid().toString())
+                .historyUid(history.getHistoryUid().toString())
+                .build();
+    }
+
+    /** Ленивое доусоздание пакета досье владельца QR (для аккаунтов, созданных до Phase 2). */
+    private void ensureDossier(Identity owner) {
+        try {
+            citizenDossierService.ensureForIdentity(owner);
+        } catch (Exception e) {
+            // Досье — обогащение, а не предусловие: сбой генерации не должен ломать скан.
+        }
+    }
+
+    /** Публичная визитка гражданина (VCARD-объект досье) + единая метрика доверия. */
+    private Map<String, Object> publicBusinessCard(Identity owner) {
+        ensureDossier(owner);
+        Map<String, Object> card = citizenDossierService
+                .find(CitizenDossierService.vcardUidFor(owner.getIdentityUid()))
+                .map(citizenDossierService::payload)
+                .orElseGet(LinkedHashMap::new);
+        card.putIfAbsent("fullName", displayName(owner.getIdentityUid()));
+        card.put("trustLevel", owner.getTrustLevel());
+        return card;
     }
 
     /** Owner / patient confirms a pending access request → Decision = APPROVED. */
@@ -638,6 +810,7 @@ public class GatewayService {
                 .reason(reason)
                 .riskLevel(risk)
                 .category("MEDICAL")
+                .contextView("MEDICAL")
                 .objectUid(interaction.getObjectUid())
                 .dataClassification(DataClassification.forCategory(ObjectCategory.MEDICAL).name())
                 .policy(validationService.governingPolicy(ObjectCategory.MEDICAL))
@@ -711,14 +884,46 @@ public class GatewayService {
                 .orElse("Пользователь");
     }
 
+    /**
+     * Полный профиль после подтверждения владельцем: визитка (VCARD-объект) плюс
+     * закрытая часть — единая метрика доверия, риск и профессия.
+     */
     private Map<String, Object> profilePayload(UUID identityUid) {
-        Map<String, Object> data = new LinkedHashMap<>();
+        Map<String, Object> data = citizenDossierService
+                .find(CitizenDossierService.vcardUidFor(identityUid))
+                .map(citizenDossierService::payload)
+                .orElseGet(LinkedHashMap::new);
         Optional<User> u = userRepository.findByIdentityUid(identityUid);
-        data.put("title", u.map(x -> (x.getFirstName() + " " + x.getLastName()).trim()).orElse("Пользователь"));
-        u.ifPresent(x -> data.put("description", "Профессия: " + x.getProfession()));
-        identityRepository.findById(identityUid).ifPresent(id ->
-                data.put("note", "Уровень доверия: " + id.getTrustLevel() + " / 100"));
+        data.putIfAbsent("fullName",
+                u.map(x -> (x.getFirstName() + " " + x.getLastName()).trim()).orElse("Пользователь"));
+        u.ifPresent(x -> data.put("profession", x.getProfession()));
+        identityRepository.findById(identityUid).ifPresent(id -> {
+            data.put("trustLevel", id.getTrustLevel());
+            data.put("riskScore", id.getRiskScore());
+            data.put("fullProfile", true);
+        });
+        data.put("note", "Полный профиль раскрыт с согласия владельца. Доступ зафиксирован в журнале.");
         return data;
+    }
+
+    /**
+     * Субъект персональных данных, которому принадлежит запись реестра: пациент медкарты
+     * ({@code patientIdentityUid}) или субъект правового досье ({@code subjectIdentityUid}).
+     * Управляет owner-override'ом (владелец всегда может открыть данные о себе).
+     */
+    private UUID subjectOfRecord(Map<String, Object> data) {
+        UUID patient = patientOfRecord(data);
+        if (patient != null) {
+            return patient;
+        }
+        if (data == null || data.get("subjectIdentityUid") == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(data.get("subjectIdentityUid").toString().trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**

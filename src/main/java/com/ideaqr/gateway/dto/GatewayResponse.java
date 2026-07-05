@@ -67,4 +67,16 @@ public class GatewayResponse {
 
     /** Localized call-to-action shown to guests (Scenario #1 / ГОСТЕВОЙ ДОСТУП). */
     private String cta;
+
+    /**
+     * Phase 2 — контекстный QR. Какое представление одного и того же личного QR получил
+     * сканирующий, исходя из его роли и режима: {@code MEDICAL} (врач → медкарта через
+     * согласие пациента), {@code PRESCRIPTIONS} (фармацевт → только рецепты),
+     * {@code LEGAL} (полиция → правовое досье), {@code BUSINESS_CARD} (гражданин → визитка).
+     * {@code null} для обычных объектных сканов.
+     */
+    private String contextView;
+
+    /** ФИО владельца отсканированного личного QR (заголовок контекстного представления). */
+    private String subjectName;
 }

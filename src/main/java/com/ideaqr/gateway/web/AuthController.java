@@ -36,6 +36,7 @@ public class AuthController {
     private final UserService userService;
     private final OrganizationService organizationService;
     private final AuthSupport authSupport;
+    private final com.ideaqr.gateway.service.CitizenDossierService citizenDossierService;
 
     /**
      * Public list of organizations for the sign-up "employer" picker (shown when the
@@ -65,6 +66,9 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<ApiResponse> register(@Valid @RequestBody RegistrationRequest request) {
         User user = userService.register(request);
+        // Phase 2 (единый QR): каждый гражданин сразу получает цифровой пакет —
+        // медкарту, правовое досье и визитку, — на который маршрутизируется его личный QR.
+        citizenDossierService.ensureFor(user, userService.identityOf(user), null);
         ApiResponse body = ApiResponse.ok("Регистрация прошла успешно. Выполняется вход…")
                 .with("username", user.getUsername())
                 .with("admin", user.isAdmin())

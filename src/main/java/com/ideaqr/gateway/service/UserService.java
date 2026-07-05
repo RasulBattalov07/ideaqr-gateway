@@ -47,6 +47,7 @@ public class UserService {
     public static final String PROFESSION_PHARMACIST = "PHARMACIST";
     public static final String PROFESSION_SELLER = "SELLER";
     public static final String PROFESSION_SERVICE_OPERATOR = "SERVICE_OPERATOR";
+    public static final String PROFESSION_POLICE = "POLICE";
 
     /**
      * Public self-service registration. <b>Security (audit 4.1 / 4.2):</b> a public
@@ -246,6 +247,9 @@ public class UserService {
             case PROFESSION_SERVICE_OPERATOR -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.SERVICE_OPERATOR, RoleType.CITIZEN)),
                     IdentityService.TRUST_CITIZEN, false);
+            case PROFESSION_POLICE -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.POLICE, RoleType.CITIZEN)),
+                    IdentityService.TRUST_GOV, false);
             default -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.CITIZEN)),
                     IdentityService.TRUST_CITIZEN, false);
@@ -260,6 +264,7 @@ public class UserService {
             case PROFESSION_PHARMACIST -> "Фармацевт";
             case PROFESSION_SELLER -> "Продавец";
             case PROFESSION_SERVICE_OPERATOR -> "Оператор услуг";
+            case PROFESSION_POLICE -> "Сотрудник полиции";
             case PROFESSION_CITIZEN -> "Гражданин";
             default -> "Гражданин";
         };
@@ -273,7 +278,7 @@ public class UserService {
         return switch (key) {
             case PROFESSION_DOCTOR, PROFESSION_RETAIL_ADMIN, PROFESSION_INSPECTOR,
                  PROFESSION_PHARMACIST, PROFESSION_SELLER, PROFESSION_SERVICE_OPERATOR,
-                 PROFESSION_CITIZEN -> key;
+                 PROFESSION_POLICE, PROFESSION_CITIZEN -> key;
             default -> PROFESSION_CITIZEN;
         };
     }

@@ -144,6 +144,9 @@ public class SecurityConfig {
                             "/s/**").permitAll();
                     // Public endpoints.
                     auth.requestMatchers("/api/health", "/api/auth/register", "/api/auth/guest").permitAll();
+                    // Mock-eGov onboarding (Phase 2): phone lookup, confirm-registration and
+                    // OTP re-login are pre-auth by nature; each is hard rate-limited per IP.
+                    auth.requestMatchers("/api/auth/egov/**").permitAll();
                     // The sign-up employer picker is public (read-only org names) so a visitor can
                     // pick an employer before they have an account.
                     auth.requestMatchers(org.springframework.http.HttpMethod.GET, "/api/auth/organizations").permitAll();

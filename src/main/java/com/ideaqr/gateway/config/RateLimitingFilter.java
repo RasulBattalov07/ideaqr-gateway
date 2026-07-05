@@ -109,6 +109,14 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         if (post && "/api/auth/register".equals(path)) {
             return new BucketSpec("register:" + clientIp(request), properties.getRegisterCapacity());
         }
+        // Mock-eGov onboarding shares the same hard public ceilings: registration confirm
+        // rides the register bucket; lookup and the OTP login ride the login bucket.
+        if (post && "/api/auth/egov/register".equals(path)) {
+            return new BucketSpec("register:" + clientIp(request), properties.getRegisterCapacity());
+        }
+        if (post && ("/api/auth/egov/lookup".equals(path) || "/api/auth/egov/login".equals(path))) {
+            return new BucketSpec("login:" + clientIp(request), properties.getLoginCapacity());
+        }
 
         // Baseline ceiling for the rest of the API, keyed by user (or IP if anonymous).
         // The open health probe is exempt so monitoring is never throttled.

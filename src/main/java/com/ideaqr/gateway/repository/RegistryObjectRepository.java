@@ -13,6 +13,19 @@ public interface RegistryObjectRepository extends JpaRepository<RegistryObject, 
 
     Optional<RegistryObject> findByObjectUid(String objectUid);
 
+    /**
+     * Resolve an object by its exact identifier across ALL tenants. Native on purpose: it
+     * bypasses the tenant {@code @Filter} so a citizen's dossier (public tenant) resolves for
+     * a hospital-tenant doctor or a police-tenant officer. Callers that serve the result to a
+     * user MUST re-apply the tenant guard by hand (see {@code RegistryClient.resolve}) — an
+     * exact-uid lookup is not enumeration, but cross-tenant private objects stay invisible.
+     */
+    @org.springframework.data.jpa.repository.Query(
+            value = "select * from registry_objects where object_uid = :uid",
+            nativeQuery = true)
+    Optional<RegistryObject> findByObjectUidAnyTenant(
+            @org.springframework.data.repository.query.Param("uid") String objectUid);
+
     boolean existsByObjectUid(String objectUid);
 
     List<RegistryObject> findByCreatedByIdentityUidOrderByCreatedAtDesc(UUID createdByIdentityUid);

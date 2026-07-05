@@ -29,6 +29,9 @@ public interface InteractionRepository extends JpaRepository<Interaction, UUID> 
     /** Prescriptions (and other typed interactions) attached to an object, newest first. */
     List<Interaction> findByObjectUidAndInteractionTypeOrderByCreatedAtDesc(String objectUid, String interactionType);
 
+    /** Typed interactions of one identity (e.g. household SERVICE_ORDER rows), newest first. */
+    List<Interaction> findByIdentityUidAndInteractionTypeOrderByCreatedAtDesc(UUID identityUid, String interactionType);
+
     /** Interactions tied to a request (used to surface the SOS message in the admin alert queue). */
     List<Interaction> findByRequestUid(UUID requestUid);
 

@@ -46,6 +46,11 @@ public class WalletController {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (RegistryObject obj : registryObjectRepository
                 .findByOwnerIdentityUidOrderByCreatedAtDesc(identity.getIdentityUid())) {
+            // Объекты-досье (медкарта / правовой статус / визитка) — документы гражданина:
+            // они живут в модулях дашборда, а не среди передаваемого имущества.
+            if (com.ideaqr.gateway.service.CitizenDossierService.isDossierObject(obj.getObjectUid())) {
+                continue;
+            }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("objectUid", obj.getObjectUid());
             m.put("displayName", obj.getDisplayName());

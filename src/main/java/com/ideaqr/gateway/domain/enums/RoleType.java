@@ -23,5 +23,6 @@ public enum RoleType {
     // function needs once the data owner has granted access.
     PHARMACIST,       // prescriptions and appointments only — not the full medical card
     SELLER,           // order / delivery data only
-    SERVICE_OPERATOR  // client service requests only
+    SERVICE_OPERATOR, // client service requests only
+    POLICE            // legal dossier (criminal record, fines) only — on duty, working hours
 }

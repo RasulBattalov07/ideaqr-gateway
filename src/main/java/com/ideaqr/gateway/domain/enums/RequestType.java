@@ -13,5 +13,7 @@ public enum RequestType {
     /** Activating or ending working mode (a governed session change). */
     WORKING_MODE,
     /** A lifecycle transition of an object (modify / archive / activate). */
-    OBJECT_LIFECYCLE
+    OBJECT_LIFECYCLE,
+    /** A household-services order (ЖКХ: вывоз мусора, сантехник …) tied to the profile. */
+    SERVICE_ORDER
 }

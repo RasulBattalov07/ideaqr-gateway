@@ -29,12 +29,33 @@ public class MedicalController {
 
     private final MedicalService medicalService;
     private final AuthSupport authSupport;
+    private final com.ideaqr.gateway.service.RegistryClient registryClient;
 
     @GetMapping("/{objectUid}/prescriptions")
     public ResponseEntity<List<Map<String, Object>>> list(@PathVariable("objectUid") String objectUid,
                                                           Authentication authentication) {
-        authSupport.requireIdentity(authentication);
+        Identity caller = authSupport.requireIdentity(authentication);
+        requireRxReadAccess(caller, objectUid);
         return ResponseEntity.ok(medicalService.listForObject(objectUid));
+    }
+
+    /**
+     * Срез рецептов (Phase 2 — минимальный доступ): читать его могут врач, фармацевт или
+     * сам пациент карты. Раньше листинг был открыт любой авторизованной сессии.
+     */
+    private void requireRxReadAccess(Identity caller, String objectUid) {
+        var roles = caller.getRoles();
+        if (roles.contains(com.ideaqr.gateway.domain.enums.RoleType.DOCTOR)
+                || roles.contains(com.ideaqr.gateway.domain.enums.RoleType.PHARMACIST)) {
+            return;
+        }
+        var resolved = registryClient.resolve(objectUid);
+        Object patient = resolved.data() != null ? resolved.data().get("patientIdentityUid") : null;
+        if (patient != null && patient.toString().equals(caller.getIdentityUid().toString())) {
+            return;
+        }
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Список назначений доступен врачу, фармацевту или самому пациенту.");
     }
 
     @PostMapping("/{objectUid}/prescribe")

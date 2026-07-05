@@ -27,6 +27,7 @@ public class ValidationService {
     private static final int WORK_END = 18;    // exclusive
     private static final int TRUST_MEDICAL = 70;
     private static final int TRUST_INFRA = 60;
+    private static final int TRUST_LEGAL = 80; // government tier — police accounts are seeded at 90
 
     /**
      * Server clock used for the working-hours gate. Injected (not {@code LocalTime.now()})
@@ -81,6 +82,7 @@ public class ValidationService {
         }
         return switch (category) {
             case MEDICAL -> "MEDICAL_ACCESS";
+            case LEGAL -> "LEGAL_ACCESS";
             case INFRASTRUCTURE -> "INFRASTRUCTURE_ACCESS";
             case RETAIL, ECO, GENERAL -> "PUBLIC_ACCESS";
             default -> "OBJECT_EXISTENCE";
@@ -155,6 +157,28 @@ public class ValidationService {
                 }
                 yield new Verdict(APPROVED, "ACCESS_GRANTED",
                         "Проверка пройдена: роль, доверие, рабочий режим и время.", "MEDIUM");
+            }
+            case LEGAL -> {
+                // Правовое досье (справка о несудимости, штрафы, розыск) — уровень SECRET.
+                // Доступно только полиции при исполнении: роль + доверие + рабочий режим + время.
+                if (!roles.contains(RoleType.POLICE)) {
+                    yield new Verdict(REJECTED, "ROLE_REQUIRED_POLICE",
+                            "Доступ к правовым данным разрешён только сотрудникам полиции.", "HIGH");
+                }
+                if (trust < TRUST_LEGAL) {
+                    yield new Verdict(REJECTED, "TRUST_TOO_LOW",
+                            "Недостаточный уровень доверия для доступа к правовым данным.", "HIGH");
+                }
+                if (!workingMode) {
+                    yield new Verdict(REJECTED, "WORKING_MODE_REQUIRED",
+                            "Правовое досье доступно только при исполнении (рабочий режим).", "MEDIUM");
+                }
+                if (!workingHours) {
+                    yield new Verdict(REJECTED, "OUTSIDE_WORKING_HOURS",
+                            "Доступ к правовому досье возможен только в рабочее время (08:00–18:00).", "MEDIUM");
+                }
+                yield new Verdict(APPROVED, "ACCESS_GRANTED",
+                        "Проверка пройдена: роль (полиция), доверие, рабочий режим и время.", "HIGH");
             }
             case RETAIL, ECO, GENERAL -> new Verdict(APPROVED, "PUBLIC_OBJECT",
                     "Объект общедоступен. Данные предоставлены.", "LOW");

@@ -54,6 +54,8 @@ public class DataSeeder implements CommandLineRunner {
     private final OrganizationService organizationService;
     private final ModuleService moduleService;
     private final PasswordEncoder passwordEncoder;
+    private final com.ideaqr.gateway.service.CitizenDossierService citizenDossierService;
+    private final com.ideaqr.gateway.service.MedicalService medicalService;
 
     @Override
     public void run(String... args) {
@@ -68,6 +70,7 @@ public class DataSeeder implements CommandLineRunner {
         Organization hospital = organizationService.ensureOrganization("Городская больница", "MEDICAL");
         Organization grid = organizationService.ensureOrganization("АО «Астана-РЭК»", "INFRASTRUCTURE");
         Organization retail = organizationService.ensureOrganization("IDEAQR Retail", "RETAIL");
+        Organization police = organizationService.ensureOrganization("Департамент полиции Астаны", "GOVERNMENT");
 
         User admin = seed("admin", "Admin123!", "Аружан", "Сапарова", "EMPLOYED",
                 UserService.PROFESSION_RETAIL_ADMIN, retail, "RETAIL_ADMIN");
@@ -81,7 +84,10 @@ public class DataSeeder implements CommandLineRunner {
                 UserService.PROFESSION_PHARMACIST, hospital, "PHARMACIST");
         seed("inspector", "Inspect123!", "Гульнара", "Ахметова", "EMPLOYED",
                 UserService.PROFESSION_INSPECTOR, grid, "INSPECTOR");
-        seed("citizen", "Citizen123!", "Дамир", "Оспанов", "UNEMPLOYED",
+        // Phase 2 (контекстный QR): полицейский видит по личному QR правовое досье.
+        seed("police", "Police123!", "Нурлан", "Тлеубаев", "EMPLOYED",
+                UserService.PROFESSION_POLICE, police, "POLICE");
+        User citizen = seed("citizen", "Citizen123!", "Дамир", "Оспанов", "UNEMPLOYED",
                 UserService.PROFESSION_CITIZEN, null, null);
 
         // Showcase objects: the Toyota Camry as a real DB object (for the transfer demo),
@@ -90,6 +96,43 @@ public class DataSeeder implements CommandLineRunner {
             seedCarObject(admin.getIdentityUid());
         }
         seedBusinessCard();
+
+        // Phase 2 (единый QR): каждому демо-гражданину — полный цифровой пакет (медкарта,
+        // правовое досье, визитка). Выполняется вне тенант-контекста, объекты — публичные.
+        seedDossiers();
+        // Стартовый рецепт на медкарте гражданина: фармацевт может демонстрировать выдачу
+        // сразу, без предварительного шага врача.
+        if (citizen != null) {
+            seedDemoPrescription(citizen);
+        }
+    }
+
+    /** Идемпотентно доукомплектовывает досье всем демо-аккаунтам (включая «Айдоса»). */
+    private void seedDossiers() {
+        for (String username : new String[]{"admin", "seller", "doctor", "pharmacist",
+                "inspector", "police", "citizen", "aidos"}) {
+            userRepository.findByUsername(username).ifPresent(u ->
+                    identityRepository.findById(u.getIdentityUid()).ifPresent(identity ->
+                            citizenDossierService.ensureFor(u, identity, null)));
+        }
+    }
+
+    /** Первый рецепт от врача Кима на карте гражданина — если карта ещё пуста. */
+    private void seedDemoPrescription(User citizen) {
+        String medUid = com.ideaqr.gateway.service.CitizenDossierService
+                .medicalUidFor(citizen.getIdentityUid());
+        try {
+            if (!medicalService.listForObject(medUid).isEmpty()) {
+                return;
+            }
+            userRepository.findByUsername("doctor")
+                    .flatMap(d -> identityRepository.findById(d.getIdentityUid()))
+                    .ifPresent(doctor -> medicalService.prescribe(doctor, medUid,
+                            "Амоксициллин", "500 мг", "3 раза в день · 7 дней"));
+            log.info("DataSeeder: seeded demo prescription on {}.", medUid);
+        } catch (Exception e) {
+            log.warn("DataSeeder: demo prescription skipped: {}", e.getMessage());
+        }
     }
 
     private User seed(String username, String password, String firstName, String lastName,
