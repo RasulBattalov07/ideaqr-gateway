@@ -31,6 +31,9 @@
     let accessPollTimer = null;    // auto-refreshes incoming owner/patient approvals (audit FB-1)
     let accessPollTick = 0;
     let lastAccessSig = null;      // fingerprint of the rendered access-request list (skip no-op repaints)
+    let servicesPollTimer = null;  // live two-way service-order flow: repaints «Мои заявки» / очередь исполнителя
+    let servicesOrdersSig = '';    // fingerprints, same anti-repaint trick as the access poll
+    let servicesQueueSig = '';
 
     // Demo tooling. Manual UID entry + quick-scenario chips are exposed to EVERY logged-in user
     // for the live presentation (DEMO_MODE = true). The "time machine" is the deliberate exception:
@@ -1997,20 +2000,38 @@
     }
 
     // ---- Модуль 2: УСЛУГИ И БЫТ ----
+    function isServiceOperator() {
+        return !!(currentUser && (currentUser.roles || []).includes('SERVICE_OPERATOR'));
+    }
+
     function renderCitizenServices() {
         const body = document.getElementById('citizen-body');
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка каталога услуг…')}</section>`;
-        Promise.all([apiJson('/api/v2/services/catalog'), apiJson('/api/v2/services/mine'), loadDossier()])
-            .then(([cat, mine, d]) => {
+        const operator = isServiceOperator();
+        Promise.all([
+            apiJson('/api/v2/services/catalog'),
+            apiJson('/api/v2/services/mine'),
+            loadDossier(),
+            operator ? apiJson('/api/v2/services/queue') : Promise.resolve({ ok: false })
+        ]).then(([cat, mine, d, q]) => {
                 const catalog = (cat.ok && Array.isArray(cat.data)) ? cat.data : [];
                 const orders = (mine.ok && Array.isArray(mine.data)) ? mine.data : [];
+                const queue = (q.ok && Array.isArray(q.data)) ? q.data : [];
                 const address = d && d.egov && d.egov.address ? d.egov.address : null;
+                servicesOrdersSig = ordersSig(orders);
+                servicesQueueSig = ordersSig(queue);
                 body.innerHTML = `
                 <div class="module-view fade-in">
                     <div class="module-head mod-serv-head">
                         ${moduleBack()}
                         <div class="mh-title"><span class="mh-ico">🏠</span> Услуги и быт</div>
                     </div>
+                    ${operator ? `
+                    <section class="panel panel-pad">
+                        <div class="section-title">🛠 Очередь исполнителя</div>
+                        <p class="muted" style="margin-bottom:10px">Заявки граждан со всей платформы. Примите заявку, выполните работу и отметьте завершение — заказчик подтвердит выполнение со своей стороны.</p>
+                        <div id="svc-queue">${queueHtml(queue)}</div>
+                    </section>` : ''}
                     ${address ? `<div class="serv-addr">📍 Заявки привязываются к вашему адресу из eGov: <b>${esc(address)}</b></div>` : ''}
                     <div class="serv-grid">
                         ${catalog.map(c => `
@@ -2034,18 +2055,36 @@
                         const { ok, data } = await apiJson('/api/v2/services/order',
                             { method: 'POST', body: { service: btn.dataset.key } });
                         if (!ok) throw new Error((data && data.message) || 'Не удалось оформить заявку.');
-                        toast(`Заявка принята: ${data.label}. Оператор: ${data.operator}.`, 'ok');
+                        toast(`Заявка принята: ${data.label}. Ожидает исполнителя.`, 'ok');
                         refreshNotifications();
-                        renderCitizenServices();
+                        refreshServicesLists();
                     } catch (e) {
                         toast(e.message, 'err');
                         btn.disabled = false; btn.textContent = 'Заказать';
                     }
                 }));
                 wireServiceOrderActions(body);
+                wireQueueActions(body);
+                startServicesPolling();
             });
     }
 
+    const SERVICE_STATUS_RU = {
+        NEW: 'Ожидает исполнителя', ACCEPTED: 'В работе', DONE: 'Выполнена исполнителем',
+        COMPLETED: 'Завершена', DECLINED: 'Отклонена'
+    };
+
+    function serviceStatusTag(o) {
+        const cls = { NEW: 'review', ACCEPTED: 'info', DONE: 'review', COMPLETED: 'ok', DECLINED: 'bad' }[o.status] || 'info';
+        const label = SERVICE_STATUS_RU[o.status] || o.status;
+        return `<span class="atag ${cls}">${esc(label)}</span>`;
+    }
+
+    function ordersSig(rows) {
+        return rows.map(o => `${o.orderUid}:${o.status}:${o.assigneeName || ''}`).join('|');
+    }
+
+    // Заказчик: живой статус заявки + «Подтвердить выполнение», когда исполнитель завершил работу.
     function serviceOrdersHtml(orders) {
         if (!orders.length) return '<div class="obj-empty">Заявок пока нет. Закажите услугу выше — она привяжется к вашему профилю.</div>';
         return orders.map(o => `
@@ -2053,13 +2092,37 @@
                 <span class="or-ico">${esc(o.icon || '🧾')}</span>
                 <div class="or-main">
                     <div class="or-name">${esc(o.label || o.service)}</div>
-                    <div class="or-meta">${esc([o.address, o.operator, o.orderedAt].filter(Boolean).join(' · '))}</div>
+                    <div class="or-meta">${esc([o.address, o.assigneeName ? 'Исполнитель: ' + o.assigneeName : o.operator, o.orderedAt].filter(Boolean).join(' · '))}</div>
                 </div>
                 <div class="or-right">
-                    ${o.status === 'COMPLETED'
-                        ? '<span class="atag ok">Выполнена</span>'
-                        : `<span class="atag review">В работе</span>
-                           <button class="btn btn-ghost btn-sm or-complete" type="button" data-id="${esc(o.orderUid)}" title="Демо: имитация закрытия оператором">Выполнена ✓</button>`}
+                    ${serviceStatusTag(o)}
+                    ${o.status === 'DONE'
+                        ? `<button class="btn btn-primary btn-sm or-complete" type="button" data-id="${esc(o.orderUid)}">Подтвердить выполнение</button>`
+                        : ''}
+                </div>
+            </div>`).join('');
+    }
+
+    // Исполнитель: очередь заявок с кнопками «Принять в работу» / «Завершить».
+    function queueHtml(queue) {
+        if (!queue.length) return '<div class="obj-empty">Новых заявок нет. Как только гражданин закажет услугу — она появится здесь.</div>';
+        return queue.map(o => `
+            <div class="order-row">
+                <span class="or-ico">${esc(o.icon || '🧾')}</span>
+                <div class="or-main">
+                    <div class="or-name">${esc(o.label || o.service)}</div>
+                    <div class="or-meta">${esc([o.customerName, o.address, o.orderedAt].filter(Boolean).join(' · '))}</div>
+                    ${o.note ? `<div class="or-meta">💬 ${esc(o.note)}</div>` : ''}
+                </div>
+                <div class="or-right">
+                    ${o.status === 'NEW'
+                        ? `<button class="btn btn-primary btn-sm svc-accept" type="button" data-id="${esc(o.orderUid)}">Принять в работу</button>`
+                        : o.status === 'ACCEPTED' && o.assigneeMe
+                            ? `<span class="atag info">В работе у вас</span>
+                               <button class="btn btn-gold btn-sm svc-finish" type="button" data-id="${esc(o.orderUid)}">Завершить</button>`
+                            : o.status === 'DONE'
+                                ? '<span class="atag review">Ждёт подтверждения заказчика</span>'
+                                : serviceStatusTag(o)}
                 </div>
             </div>`).join('');
     }
@@ -2070,10 +2133,76 @@
             try {
                 const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/complete`, { method: 'POST', body: {} });
                 if (!ok) throw new Error((data && data.message) || 'Не удалось обновить заявку.');
-                toast('Услуга отмечена выполненной.', 'ok');
-                renderCitizenServices();
+                toast('Выполнение подтверждено. Спасибо!', 'ok');
+                refreshNotifications();
+                refreshServicesLists();
             } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
         }));
+    }
+
+    function wireQueueActions(scope) {
+        scope.querySelectorAll('.svc-accept').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Принимаем…';
+            try {
+                const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/accept`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось принять заявку.');
+                toast('Заявка принята в работу.', 'ok');
+                refreshServicesLists();
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Принять в работу'; }
+        }));
+        scope.querySelectorAll('.svc-finish').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Завершаем…';
+            try {
+                const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/finish`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось завершить заявку.');
+                toast('Работа завершена. Заказчик получил запрос на подтверждение.', 'ok');
+                refreshServicesLists();
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Завершить'; }
+        }));
+    }
+
+    // Тихое обновление обоих списков (после действия — принудительно, из поллинга — по отпечатку,
+    // чтобы фоновая перерисовка не «съедала» клик, как в поллинге согласий).
+    async function refreshServicesLists(fromPoll) {
+        const ordersBox = document.getElementById('serv-orders');
+        if (!ordersBox) return;
+        try {
+            const mine = await apiJson('/api/v2/services/mine');
+            if (mine.ok && Array.isArray(mine.data)) {
+                const sig = ordersSig(mine.data);
+                if (!fromPoll || sig !== servicesOrdersSig) {
+                    servicesOrdersSig = sig;
+                    ordersBox.innerHTML = serviceOrdersHtml(mine.data);
+                    wireServiceOrderActions(ordersBox);
+                }
+            }
+            const qBox = document.getElementById('svc-queue');
+            if (qBox && isServiceOperator()) {
+                const q = await apiJson('/api/v2/services/queue');
+                if (q.ok && Array.isArray(q.data)) {
+                    const sig = ordersSig(q.data);
+                    if (!fromPoll || sig !== servicesQueueSig) {
+                        servicesQueueSig = sig;
+                        qBox.innerHTML = queueHtml(q.data);
+                        wireQueueActions(qBox);
+                    }
+                }
+            }
+        } catch (_) { /* transient — keep current lists */ }
+    }
+
+    // Пока открыт экран «Услуги и быт», статусы обновляются сами: заказчик видит «принята/выполнена»
+    // без F5, исполнитель видит новые заявки. Таймер сам сворачивается, когда экран покинут.
+    function startServicesPolling() {
+        if (servicesPollTimer) return;
+        servicesPollTimer = setInterval(() => {
+            if (!document.getElementById('serv-orders')) {
+                clearInterval(servicesPollTimer); servicesPollTimer = null;
+                return;
+            }
+            if (document.hidden) return;
+            refreshServicesLists(true);
+        }, 5000);
     }
 
     // ---- Модуль 3: БИЗНЕС И МАГАЗИНЫ ----
@@ -2714,7 +2843,7 @@
             const sig = data.map(r => r.interactionUid).join('|');
             if (sig === lastAccessSig && box.childElementCount) return;
             const prev = lastAccessSig ? lastAccessSig.split('|') : [];
-            const arrived = lastAccessSig !== null && data.some(r => !prev.includes(r.interactionUid));
+            const fresh = lastAccessSig !== null ? data.find(r => !prev.includes(r.interactionUid)) : null;
             lastAccessSig = sig;
             box.innerHTML = `
                 <div class="access-head">🔔 Запросы на доступ к вашим данным</div>
@@ -2732,8 +2861,34 @@
                 row.querySelector('.acc-confirm').addEventListener('click', () => decideAccess(id, 'confirm'));
                 row.querySelector('.acc-reject').addEventListener('click', () => decideAccess(id, 'reject'));
             });
-            if (arrived) toast('Новый запрос на доступ к вашим данным.', 'info');
+            if (fresh) {
+                // «Магия без F5» (P0): свежий запрос сам открывает окно согласия. Если какая-то
+                // модалка уже на экране (SOS, жалоба…) — не перебиваем, ограничиваемся тостом:
+                // запрос в любом случае уже лежит в списке выше.
+                if (document.querySelector('.modal-overlay')) toast('Новый запрос на доступ к вашим данным.', 'info');
+                else openConsentPopup(fresh);
+            }
         } catch (_) { /* transient failure — keep the current list on screen */ }
+    }
+
+    // Входящее согласие как всплывающее окно: врач сканирует — у пациента само открывается
+    // «Подтвердить / Отклонить». «Позже» ничего не решает: запрос остаётся в списке на главной.
+    async function openConsentPopup(r) {
+        const medical = r.kind === 'MEDICAL';
+        const action = await showModal({
+            title: medical ? '🩺 Запрос к медицинской карте' : '🔔 Запрос доступа',
+            bodyHtml: `
+                <p class="modal-text"><b>${esc(r.fromName)}</b> запрашивает
+                    ${medical ? 'доступ к вашей медицинской карте' : esc(r.what || 'доступ к профилю')}${r.createdAt ? ' · ' + esc(r.createdAt) : ''}.</p>
+                <p class="muted">Решение фиксируется в неизменяемой истории. «Позже» оставит запрос в списке на главной странице.</p>`,
+            dismissValue: null,
+            actions: [
+                { label: 'Позже', cls: 'btn-ghost', value: null },
+                { label: 'Отклонить', cls: 'btn-ghost', value: 'reject' },
+                { label: 'Подтвердить', cls: 'btn-primary', value: 'confirm' }
+            ]
+        });
+        if (action) decideAccess(r.interactionUid, action);
     }
 
     // FB-1: the scanner side polls for the verdict, so the owner/patient side must refresh
@@ -2790,10 +2945,36 @@
                     <img class="myqr-img" src="${esc(data.qrImageDataUri)}" alt="Мой QR-код">
                     <div class="qr-uid">${esc(shortId(data.identityUid))}</div>
                     <button class="btn btn-primary btn-block" id="qr-demo-btn" type="button">Демонстрировать</button>
+                    <button class="btn btn-ghost btn-block" id="qr-preview-btn" type="button" style="margin-top:8px">Как видят мою визитку</button>
                     <p class="muted" style="margin-top:10px">QR — только идентификатор. Он не несёт ролей, прав или доверия.</p>
                 </div>
             </section>`;
             document.getElementById('qr-demo-btn').addEventListener('click', () => openQrDemo(data.fullName, data.qrImageDataUri));
+            document.getElementById('qr-preview-btn').addEventListener('click', openProfilePreview);
+        });
+    }
+
+    // P2 из ZAKAZDAR-аудита («Демонстрировать профиль»): владелец видит ровно ту визитку,
+    // которую другой пользователь получит после его согласия, — СВОЙ vcard-payload рендерится
+    // тем же businessCard(), что и на стороне сканирующего. Ноль новых рендереров.
+    async function openProfilePreview() {
+        const { ok, data } = await apiJson('/api/v2/dossier/me');
+        if (!ok || !data || !data.available || !data.vcard) {
+            toast('Не удалось загрузить визитку.', 'err');
+            return;
+        }
+        const d = Object.assign({}, data.vcard, {
+            fullProfile: true,
+            trustLevel: currentUser.trustLevel,
+            riskScore: currentUser.riskScore
+        });
+        showModal({
+            title: 'Так вашу визитку видят другие',
+            bodyHtml: `${businessCard(d)}
+                <p class="muted" style="margin-top:10px">Публичная часть открыта любому зарегистрированному
+                гражданину сразу после сканирования; «закрытая часть» — только после вашего подтверждения.</p>`,
+            dismissValue: null,
+            actions: [{ label: 'Понятно', cls: 'btn-primary', value: true }]
         });
     }
 

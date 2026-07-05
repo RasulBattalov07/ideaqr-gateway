@@ -64,6 +64,30 @@ public class HouseholdServiceController {
         return ResponseEntity.ok(serviceOrderService.mine(identity));
     }
 
+    /** Очередь исполнителя (роль SERVICE_OPERATOR): все заявки платформы, новые сверху. */
+    @GetMapping("/queue")
+    public ResponseEntity<List<Map<String, Object>>> queue(Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        return ResponseEntity.ok(serviceOrderService.queue(identity));
+    }
+
+    /** Исполнитель принимает заявку в работу. */
+    @PostMapping("/{orderUid}/accept")
+    public ResponseEntity<Map<String, Object>> accept(@PathVariable("orderUid") String orderUid,
+                                                      Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        return ResponseEntity.ok(serviceOrderService.accept(identity, UUID.fromString(orderUid)));
+    }
+
+    /** Исполнитель завершил работу — заявка ждёт подтверждения заказчика. */
+    @PostMapping("/{orderUid}/finish")
+    public ResponseEntity<Map<String, Object>> finish(@PathVariable("orderUid") String orderUid,
+                                                      Authentication authentication) {
+        Identity identity = authSupport.requireIdentity(authentication);
+        return ResponseEntity.ok(serviceOrderService.finish(identity, UUID.fromString(orderUid)));
+    }
+
+    /** Заказчик подтверждает выполнение — финальный шаг двустороннего флоу. */
     @PostMapping("/{orderUid}/complete")
     public ResponseEntity<Map<String, Object>> complete(@PathVariable("orderUid") String orderUid,
                                                         Authentication authentication) {

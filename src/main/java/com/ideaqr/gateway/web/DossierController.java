@@ -59,6 +59,10 @@ public class DossierController {
         egov.put("birthDate", legal.get("birthDate"));
         res.put("egov", egov);
 
+        // Собственная визитка для предпросмотра «как меня видят» (вкладка «Мой QR»):
+        // владелец рендерит СВОЙ vcard-payload тем же рендерером, что и сканирующий.
+        res.put("vcard", citizenDossierService.payload(dossier.vcard()));
+
         List<Map<String, Object>> rx = medicalService.listForObject(dossier.medical().getObjectUid());
         res.put("prescriptionsTotal", rx.size());
         res.put("prescriptionsActive", rx.stream().filter(p -> "PRESCRIBED".equals(p.get("status"))).count());

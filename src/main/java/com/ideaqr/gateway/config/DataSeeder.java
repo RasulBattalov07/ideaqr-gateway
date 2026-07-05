@@ -71,6 +71,7 @@ public class DataSeeder implements CommandLineRunner {
         Organization grid = organizationService.ensureOrganization("АО «Астана-РЭК»", "INFRASTRUCTURE");
         Organization retail = organizationService.ensureOrganization("IDEAQR Retail", "RETAIL");
         Organization police = organizationService.ensureOrganization("Департамент полиции Астаны", "GOVERNMENT");
+        Organization comfort = organizationService.ensureOrganization("УК «Comfort Service»", "SERVICES");
 
         User admin = seed("admin", "Admin123!", "Аружан", "Сапарова", "EMPLOYED",
                 UserService.PROFESSION_RETAIL_ADMIN, retail, "RETAIL_ADMIN");
@@ -87,6 +88,9 @@ public class DataSeeder implements CommandLineRunner {
         // Phase 2 (контекстный QR): полицейский видит по личному QR правовое досье.
         seed("police", "Police123!", "Нурлан", "Тлеубаев", "EMPLOYED",
                 UserService.PROFESSION_POLICE, police, "POLICE");
+        // Двусторонний флоу «Услуги и быт» (P0): исполнитель, разбирающий очередь бытовых заявок.
+        seed("operator", "Operator123!", "Багдат", "Жумабаев", "EMPLOYED",
+                UserService.PROFESSION_SERVICE_OPERATOR, comfort, "SERVICE_OPERATOR");
         User citizen = seed("citizen", "Citizen123!", "Дамир", "Оспанов", "UNEMPLOYED",
                 UserService.PROFESSION_CITIZEN, null, null);
 
@@ -110,7 +114,7 @@ public class DataSeeder implements CommandLineRunner {
     /** Идемпотентно доукомплектовывает досье всем демо-аккаунтам (включая «Айдоса»). */
     private void seedDossiers() {
         for (String username : new String[]{"admin", "seller", "doctor", "pharmacist",
-                "inspector", "police", "citizen", "aidos"}) {
+                "inspector", "police", "operator", "citizen", "aidos"}) {
             userRepository.findByUsername(username).ifPresent(u ->
                     identityRepository.findById(u.getIdentityUid()).ifPresent(identity ->
                             citizenDossierService.ensureFor(u, identity, null)));

@@ -18,16 +18,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The objects a user owns, behind their single identity. The aggregate read-only
- * {@code /wallet} endpoint was removed: it duplicated {@code /my-qr}, {@code /my-objects}
- * and the history journal, was never wired into the SPA, and resurrected the retired
- * gamified {@code trustScore} on the owner block. What remains is the one view the SPA
- * actually uses — the objects this identity currently owns, each with its scannable QR.
+ * The objects a user owns, behind their single identity. (Historically this class was
+ * {@code WalletController}: the aggregate read-only {@code /wallet} endpoint was removed —
+ * it duplicated {@code /my-qr}, {@code /my-objects} and the history journal, was never wired
+ * into the SPA, and resurrected the retired gamified {@code trustScore}. The class is renamed
+ * so no dead "wallet" surface remains. What lives here is the one view the SPA actually
+ * uses — the objects this identity currently owns, each with its scannable QR.)
  */
 @RestController
 @RequestMapping("/api/v2")
 @RequiredArgsConstructor
-public class WalletController {
+public class MyObjectsController {
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
