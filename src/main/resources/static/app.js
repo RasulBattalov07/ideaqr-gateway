@@ -2232,7 +2232,7 @@
                 const slot = openResultPage(
                     `${verdictHtml('APPROVED',
                         'SOS-сигнал зафиксирован в неизменяемом журнале и передан в панель «Тревоги» администратора.',
-                        data.riskLevel, 'SOS-сигнал отправлен')}<div class="pipeline" id="sos-pipeline"></div>`,
+                        data.riskLevel, 'Сигнал отправлен')}<div class="pipeline" id="sos-pipeline"></div>`,
                     'SOS');
                 animatePipeline(slot.querySelector('#sos-pipeline'), data, 'APPROVED');
                 refreshNotifications();
