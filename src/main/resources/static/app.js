@@ -1382,9 +1382,13 @@
             bodyData = { reason: result.reason || undefined };
         } else if (act === 'role-change') {
             const picked = await modalChangeRole(username, profession);
-            if (!picked || picked === profession) return;
+            if (!picked) return;
+            // Proceed when the profession changes OR an organization is being attached —
+            // attaching an org to an already-granted specialist is a valid demo rescue.
+            if (picked.profession === profession && !picked.organizationUid) return;
             path = `/api/admin/users/${encodeURIComponent(username)}/profession`;
-            bodyData = { profession: picked };
+            bodyData = { profession: picked.profession };
+            if (picked.organizationUid) bodyData.organizationUid = picked.organizationUid;
         } else {
             const confirms = {
                 unblock: `Разблокировать пользователя «${username}»?`,
@@ -1449,11 +1453,15 @@
     }
 
     // Role / profession change dialog. Specialist and admin roles unlock protected data.
+    // Also offers attaching the user to an organization: without an ACTIVE membership a
+    // specialist cannot enter working mode (the eGov-registration trap), so the ideal
+    // admin flow is one action — pick the profession, pick the employer, save.
     function modalChangeRole(username, currentProfession) {
         const professions = [
             ['CITIZEN', 'Гражданин'], ['SELLER', 'Продавец'], ['SERVICE_OPERATOR', 'Оператор услуг'],
             ['PHARMACIST', 'Фармацевт'], ['DOCTOR', 'Врач'],
-            ['INSPECTOR', 'Инспектор инфраструктуры'], ['RETAIL_ADMIN', 'Администратор торговли']
+            ['INSPECTOR', 'Инспектор инфраструктуры'], ['POLICE', 'Сотрудник полиции'],
+            ['RETAIL_ADMIN', 'Администратор торговли']
         ];
         const options = professions.map(([value, label]) =>
             `<option value="${value}" ${value === currentProfession ? 'selected' : ''}>${esc(label)}</option>`).join('');
@@ -1464,16 +1472,33 @@
                 <div class="field" style="margin-top:12px">
                     <label for="role-select">Профессия / роль</label>
                     <select id="role-select">${options}</select>
+                </div>
+                <div class="field" style="margin-top:12px">
+                    <label for="role-org-select">Организация (открывает рабочий режим)</label>
+                    <select id="role-org-select"><option value="">Без организации — только роль</option></select>
+                    <p class="muted" style="margin-top:6px">Специалисту без организации рабочий режим недоступен, а значит закрыт и профессиональный доступ. Выберите работодателя, чтобы роль заработала сразу.</p>
                 </div>`,
             dismissValue: null,
             onBody: (card, { close }) => {
+                const orgSel = card.querySelector('#role-org-select');
+                fetchOrganizations().then(orgs => {
+                    orgs.forEach(o => {
+                        const opt = document.createElement('option');
+                        opt.value = o.organizationUid;
+                        opt.textContent = o.name;
+                        orgSel.appendChild(opt);
+                    });
+                });
                 const box = card.querySelector('.modal-actions');
                 box.innerHTML = `
                     <button class="btn btn-ghost" type="button" id="rl-cancel">Отмена</button>
                     <button class="btn btn-primary" type="button" id="rl-ok" data-autofocus>Назначить роль</button>`;
                 card.querySelector('#rl-cancel').addEventListener('click', () => close(null));
                 card.querySelector('#rl-ok').addEventListener('click', () =>
-                    close(card.querySelector('#role-select').value));
+                    close({
+                        profession: card.querySelector('#role-select').value,
+                        organizationUid: orgSel.value || null
+                    }));
             }
         });
     }

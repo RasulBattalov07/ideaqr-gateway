@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Administrator user-management actions (ban / unban, change access level, reset
@@ -70,7 +71,10 @@ public class UserAdminController {
     /**
      * Assign a profession (and its derived roles / trust / admin flag) to a user.
      * This is the privileged path that grants specialist or administrator access —
-     * public registration can only create a CITIZEN. Body: {@code {"profession": "DOCTOR"}}.
+     * public registration can only create a CITIZEN. Body: {@code {"profession": "DOCTOR"}},
+     * optionally with {@code "organizationUid"} — then the user is also attached to that
+     * organization as an ACTIVE member, so working mode unlocks in the same admin action
+     * (critical for eGov-registered accounts, which have no employer to approve).
      */
     @PostMapping("/users/{username}/profession")
     public ResponseEntity<ApiResponse> profession(@PathVariable String username,
@@ -81,11 +85,21 @@ public class UserAdminController {
         if (profession == null || profession.isBlank()) {
             throw new IllegalArgumentException("Укажите профессию.");
         }
-        User user = userAdminService.setProfession(admin, username, profession);
+        UUID organizationUid = null;
+        String rawOrg = str(body, "organizationUid");
+        if (rawOrg != null && !rawOrg.isBlank()) {
+            try {
+                organizationUid = UUID.fromString(rawOrg.trim());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Некорректный идентификатор организации.");
+            }
+        }
+        User user = userAdminService.setProfession(admin, username, profession, organizationUid);
         return ResponseEntity.ok(ApiResponse.ok("Профессия обновлена. Активные сессии пользователя завершены.")
                 .with("username", user.getUsername())
                 .with("admin", user.isAdmin())
-                .with("profession", user.getProfession()));
+                .with("profession", user.getProfession())
+                .with("organizationAttached", organizationUid != null));
     }
 
     @PostMapping("/users/{username}/reset-password")

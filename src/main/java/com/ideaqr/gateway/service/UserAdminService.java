@@ -1,6 +1,7 @@
 package com.ideaqr.gateway.service;
 
 import com.ideaqr.gateway.domain.Identity;
+import com.ideaqr.gateway.domain.Organization;
 import com.ideaqr.gateway.domain.User;
 import com.ideaqr.gateway.domain.enums.EventType;
 import com.ideaqr.gateway.domain.enums.HistoryEventType;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.util.LinkedHashSet;
+import java.util.UUID;
 
 /**
  * Administrator user-management operations: block / unblock an account, change a
@@ -37,6 +39,8 @@ public class UserAdminService {
     private final UserRepository userRepository;
     private final IdentityService identityService;
     private final UserService userService;
+    private final OrganizationService organizationService;
+    private final NotificationService notificationService;
     private final AuditService auditService;
     private final EventService eventService;
     private final PasswordEncoder passwordEncoder;
@@ -129,12 +133,28 @@ public class UserAdminService {
      * business roles, trust level and the admin flag from the profession, so granting
      * {@code DOCTOR} actually unlocks medical access for that account. The user's
      * active sessions are revoked so the change applies immediately (audit 3.9).
+     *
+     * <p>When {@code organizationUid} is provided, the user is also attached to that
+     * organization as a verified ACTIVE member. Without a membership a specialist role
+     * is inert — working mode (and with it every professional gate) stays unreachable,
+     * which is exactly the trap for eGov-registered accounts that have no employer:
+     * they never filed an employment claim, so there is nothing to approve. One admin
+     * action now yields a specialist who can actually start working.</p>
      */
     @Transactional
-    public User setProfession(String actingAdminUsername, String targetUsername, String professionKey) {
+    public User setProfession(String actingAdminUsername, String targetUsername, String professionKey,
+                              UUID organizationUid) {
         User target = require(targetUsername);
         String normalized = userService.normalizeProfession(professionKey);
         UserService.ProfessionProfile profile = userService.profileFor(normalized);
+
+        Organization organization = null;
+        if (organizationUid != null) {
+            organization = organizationService.find(organizationUid);
+            if (organization == null) {
+                throw new IllegalArgumentException("Организация не найдена.");
+            }
+        }
 
         Identity identity = identityService.findById(target.getIdentityUid());
         identity.setRoles(new LinkedHashSet<>(profile.roles()));
@@ -147,6 +167,16 @@ public class UserAdminService {
 
         String note = "Профессия пользователя «" + targetUsername + "» изменена на «"
                 + userService.professionLabel(normalized) + "» администратором «" + actingAdminUsername + "».";
+        if (organization != null) {
+            organizationService.ensureActiveMembership(
+                    target.getIdentityUid(), organization.getOrganizationUid(), normalized);
+            note += " Пользователь прикреплён к организации «" + organization.getName()
+                    + "» (доступен рабочий режим).";
+            notificationService.notify(target.getIdentityUid(), "EMPLOYMENT",
+                    "Вам назначена профессия «" + userService.professionLabel(normalized)
+                            + "» в организации «" + organization.getName()
+                            + "». Рабочий режим доступен после повторного входа.");
+        }
         auditService.record(target.getIdentityUid(), null, HistoryEventType.USER_ROLE_CHANGED, note);
         eventService.record(EventType.USER_ROLE_CHANGED, target.getIdentityUid(), note);
         revokeSessions(targetUsername);

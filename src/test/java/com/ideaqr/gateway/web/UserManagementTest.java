@@ -77,13 +77,13 @@ class UserManagementTest {
     @Test
     void changeRolePromotesCitizenToDoctor() {
         try {
-            User changed = userAdminService.setProfession("admin", "citizen", "DOCTOR");
+            User changed = userAdminService.setProfession("admin", "citizen", "DOCTOR", null);
             assertThat(changed.getProfession()).isEqualTo("DOCTOR");
 
             Identity identity = identityService.findById(changed.getIdentityUid());
             assertThat(identity.getRoles()).contains(RoleType.DOCTOR);
         } finally {
-            userAdminService.setProfession("admin", "citizen", "CITIZEN");
+            userAdminService.setProfession("admin", "citizen", "CITIZEN", null);
         }
     }
 }

@@ -44,8 +44,39 @@ public class OrganizationService {
                         .build()));
     }
 
+    /**
+     * Attach an identity to an organization as a verified, ACTIVE member — the trusted
+     * (admin-driven) counterpart of the self-service employment claim. Unlike
+     * {@link #ensureMembership}, an existing PENDING/REJECTED claim is promoted to
+     * ACTIVE and the work role is refreshed, so the resulting membership is always
+     * one that working mode accepts.
+     */
+    @Transactional
+    public OrganizationMembership ensureActiveMembership(UUID identityUid, UUID organizationUid, String workRole) {
+        OrganizationMembership membership = membershipRepository
+                .findByIdentityUidAndOrganizationUid(identityUid, organizationUid)
+                .orElseGet(() -> OrganizationMembership.builder()
+                        .identityUid(identityUid)
+                        .organizationUid(organizationUid)
+                        .build());
+        membership.setWorkRole(workRole);
+        membership.setStatus("ACTIVE");
+        return membershipRepository.save(membership);
+    }
+
     public List<OrganizationMembership> membershipsOf(UUID identityUid) {
         return membershipRepository.findByIdentityUid(identityUid);
+    }
+
+    /**
+     * Memberships that actually govern: ACTIVE only (a missing status is legacy-ACTIVE).
+     * A PENDING employment claim or a REJECTED one grants nothing — working mode and
+     * the organization picker must use this view, never {@link #membershipsOf}.
+     */
+    public List<OrganizationMembership> activeMembershipsOf(UUID identityUid) {
+        return membershipsOf(identityUid).stream()
+                .filter(m -> m.getStatus() == null || "ACTIVE".equalsIgnoreCase(m.getStatus()))
+                .toList();
     }
 
     /** All organizations — used to populate the public sign-up "employer" picker. */
@@ -65,8 +96,7 @@ public class OrganizationService {
      * organisations and memberships need no code change (платформенный принцип).
      */
     public Organization resolveActingOrganization(UUID identityUid) {
-        return membershipsOf(identityUid).stream()
-                .filter(m -> m.getStatus() == null || "ACTIVE".equalsIgnoreCase(m.getStatus()))
+        return activeMembershipsOf(identityUid).stream()
                 .findFirst()
                 .map(m -> find(m.getOrganizationUid()))
                 .orElse(null);

@@ -40,7 +40,10 @@ public class SessionService {
 
     @Transactional
     public UserSession enterWorkingMode(Identity identity, UUID organizationUid) {
-        List<OrganizationMembership> memberships = organizationService.membershipsOf(identity.getIdentityUid());
+        // Only verified (ACTIVE) memberships open working mode — a PENDING employment
+        // claim governs nothing until the employer's administrator confirms it.
+        List<OrganizationMembership> memberships =
+                organizationService.activeMembershipsOf(identity.getIdentityUid());
         if (memberships.isEmpty()) {
             throw new IllegalStateException("Рабочий режим недоступен: вы не связаны ни с одной организацией.");
         }

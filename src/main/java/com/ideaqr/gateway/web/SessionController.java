@@ -75,7 +75,8 @@ public class SessionController {
         m.put("startedAt", s.getStartedAt() != null ? s.getStartedAt().format(TS) : null);
 
         List<Map<String, Object>> orgs = new ArrayList<>();
-        for (OrganizationMembership mem : organizationService.membershipsOf(identity.getIdentityUid())) {
+        // The picker offers only organizations the user can actually work under (ACTIVE).
+        for (OrganizationMembership mem : organizationService.activeMembershipsOf(identity.getIdentityUid())) {
             Organization org = organizationService.find(mem.getOrganizationUid());
             Map<String, Object> om = new LinkedHashMap<>();
             om.put("organizationUid", mem.getOrganizationUid().toString());
