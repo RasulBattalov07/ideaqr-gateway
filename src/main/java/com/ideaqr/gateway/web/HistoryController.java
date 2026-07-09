@@ -44,6 +44,7 @@ public class HistoryController {
     private final GatewayService gatewayService;
     private final QrService qrService;
     private final AuthSupport authSupport;
+    private final com.ideaqr.gateway.repository.RegistryObjectRepository registryObjectRepository;
 
     /** "Мой QR" — primary QR image, name and identity for the personal card. */
     @GetMapping("/my-qr")
@@ -98,13 +99,16 @@ public class HistoryController {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Interaction i : gatewayService.pendingAccessRequests(identity.getIdentityUid())) {
             boolean medical = "MEDICAL_SCAN".equals(i.getInteractionType());
+            boolean ownerProfile = "OWNER_PROFILE".equals(i.getInteractionType());
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("interactionUid", i.getInteractionUid().toString());
             m.put("fromName", displayName(i.getIdentityUid()));
             // What the requester wants access to, so the owner knows what they are consenting to
-            // (a personal profile vs. their medical card — the P0 consent gate).
-            m.put("kind", medical ? "MEDICAL" : "PROFILE");
-            m.put("what", medical ? "доступ к вашей медицинской карте" : "доступ к вашему профилю");
+            // (a personal profile vs. their medical card vs. their owner-of-an-object profile).
+            m.put("kind", medical ? "MEDICAL" : ownerProfile ? "OWNER_PROFILE" : "PROFILE");
+            m.put("what", medical ? "доступ к вашей медицинской карте"
+                    : ownerProfile ? "доступ к вашему профилю как владельца объекта «" + objectName(i.getObjectUid()) + "»"
+                    : "доступ к вашему профилю");
             m.put("createdAt", i.getCreatedAt() != null ? i.getCreatedAt().format(TS) : null);
             rows.add(m);
         }
@@ -147,6 +151,14 @@ public class HistoryController {
         m.put("interactionUid", i.getInteractionUid().toString());
         m.put("createdAt", i.getCreatedAt() != null ? i.getCreatedAt().format(TS) : null);
         return m;
+    }
+
+    /** Название объекта для текста согласия (any-tenant: запрос адресован самому владельцу). */
+    private String objectName(String objectUid) {
+        if (objectUid == null || objectUid.isBlank()) return "—";
+        return registryObjectRepository.findByObjectUidAnyTenant(objectUid)
+                .map(o -> o.getDisplayName())
+                .orElse(objectUid);
     }
 
     private String displayName(UUID identityUid) {

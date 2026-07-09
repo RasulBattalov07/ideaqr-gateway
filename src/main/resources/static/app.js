@@ -2471,6 +2471,8 @@
             { name: 'Медкарта · Айдос', code: 'MED_RX_5521', tag: 'медицина · согласие пациента' },
             { name: 'Вынос мусора (услуга)', code: 'SERVICE_TRASH_PICKUP', tag: 'услуга · Request→Decision→Interaction' },
             { name: 'Toyota Camry 2024', code: 'CAR_TOYOTA_CAMRY', tag: 'авто · передача владельца' },
+            { name: 'Куртка Uniqlo (вещь гражданина)', code: 'ITEM_JACKET_UNIQLO', tag: 'вещь · гость/пользователь/владелец/полиция' },
+            { name: 'Холодильник Samsung (техника)', code: 'ITEM_FRIDGE_SAMSUNG', tag: 'техника · AI-карточка и гарантия' },
             { name: 'Умный замок · офис AITU', code: 'LOCK_OFFICE_AITU', tag: 'инфраструктура · доступ по роли' },
             { name: 'Студбилет AITU', code: 'DOC_STUDENT_AITU', tag: 'документ · образование' },
             { name: 'Единый QR · Айдос', code: 'IDENTITY:aaaaaaaa-0000-0000-0000-000000000007', tag: 'контекстный QR · данные зависят от вашей роли' }
@@ -2570,6 +2572,7 @@
         animatePipeline(document.getElementById('scan-pipeline'), data, data.outcome);
         wireReportButtons();
         wirePrescriptions(data.objectUid, result);
+        wireObjectActions(data, result);
         const ctaBtn = document.getElementById('guest-cta-btn');
         if (ctaBtn) ctaBtn.addEventListener('click', () => startGuestRegistration(data.objectUid));
 
@@ -2851,7 +2854,9 @@
     const INTERACTION_RU = {
         SCAN: 'Скан объекта', PROFILE_SCAN: 'Скан профиля', MEDICAL_SCAN: 'Запрос к медкарте',
         REPORT: 'Обращение', SOS: 'SOS', QR_CREATION: 'Создание QR',
-        PRESCRIPTION: 'Рецепт', SERVICE_ORDER: 'Заявка на услугу'
+        PRESCRIPTION: 'Рецепт', SERVICE_ORDER: 'Заявка на услугу',
+        OWNER_PROFILE: 'Запрос профиля владельца', OBJECT_TRANSFER: 'Передача владения',
+        OBJECT_LIFECYCLE: 'Жизненный цикл объекта'
     };
     const ISTATUS_RU = { PENDING: 'Ожидает', CONFIRMED: 'Подтверждено', REJECTED: 'Отклонено' };
     const COMPLAINT_RU = { NEW: 'Новая', IN_PROGRESS: 'В работе', RESOLVED: 'Решена', REJECTED: 'Отклонена' };
@@ -2875,7 +2880,7 @@
                 ${data.map(r => `
                     <div class="access-row ${r.kind === 'MEDICAL' ? 'medical' : ''}" data-id="${esc(r.interactionUid)}">
                         <div class="access-meta"><strong>${esc(r.fromName)}</strong>
-                            <span>${r.kind === 'MEDICAL' ? '🩺 ' : '👤 '}${esc(r.what || 'доступ к профилю')}${r.createdAt ? ' · ' + esc(r.createdAt) : ''}</span></div>
+                            <span>${r.kind === 'MEDICAL' ? '🩺 ' : r.kind === 'OWNER_PROFILE' ? '📦 ' : '👤 '}${esc(r.what || 'доступ к профилю')}${r.createdAt ? ' · ' + esc(r.createdAt) : ''}</span></div>
                         <div class="access-actions">
                             <button class="btn btn-primary btn-sm acc-confirm" type="button">Подтвердить</button>
                             <button class="btn btn-ghost btn-sm acc-reject" type="button">Отклонить</button>
@@ -2901,7 +2906,8 @@
     async function openConsentPopup(r) {
         const medical = r.kind === 'MEDICAL';
         const action = await showModal({
-            title: medical ? '🩺 Запрос к медицинской карте' : '🔔 Запрос доступа',
+            title: medical ? '🩺 Запрос к медицинской карте'
+                : r.kind === 'OWNER_PROFILE' ? '📦 Запрос профиля владельца объекта' : '🔔 Запрос доступа',
             bodyHtml: `
                 <p class="modal-text"><b>${esc(r.fromName)}</b> запрашивает
                     ${medical ? 'доступ к вашей медицинской карте' : esc(r.what || 'доступ к профилю')}${r.createdAt ? ' · ' + esc(r.createdAt) : ''}.</p>
@@ -3272,7 +3278,154 @@
         const d = res.data || {};
         if (res.contextView === 'BUSINESS_CARD' || res.category === 'IDENTITY') return businessCard(d);
         if (res.contextView === 'PRESCRIPTIONS') return rxOnlyCard(d, res.objectUid);
+        // УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ: одна и та же вещь, один и тот же QR — но карточка
+        // складывается из базовой (по категории) + контекстных блоков по роли сканирующего:
+        // служебное раскрытие владельца (полиция), панель владения, AI-рекомендации.
+        if ((res.contextView || '').startsWith('OBJECT_')) {
+            return renderCardByCategory(res.category, d, res.objectUid)
+                + authoritySection(res)
+                + ownershipSection(res)
+                + aiSection(res.aiCard);
+        }
         return renderCardByCategory(res.category, d, res.objectUid);
+    }
+
+    // -------------------------------------------------------------
+    //  Универсальное правило объектов: владение, служебный доступ, AI
+    // -------------------------------------------------------------
+    const OBJ_STATUS_RU = { CREATED: 'Создан', ACTIVE: 'Активен', MODIFIED: 'Изменён', ARCHIVED: 'Архивирован' };
+
+    /** Панель владения: владельцу — управление и передача; пользователю — кнопки запроса/покупки. */
+    function ownershipSection(res) {
+        const own = res.ownership;
+        if (!own) return '';
+        if (res.contextView === 'OBJECT_OWNER') {
+            return `
+            <div class="card data-card own-panel fade-in">
+                <div class="own-head">🔑 Вы — владелец этого объекта</div>
+                <div class="kv-grid">
+                    ${kv('Статус объекта', OBJ_STATUS_RU[own.objectStatus] || own.objectStatus || '—')}
+                    ${own.objectTrustScore != null ? kv('Trust Score объекта', own.objectTrustScore + ' / 100') : ''}
+                </div>
+                ${own.note ? `<p class="muted own-note">${esc(own.note)}</p>` : ''}
+                ${own.transferAvailable ? `
+                <div class="own-transfer" data-transfer-for="${esc(res.objectUid)}">
+                    <h4>Передать право владения</h4>
+                    <div class="field"><label>Получатель — имя пользователя или UID личности</label>
+                        <input class="tr-to" type="text" placeholder="напр. seller"></div>
+                    <div class="field"><label>Комментарий (необязательно)</label>
+                        <input class="tr-note" type="text" placeholder="Продажа / дарение…"></div>
+                    <button class="btn btn-gold tr-send" type="button">Передать владение</button>
+                    <p class="muted own-note">QR объекта не изменится — изменится только владелец. Переход необратимо фиксируется в истории.</p>
+                </div>` : ''}
+            </div>`;
+        }
+        if (res.contextView === 'OBJECT_EXTENDED') {
+            const ownerBtn = own.ownerRequestAvailable ? `
+                <button class="btn btn-primary owner-req" type="button" data-for="${esc(res.objectUid)}">👤 Профиль владельца</button>
+                <p class="muted own-note">Откроется только после согласия владельца (Request → Decision → History).</p>` : '';
+            const claimBtn = own.claimAvailable ? `
+                <button class="btn btn-gold obj-claim" type="button" data-for="${esc(res.objectUid)}">🛍 Оформить владение (демо-покупка)</button>
+                <p class="muted own-note">Объект привяжется к вашей личности; его QR останется прежним.</p>` : '';
+            if (!ownerBtn && !claimBtn) {
+                return own.note ? `<div class="card data-card own-panel fade-in"><p class="muted own-note">${esc(own.note)}</p></div>` : '';
+            }
+            return `<div class="card data-card own-panel fade-in">
+                <div class="own-head">${own.state === 'OWNED' ? '🔒 Владелец объекта' : '🏷 Объект без владельца (pre-ownership)'}</div>
+                <div class="owner-req-slot">${ownerBtn}${claimBtn}</div>
+            </div>`;
+        }
+        return '';
+    }
+
+    /** Служебное раскрытие владельца (полиция при исполнении): официальный блок + фиксация. */
+    function authoritySection(res) {
+        const d = res.ownerDisclosure;
+        if (!d) return '';
+        const dl = d.drivingLicense || null;
+        return `
+        <div class="card data-card authority-panel fade-in">
+            <div class="own-head">👮 Служебные данные владельца</div>
+            <div class="kv-grid">
+                ${kv('ФИО владельца', d.fullName || '—')}
+                ${d.iin ? kv('ИИН', d.iin, true) : ''}
+                ${d.birthDate ? kv('Дата рождения', d.birthDate, true) : ''}
+                ${d.phone ? kv('Телефон', d.phone, true) : ''}
+                ${d.registrationAddress ? kv('Адрес регистрации', d.registrationAddress) : ''}
+                ${!d.registrationAddress && d.city ? kv('Город', d.city) : ''}
+                ${dl ? kv('Вод. удостоверение', (dl.number || '—') + ' · кат. ' + (dl.categories || '—'), true) : ''}
+                ${d.trustLevel != null ? kv('Доверие владельца', d.trustLevel + ' / 100') : ''}
+            </div>
+            ${d.legalBasis ? `<p class="muted own-note">${esc(d.legalBasis)}</p>` : ''}
+            <div class="alert-banner">
+                <div class="ab-ico">⚖️</div>
+                <div class="ab-txt"><strong>Доступ предоставлен без согласия владельца — по полномочию</strong>
+                <span>${esc(d.auditNotice || 'Действие необратимо зафиксировано в журнале; владелец уведомлён.')}</span></div>
+            </div>
+        </div>`;
+    }
+
+    /** ✨ Интеллектуальная AI-карточка: динамический контент по типу вещи × сканирующему. */
+    function aiSection(ai) {
+        if (!ai) return '';
+        const items = Array.isArray(ai.items) ? ai.items : [];
+        const pairings = Array.isArray(ai.pairings) ? ai.pairings : [];
+        return `
+        <div class="card data-card ai-card fade-in">
+            <div class="ai-card-head"><span class="ai-spark">✨</span>
+                <div><div class="ai-card-title">${esc(ai.headline || 'AI-карточка объекта')}</div>
+                <div class="ai-card-sub">${esc(ai.engine || 'IDEA QR AI')}${ai.focus ? ' · ' + esc(ai.focus) : ''}</div></div>
+            </div>
+            ${items.map(t => `<div class="ai-item"><span class="ai-item-ico">${esc(t.ico || '•')}</span>
+                <div><div class="ai-item-title">${esc(t.title || '')}</div><div class="ai-item-note">${esc(t.note || '')}</div></div></div>`).join('')}
+            ${pairings.length ? `<div class="dc-section"><h4>Подбор из ваших вещей</h4>
+                <div class="tag-list">${pairings.map(p => `<span class="tag">${esc(p)}</span>`).join('')}</div></div>` : ''}
+            ${ai.disclaimer ? `<p class="muted ai-disclaimer">${esc(ai.disclaimer)}</p>` : ''}
+        </div>`;
+    }
+
+    /** Кнопки контекстной карточки объекта: запрос профиля владельца, покупка, передача. */
+    function wireObjectActions(data, container) {
+        if (!container || !data || !data.objectUid) return;
+        container.querySelectorAll('.owner-req').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Отправляем запрос…';
+            try {
+                const { ok, data: res } = await apiJson(
+                    `/api/v2/objects/${encodeURIComponent(btn.dataset.for)}/owner-request`, { method: 'POST', body: {} });
+                if (!ok || !res || !res.interactionUid) throw new Error((res && (res.message || res.reason)) || 'Не удалось отправить запрос.');
+                toast('Запрос отправлен владельцу объекта.', 'info');
+                const slot = btn.closest('.owner-req-slot');
+                if (slot) slot.innerHTML = '<p class="muted own-note">Запрос отправлен. Владелец получил уведомление и решает.</p>';
+                startProfilePoll(res.interactionUid, container, false);
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '👤 Профиль владельца'; }
+        }));
+        container.querySelectorAll('.obj-claim').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Оформляем…';
+            try {
+                const { ok, data: res } = await apiJson(
+                    `/api/v2/objects/${encodeURIComponent(btn.dataset.for)}/claim`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((res && res.message) || 'Не удалось оформить владение.');
+                toast((res && res.message) || 'Право владения оформлено.', 'ok');
+                doScan(btn.dataset.for); // тот же QR — но карточка перечитается уже в контексте владельца
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '🛍 Оформить владение (демо-покупка)'; }
+        }));
+        container.querySelectorAll('[data-transfer-for]').forEach(box => {
+            const objectUid = box.getAttribute('data-transfer-for');
+            const send = box.querySelector('.tr-send');
+            if (!send) return;
+            send.addEventListener('click', async () => {
+                const to = box.querySelector('.tr-to').value.trim();
+                if (!to) { toast('Укажите получателя.', 'err'); return; }
+                send.disabled = true; send.textContent = 'Передаём…';
+                try {
+                    const { ok, data: res } = await apiJson(`/api/v2/objects/${encodeURIComponent(objectUid)}/transfer`,
+                        { method: 'POST', body: { newOwner: to, note: box.querySelector('.tr-note').value.trim() } });
+                    if (!ok) throw new Error((res && res.message) || 'Не удалось передать владение.');
+                    toast((res && res.message) || 'Право владения передано.', 'ok');
+                    doScan(objectUid); // объект уже чужой: карточка перечитается в новом контексте
+                } catch (e) { toast(e.message, 'err'); send.disabled = false; send.textContent = 'Передать владение'; }
+            });
+        });
     }
 
     /** Полоска контекста: кто сканирует — то и открывается (ключевой месседж демо). */
@@ -3281,7 +3434,11 @@
             MEDICAL: { ico: '🩺', txt: 'Контекст: медицинский работник → медицинская карта (по согласию пациента)' },
             PRESCRIPTIONS: { ico: '💊', txt: 'Контекст: фармацевт → только рецепты (минимальный доступ по роли)' },
             LEGAL: { ico: '👮', txt: 'Контекст: полиция при исполнении → правовой статус' },
-            BUSINESS_CARD: { ico: '👤', txt: 'Контекст: гражданин → цифровая визитка' }
+            BUSINESS_CARD: { ico: '👤', txt: 'Контекст: гражданин → цифровая визитка' },
+            OBJECT_PUBLIC: { ico: '🌐', txt: 'Контекст: гость → публичная карточка объекта (данные владельца скрыты)' },
+            OBJECT_EXTENDED: { ico: '📦', txt: 'Контекст: пользователь → расширенная карточка + AI-подбор' },
+            OBJECT_OWNER: { ico: '🔑', txt: 'Контекст: владелец → полное управление объектом без запросов' },
+            OBJECT_AUTHORITY: { ico: '👮', txt: 'Контекст: уполномоченный орган → данные владельца (фиксация в журнале)' }
         };
         const v = map[res.contextView];
         if (!v) return '';

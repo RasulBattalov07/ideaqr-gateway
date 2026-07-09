@@ -32,8 +32,18 @@ public class RegistryClient {
     private final RegistryObjectRepository registryObjectRepository;
     private final ObjectMapper objectMapper;
 
-    /** Result of a resolution. {@code known} = backed by real data (DB or demo registry). */
-    public record Resolved(boolean known, ObjectCategory category, String displayName, Map<String, Object> data) {}
+    /**
+     * Result of a resolution. {@code known} = backed by real data (DB or demo registry).
+     * {@code dbObject} is the persisted registry row when the identifier is a real DB object
+     * ({@code null} for curated/inferred entries) — it carries the ownership binding
+     * ({@code ownerIdentityUid}) that drives the universal contextual object routing.
+     */
+    public record Resolved(boolean known, ObjectCategory category, String displayName,
+                           Map<String, Object> data, RegistryObject dbObject) {
+        public Resolved(boolean known, ObjectCategory category, String displayName, Map<String, Object> data) {
+            this(known, category, displayName, data, null);
+        }
+    }
 
     private record Demo(ObjectCategory category, String displayName, String json) {}
 
@@ -63,7 +73,7 @@ public class RegistryClient {
         Optional<RegistryObject> dbObject = registryObjectRepository.findByObjectUidAnyTenant(key);
         if (dbObject.isPresent() && visibleToCurrentTenant(dbObject.get())) {
             RegistryObject o = dbObject.get();
-            return new Resolved(true, o.getCategory(), o.getDisplayName(), parse(o.getDataJson()));
+            return new Resolved(true, o.getCategory(), o.getDisplayName(), parse(o.getDataJson()), o);
         }
 
         // 2. Curated demo registry (universally scannable).
@@ -133,6 +143,7 @@ public class RegistryClient {
             {
               "productName": "Nike Air Force 1 '07",
               "brand": "Nike", "sku": "RETAIL_NIKE_AF1",
+              "itemType": "FOOTWEAR",
               "price": 54990, "currency": "₸",
               "rating": 4.9, "reviews": 2841,
               "description": "Классические кожаные кроссовки унисекс, белый цвет. Оригинал.",
@@ -197,6 +208,7 @@ public class RegistryClient {
             {
               "productName": "Toyota Camry 2.5 Prestige",
               "brand": "Toyota", "sku": "01 KZ 777 ABC",
+              "itemType": "VEHICLE",
               "price": 18900000, "currency": "₸",
               "rating": 4.8, "reviews": 342,
               "description": "Седан бизнес-класса, 2024 г., пробег 0 км. Официальный дилер Toyota в Казахстане.",
@@ -227,6 +239,7 @@ public class RegistryClient {
             {
               "title": "Студенческий билет — AITU",
               "kind": "Документ · образование",
+              "itemType": "DOCUMENT",
               "description": "Цифровой студенческий билет Astana IT University. Идентификатор студента в экосистеме платформы.",
               "details": {
                 "ФИО": "Серіков Айдос Бағланұлы",

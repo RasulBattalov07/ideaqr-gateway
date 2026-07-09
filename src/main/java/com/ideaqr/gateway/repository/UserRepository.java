@@ -32,4 +32,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query(value = "select trim(first_name || ' ' || last_name) from users where identity_uid = :uid",
             nativeQuery = true)
     Optional<String> findDisplayNameByIdentityUid(@Param("uid") UUID uid);
+
+    /**
+     * Resolve a transfer recipient by username across ALL tenants (native, filter-bypassing):
+     * handing an object over works like a phone-number transfer — the recipient may live in
+     * any tenant. Returns only the identity uid (no profile data), so it is an existence
+     * probe no stronger than the public registration username check.
+     */
+    @Query(value = "select cast(identity_uid as varchar(36)) from users where username = :username",
+            nativeQuery = true)
+    Optional<String> findIdentityUidByUsernameAnyTenant(@Param("username") String username);
 }

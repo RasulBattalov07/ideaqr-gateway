@@ -93,6 +93,37 @@ public class ValidationService {
         return coreDecide(identity, category, known, true, null);
     }
 
+    /**
+     * УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ (BLOCK 2.4) — служебное раскрытие данных владельца
+     * вещи уполномоченной роли <b>без согласия владельца</b>. Ворота сознательно те же,
+     * что у правового досье (LEGAL): роль POLICE + государственный уровень доверия +
+     * рабочий режим + рабочее время — полицейский вне смены остаётся просто гражданином.
+     * Отказ здесь не «ошибка», а тихое понижение скана до обычной расширенной карточки.
+     */
+    public Verdict authorityDisclosure(Identity identity, boolean workingMode, Integer overrideHour) {
+        Set<RoleType> roles = identity.getRoles();
+        int hour = overrideHour != null ? overrideHour : LocalTime.now(clock).getHour();
+        boolean workingHours = hour >= WORK_START && hour < WORK_END;
+        if (!roles.contains(RoleType.POLICE)) {
+            return new Verdict(REJECTED, "ROLE_REQUIRED_POLICE",
+                    "Служебный доступ к данным владельца разрешён только уполномоченным органам.", "HIGH");
+        }
+        if (identity.getTrustLevel() < TRUST_LEGAL) {
+            return new Verdict(REJECTED, "TRUST_TOO_LOW",
+                    "Недостаточный уровень доверия для служебного доступа.", "HIGH");
+        }
+        if (!workingMode) {
+            return new Verdict(REJECTED, "WORKING_MODE_REQUIRED",
+                    "Служебный доступ возможен только при исполнении (рабочий режим).", "MEDIUM");
+        }
+        if (!workingHours) {
+            return new Verdict(REJECTED, "OUTSIDE_WORKING_HOURS",
+                    "Служебный доступ возможен только в рабочее время (08:00–18:00).", "MEDIUM");
+        }
+        return new Verdict(APPROVED, "AUTHORITY_DISCLOSURE",
+                "Служебный доступ: роль (полиция), доверие, рабочий режим и время подтверждены.", "HIGH");
+    }
+
     private Verdict coreDecide(Identity identity, ObjectCategory category, boolean known,
                                boolean workingMode, Integer overrideHour) {
         if (category == null || category == ObjectCategory.UNKNOWN) {

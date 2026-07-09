@@ -74,7 +74,8 @@ class ObjectLifecycleServiceTransferTest {
         RegistryObject car = car(oldOwner, ObjectStatus.ACTIVE);
 
         when(registryObjectRepository.findByObjectUid("CAR_FLYBO_01")).thenReturn(Optional.of(car));
-        when(identityRepository.existsById(newOwner)).thenReturn(true);   // audit H-3: owner must exist
+        // audit H-3: owner must exist (any-tenant probe — recipients may live in other tenants)
+        when(identityRepository.countByIdentityUidAnyTenant(newOwner)).thenReturn(1L);
         when(requestRepository.save(any(RequestRecord.class))).thenAnswer(a -> a.getArgument(0));
         when(decisionRepository.save(any(Decision.class))).thenAnswer(a -> a.getArgument(0));
         when(interactionRepository.save(any(Interaction.class))).thenAnswer(a -> a.getArgument(0));
@@ -116,7 +117,7 @@ class ObjectLifecycleServiceTransferTest {
         UUID phantomOwner = UUID.randomUUID();
         when(registryObjectRepository.findByObjectUid("CAR_FLYBO_01"))
                 .thenReturn(Optional.of(car(UUID.randomUUID(), ObjectStatus.ACTIVE)));
-        when(identityRepository.existsById(phantomOwner)).thenReturn(false); // audit H-3
+        when(identityRepository.countByIdentityUidAnyTenant(phantomOwner)).thenReturn(0L); // audit H-3
 
         assertThatThrownBy(() -> service.transfer(actor(), "CAR_FLYBO_01", phantomOwner, "Продажа"))
                 .isInstanceOf(IllegalArgumentException.class)

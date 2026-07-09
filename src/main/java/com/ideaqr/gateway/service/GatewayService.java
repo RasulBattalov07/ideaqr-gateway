@@ -23,6 +23,7 @@ import com.ideaqr.gateway.dto.GatewayResponse;
 import com.ideaqr.gateway.dto.ReportRequest;
 import com.ideaqr.gateway.dto.ScanRequest;
 import com.ideaqr.gateway.util.PublicCard;
+import com.ideaqr.gateway.domain.RegistryObject;
 import com.ideaqr.gateway.repository.DecisionRepository;
 import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.InteractionRepository;
@@ -57,6 +58,13 @@ public class GatewayService {
     /** Interaction type for a doctor/pharmacist's pending request for a patient's consent. */
     private static final String MEDICAL_SCAN_TYPE = "MEDICAL_SCAN";
 
+    /**
+     * Interaction type for the P2P owner-consent flow of the УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ:
+     * a registered user pressed «Профиль владельца» on an object card; the owner must
+     * confirm before their profile opens (same Owner-Approval machinery as PROFILE_SCAN).
+     */
+    private static final String OWNER_PROFILE_TYPE = "OWNER_PROFILE";
+
     /** Card-payload key carrying the patient of record whose consent governs a medical card. */
     private static final String PATIENT_KEY = "patientIdentityUid";
 
@@ -76,6 +84,7 @@ public class GatewayService {
     private final DevTimeService devTimeService;
     private final MedicalService medicalService;
     private final CitizenDossierService citizenDossierService;
+    private final AiCardService aiCardService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -170,6 +179,21 @@ public class GatewayService {
             card.put("prescriptions", medicalService.listForObject(objectUid));
         }
 
+        // ==============================================================
+        // УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ (Object Governance): у каждой вещи — один
+        // неизменяемый QR, а КАРТОЧКА зависит от того, КТО сканирует:
+        //   • гость            → только публичная карточка, ноль сведений о владельце;
+        //   • пользователь     → расширенная карточка + кнопка «Профиль владельца»
+        //                        (P2P-согласие через Request → Decision) + AI-карточка;
+        //   • владелец         → мгновенный полный доступ и управление, без запросов;
+        //   • полиция при исп. → данные владельца БЕЗ согласия, с жёсткой фиксацией
+        //                        в History/Audit и уведомлением владельца.
+        // ==============================================================
+        ObjectRouting routing = null;
+        if (approved && AiCardService.ITEM_CATEGORIES.contains(resolved.category())) {
+            routing = routeObjectView(identity, resolved, objectUid, guest, workingMode, overrideHour);
+        }
+
         Decision decision = decisionRepository.save(Decision.builder()
                 .requestUid(req.getRequestUid())
                 .identityUid(identity.getIdentityUid())
@@ -179,12 +203,18 @@ public class GatewayService {
                 .riskLevel(verdict.riskLevel())
                 .build());
 
+        // Служебный скан помечает владельца целью взаимодействия: раскрытие его данных
+        // появляется у него в «кто сканировал меня» — прозрачность по умолчанию.
+        boolean authorityView = routing != null && routing.authority();
         Interaction interaction = interactionRepository.save(Interaction.builder()
                 .identityUid(identity.getIdentityUid())
                 .requestUid(req.getRequestUid())
                 .objectUid(objectUid)
+                .targetIdentityUid(authorityView ? routing.ownerUid() : null)
                 .interactionType("SCAN")
-                .detail("Сканирование объекта " + objectUid + " → " + verdict.outcome().name()
+                .detail(authorityView
+                        ? "СЛУЖЕБНЫЙ СКАН объекта " + objectUid + ": раскрыты данные владельца (полиция при исполнении)"
+                        : "Сканирование объекта " + objectUid + " → " + verdict.outcome().name()
                         + (approved ? " [" + accessTier + "]" : ""))
                 .build());
 
@@ -207,6 +237,24 @@ public class GatewayService {
         eventService.record(evt, identity.getIdentityUid(), objectUid, interaction.getInteractionUid(),
                 "Скан объекта " + objectUid + " → " + verdict.outcome().name(), EventSource.QR_SCAN);
 
+        // СТРОГОЕ ТРЕБОВАНИЕ (BLOCK 2.4): служебное раскрытие данных владельца фиксируется
+        // НЕЗАВИСИМОЙ записью в неизменяемом hash-chain журнале НА ИМЯ ВЛАДЕЛЬЦА (владелец
+        // видит её в своей истории), плюс машинное событие и уведомление. Полицейский след
+        // невозможно оставить «незаметно»: его собственный скан уже записан выше.
+        if (authorityView) {
+            auditService.record(routing.ownerUid(), objectUid, HistoryEventType.ACCESS_GRANTED,
+                    "СЛУЖЕБНЫЙ ДОСТУП: " + displayName(identity.getIdentityUid())
+                            + " (полиция, при исполнении) получил данные владельца объекта «"
+                            + resolved.displayName() + "» без согласия — в объёме, установленном законом.",
+                    req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+            eventService.record(EventType.PROFILE_OPENED, identity.getIdentityUid(), objectUid,
+                    interaction.getInteractionUid(),
+                    "Служебное раскрытие данных владельца объекта (уполномоченный орган)");
+            notificationService.notify(routing.ownerUid(), "AUTHORITY_ACCESS",
+                    "Уполномоченный орган (полиция) получил служебный доступ к вашим данным как владельца объекта «"
+                            + resolved.displayName() + "». Действие зафиксировано в журнале.");
+        }
+
         return GatewayResponse.builder()
                 .success(approved)
                 .outcome(verdict.outcome().name())
@@ -227,6 +275,198 @@ public class GatewayService {
                 .accessTier(accessTier)
                 .registrationRequired(registrationRequired)
                 .cta(cta)
+                .contextView(routing != null ? routing.view() : null)
+                .ownership(routing != null ? routing.ownership() : null)
+                .ownerDisclosure(routing != null ? routing.ownerDisclosure() : null)
+                .aiCard(routing != null ? routing.aiCard() : null)
+                .build();
+    }
+
+    // ------------------------------------------------------------------
+    //  УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ — контекстная маршрутизация карточки вещи
+    // ------------------------------------------------------------------
+
+    /**
+     * Какое представление объекта получает сканирующий. {@code ownership} никогда не несёт
+     * идентификаторов/имени владельца — только доступные действия; сведения о владельце
+     * существуют лишь в {@code ownerDisclosure} (уполномоченные роли) либо открываются через
+     * P2P-согласие ({@link #requestOwnerProfile}).
+     */
+    private record ObjectRouting(String view, Map<String, Object> ownership,
+                                 Map<String, Object> ownerDisclosure, Map<String, Object> aiCard,
+                                 UUID ownerUid) {
+        boolean authority() {
+            return "OBJECT_AUTHORITY".equals(view);
+        }
+    }
+
+    private ObjectRouting routeObjectView(Identity scanner, RegistryClient.Resolved resolved,
+                                          String objectUid, boolean guest,
+                                          boolean workingMode, Integer overrideHour) {
+        // 1. ГОСТЬ: публичная карточка. КАТЕГОРИЧЕСКИ никакой информации о владельце —
+        //    ни имени, ни идентификаторов, ни даже факта, что владелец существует.
+        if (guest) {
+            return new ObjectRouting("OBJECT_PUBLIC", null, null, null, null);
+        }
+
+        RegistryObject db = resolved.dbObject();
+        UUID ownerUid = db != null ? db.getOwnerIdentityUid() : null;
+
+        // 3. ВЛАДЕЛЕЦ: без запросов и согласий — мгновенный полный доступ к управлению.
+        if (ownerUid != null && ownerUid.equals(scanner.getIdentityUid())) {
+            Map<String, Object> ownership = new LinkedHashMap<>();
+            ownership.put("state", "OWNED");
+            ownership.put("isOwner", true);
+            ownership.put("transferAvailable", !CitizenDossierService.isDossierObject(objectUid));
+            ownership.put("objectStatus", db.getStatus() != null ? db.getStatus().name() : null);
+            ownership.put("objectTrustScore", db.getTrustScore());
+            ownership.put("note", "Вы — владелец. QR объекта постоянен: при передаче прав меняется только владелец.");
+            return new ObjectRouting("OBJECT_OWNER", ownership, null,
+                    aiCardService.generate(scanner, objectUid, resolved.category(), resolved.data(), true),
+                    ownerUid);
+        }
+
+        // 4. УПОЛНОМОЧЕННЫЙ ОРГАН (полиция при исполнении): установленный законом объём
+        //    данных владельца БЕЗ его согласия. Отказ по воротам тихо понижает скан до
+        //    обычной расширенной карточки — полицейский вне смены просто гражданин.
+        if (ownerUid != null && validationService.authorityDisclosure(scanner, workingMode, overrideHour)
+                .outcome() == DecisionOutcome.APPROVED) {
+            Map<String, Object> ownership = new LinkedHashMap<>();
+            ownership.put("state", "OWNED");
+            ownership.put("isOwner", false);
+            ownership.put("note", "Служебный доступ: данные владельца раскрыты по полномочию, действие зафиксировано.");
+            return new ObjectRouting("OBJECT_AUTHORITY", ownership, buildOwnerDisclosure(ownerUid), null, ownerUid);
+        }
+
+        // 2. ЗАРЕГИСТРИРОВАННЫЙ ПОЛЬЗОВАТЕЛЬ: расширенная карточка + AI. Владелец скрыт;
+        //    доступна лишь кнопка «Профиль владельца» (P2P-согласие) либо, для бесхозной
+        //    вещи (pre-ownership), оформление владения — QR при этом не меняется.
+        Map<String, Object> ownership = new LinkedHashMap<>();
+        ownership.put("state", ownerUid != null ? "OWNED" : "UNOWNED");
+        ownership.put("isOwner", false);
+        ownership.put("ownerRequestAvailable", ownerUid != null);
+        boolean claimable = ownerUid == null
+                && !CitizenDossierService.isDossierObject(objectUid)
+                && (resolved.category() == ObjectCategory.RETAIL
+                        || (resolved.data() != null && resolved.data().get("itemType") != null));
+        ownership.put("claimAvailable", claimable);
+        ownership.put("note", ownerUid != null
+                ? "Профиль владельца откроется только с его согласия (Request → Decision → History)."
+                : "Объект пока никому не принадлежит (pre-ownership): открыта стандартная карточка.");
+        return new ObjectRouting("OBJECT_EXTENDED", ownership, null,
+                aiCardService.generate(scanner, objectUid, resolved.category(), resolved.data(), false),
+                ownerUid);
+    }
+
+    /**
+     * Установленный законом объём сведений о владельце для уполномоченной роли: ФИО, ИИН,
+     * телефон, адрес регистрации, документы (из правового досье и визитки владельца).
+     * Вызывается ТОЛЬКО из ветки OBJECT_AUTHORITY — каждое построение сопровождается
+     * журнальными записями в {@link #scan}.
+     */
+    private Map<String, Object> buildOwnerDisclosure(UUID ownerUid) {
+        Map<String, Object> d = new LinkedHashMap<>();
+        d.put("fullName", displayName(ownerUid));
+        d.put("identityUid", ownerUid.toString());
+        identityRepository.findById(ownerUid).ifPresent(owner -> {
+            ensureDossier(owner);
+            d.put("trustLevel", owner.getTrustLevel());
+        });
+        citizenDossierService.find(CitizenDossierService.vcardUidFor(ownerUid))
+                .map(citizenDossierService::payload)
+                .ifPresent(v -> {
+                    if (v.get("phone") != null) d.put("phone", v.get("phone"));
+                    if (v.get("city") != null) d.put("city", v.get("city"));
+                });
+        citizenDossierService.find(CitizenDossierService.legalUidFor(ownerUid))
+                .map(citizenDossierService::payload)
+                .ifPresent(l -> {
+                    if (l.get("iin") != null) d.put("iin", l.get("iin"));
+                    if (l.get("birthDate") != null) d.put("birthDate", l.get("birthDate"));
+                    if (l.get("address") != null) d.put("registrationAddress", l.get("address"));
+                    if (l.get("drivingLicense") != null) d.put("drivingLicense", l.get("drivingLicense"));
+                });
+        d.put("legalBasis", "Служебный доступ уполномоченного органа — объём, установленный законом (демо-режим).");
+        d.put("auditNotice", "Раскрытие необратимо зафиксировано в журнале History/Audit; владелец уведомлён.");
+        return d;
+    }
+
+    /**
+     * BLOCK 2.2 — кнопка «Профиль владельца» на карточке объекта. Информация НЕ открывается
+     * сразу: создаётся Request в REVIEW, владелец получает уведомление и решает (Decision).
+     * Профиль раскрывается сканирующему только после подтверждения — через тот же
+     * Owner-Approval-конвейер, что и личный QR ({@code /api/v2/access/{id}/result}).
+     */
+    @Transactional
+    public GatewayResponse requestOwnerProfile(Identity requester, String rawObjectUid) {
+        if (requester.getIdentityType() == IdentityType.GUEST) {
+            throw new AccessDeniedException("Профиль владельца доступен только зарегистрированным пользователям.");
+        }
+        String objectUid = normalizeIdentifier(rawObjectUid);
+        RegistryClient.Resolved resolved = registryClient.resolve(objectUid);
+        RegistryObject db = resolved.dbObject();
+        UUID ownerUid = db != null ? db.getOwnerIdentityUid() : null;
+        if (ownerUid == null) {
+            throw new IllegalArgumentException("У этого объекта нет зарегистрированного владельца.");
+        }
+        if (ownerUid.equals(requester.getIdentityUid())) {
+            throw new IllegalArgumentException("Вы и есть владелец этого объекта.");
+        }
+
+        String reason = "Запрос доступа к профилю владельца отправлен. Ожидается решение владельца.";
+        Organization requesterOrg = organizationService.resolveActingOrganization(requester.getIdentityUid());
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(requester.getIdentityUid())
+                .organizationUid(requesterOrg != null ? requesterOrg.getOrganizationUid() : null)
+                .objectUid(objectUid)
+                .requestType(RequestType.ACCESS)
+                .status(RequestStatus.REVIEW)
+                .build());
+        Decision decision = decisionRepository.save(Decision.builder()
+                .requestUid(req.getRequestUid())
+                .identityUid(requester.getIdentityUid())
+                .outcome(DecisionOutcome.REVIEW)
+                .reasonCode("OWNER_CONFIRMATION_REQUIRED")
+                .reason(reason)
+                .riskLevel("MEDIUM")
+                .build());
+        Interaction interaction = interactionRepository.save(Interaction.builder()
+                .identityUid(requester.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .objectUid(objectUid)
+                .targetIdentityUid(ownerUid)
+                .interactionType(OWNER_PROFILE_TYPE)
+                .status(InteractionStatus.PENDING)
+                .detail("Запрос профиля владельца объекта «" + resolved.displayName() + "» от "
+                        + displayName(requester.getIdentityUid()))
+                .build());
+        History history = auditService.record(requester.getIdentityUid(), objectUid,
+                HistoryEventType.PROFILE_ACCESS_REQUESTED, reason,
+                req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+        eventService.record(EventType.ACCESS_REQUESTED, requester.getIdentityUid(), objectUid,
+                interaction.getInteractionUid(), "Запрос доступа к профилю владельца объекта");
+        notificationService.notify(ownerUid, "ACCESS_REQUEST",
+                "Пользователь " + displayName(requester.getIdentityUid())
+                        + " запрашивает доступ к вашему профилю как владельца объекта «"
+                        + resolved.displayName() + "». Подтвердите или отклоните.");
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("title", resolved.displayName());
+        data.put("description", "Нажатие кнопки — это только запрос. Профиль владельца откроется лишь после его согласия.");
+        data.put("note", "Ожидается решение владельца…");
+        return GatewayResponse.builder()
+                .success(false)
+                .outcome(DecisionOutcome.REVIEW.name())
+                .reason(reason)
+                .riskLevel("MEDIUM")
+                .category("IDENTITY")
+                .objectUid(objectUid)
+                .data(data)
+                .identityUid(requester.getIdentityUid().toString())
+                .requestUid(req.getRequestUid().toString())
+                .decisionUid(decision.getDecisionUid().toString())
+                .interactionUid(interaction.getInteractionUid().toString())
+                .historyUid(history.getHistoryUid().toString())
                 .build();
     }
 
@@ -744,7 +984,10 @@ public class GatewayService {
                 .orElseThrow(() -> new IllegalArgumentException("Запрос доступа не найден."));
         boolean medical = MEDICAL_SCAN_TYPE.equals(interaction.getInteractionType());
         boolean profile = "PROFILE_SCAN".equals(interaction.getInteractionType());
-        if (!scanner.getIdentityUid().equals(interaction.getIdentityUid()) || !(medical || profile)) {
+        // Owner-Approval объекта (OWNER_PROFILE) идёт через тот же результат-поллинг: после
+        // согласия владельца сканирующему открывается профиль владельца, как при PROFILE_SCAN.
+        boolean ownerProfile = OWNER_PROFILE_TYPE.equals(interaction.getInteractionType());
+        if (!scanner.getIdentityUid().equals(interaction.getIdentityUid()) || !(medical || profile || ownerProfile)) {
             throw new AccessDeniedException("Этот запрос вам не принадлежит.");
         }
         InteractionStatus status = interaction.getStatus();
@@ -879,8 +1122,11 @@ public class GatewayService {
     }
 
     private String displayName(UUID identityUid) {
-        return userRepository.findByIdentityUid(identityUid)
-                .map(u -> (u.getFirstName() + " " + u.getLastName()).trim())
+        // Native, tenant-filter-bypassing (как в HistoryController): имя субъекта должно
+        // разрешаться и через границу тенантов — владелец вещи из публичного тенанта обязан
+        // отображаться реальным именем в служебном раскрытии и в уведомлениях.
+        return userRepository.findDisplayNameByIdentityUid(identityUid)
+                .filter(s -> !s.isBlank())
                 .orElse("Пользователь");
     }
 

@@ -101,6 +101,13 @@ public class DataSeeder implements CommandLineRunner {
         }
         seedBusinessCard();
 
+        // УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ: личные вещи гражданина (одежда + техника) как
+        // реальные DB-объекты с владельцем — демо контекстного скана (гость / пользователь /
+        // владелец / полиция), P2P-согласия на профиль владельца и AI-гардероба.
+        if (citizen != null) {
+            seedPersonalItems(citizen.getIdentityUid());
+        }
+
         // Phase 2 (единый QR): каждому демо-гражданину — полный цифровой пакет (медкарта,
         // правовое досье, визитка). Выполняется вне тенант-контекста, объекты — публичные.
         seedDossiers();
@@ -192,6 +199,71 @@ public class DataSeeder implements CommandLineRunner {
                 .build());
         log.info("DataSeeder: seeded transferable object CAR_TOYOTA_CAMRY.");
     }
+
+    /**
+     * Личные вещи гражданина (public tenant — вещь принадлежит человеку, не организации):
+     * куртка (CLOTHING — AI-подбор и «гардероб») и холодильник (APPLIANCE — фильтры,
+     * гарантия, сервис-центры). Владелец — демо-«citizen»: на них показываются все четыре
+     * контекстных представления и служебное раскрытие владельца полицией.
+     */
+    private void seedPersonalItems(UUID citizenIdentityUid) {
+        seedItem("ITEM_JACKET_UNIQLO", "Куртка Uniqlo Ultra Light Down", JACKET_JSON, citizenIdentityUid);
+        seedItem("ITEM_FRIDGE_SAMSUNG", "Холодильник Samsung RB37 No Frost", FRIDGE_JSON, citizenIdentityUid);
+    }
+
+    private void seedItem(String objectUid, String displayName, String json, UUID ownerIdentityUid) {
+        if (registryObjectRepository.findByObjectUidAnyTenant(objectUid).isPresent()) {
+            return;
+        }
+        registryObjectRepository.save(RegistryObject.builder()
+                .objectUid(objectUid)
+                .category(ObjectCategory.RETAIL)
+                .displayName(displayName)
+                .dataJson(json)
+                .createdByIdentityUid(ownerIdentityUid)
+                .ownerIdentityUid(ownerIdentityUid)
+                .tenantId(TenantContext.PUBLIC_TENANT)
+                .build());
+        log.info("DataSeeder: seeded personal item {}.", objectUid);
+    }
+
+    private static final String JACKET_JSON = """
+            {
+              "productName": "Куртка Uniqlo Ultra Light Down",
+              "brand": "Uniqlo", "sku": "UL-DOWN-2025-M",
+              "itemType": "CLOTHING",
+              "price": 24990, "currency": "₸",
+              "rating": 4.7, "reviews": 512,
+              "description": "Ультралёгкий пуховик, тёмно-синий, размер M. Сезон: осень–зима.",
+              "colors": ["Тёмно-синий"],
+              "details": {
+                "Размер": "M",
+                "Материал": "Нейлон · пух 90/10",
+                "Сезон": "Осень–Зима",
+                "Уход": "Деликатная стирка 30°, не отбеливать"
+              }
+            }
+            """;
+
+    private static final String FRIDGE_JSON = """
+            {
+              "productName": "Холодильник Samsung RB37 No Frost",
+              "brand": "Samsung", "sku": "RB37A5200SA",
+              "itemType": "APPLIANCE",
+              "price": 329990, "currency": "₸",
+              "rating": 4.8, "reviews": 903,
+              "description": "Двухкамерный холодильник, инверторный компрессор, класс A+, No Frost.",
+              "serialNumber": "S/N 0D2G4-77H1",
+              "warrantyUntil": "2027-11-01",
+              "filters": ["Фильтр воды HAF-QIN/EXP", "Угольный фильтр запахов"],
+              "details": {
+                "Объём": "367 л",
+                "Класс энергии": "A+",
+                "Гарантия": "до 01.11.2027",
+                "Серийный №": "0D2G4-77H1"
+              }
+            }
+            """;
 
     /**
      * Seed the demo "digital business card" identity with a STABLE UUID (documented in the
