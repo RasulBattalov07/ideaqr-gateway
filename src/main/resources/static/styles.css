@@ -1639,3 +1639,12 @@ body.no-scroll { overflow: hidden; }
 .ai-item-title { font-weight: 600; font-size: 13.5px; }
 .ai-item-note { font-size: 12.5px; color: var(--muted, inherit); opacity: 0.9; margin-top: 2px; line-height: 1.5; }
 .ai-disclaimer { font-size: 11.5px; margin-top: 10px; opacity: 0.65; }
+
+/* ---------- Динамические аватарки (заглушка до фото из документов eGov) ----------
+   .avatar-photo вешается на существующие боксы-инициалы (.uc-avatar, .myqr-avatar,
+   .vc-avatar, .ep-avatar, .dh-avatar, .dc-avatar): их размер/тень сохраняются, а
+   правило объявлено ПОСЛЕ них, поэтому скругление 50% побеждает без !important. */
+.avatar-photo { padding: 0; overflow: hidden; border-radius: 50%; }
+.avatar-photo img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 50%; }
+.dc-head-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.dc-avatar { flex: none; width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.45); }

@@ -55,6 +55,25 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // Аватар-заглушка до интеграции реальных фото из цифровых документов eGov.
+    // Детерминированный SVG (инициалы + цвет из хеша имени) собирается локально в
+    // data:-URI: ноль внешних запросов — демо работает без сети, и ФИО не уходят
+    // сторонним сервисам; у одного человека один и тот же цвет на всех экранах.
+    // Точка подмены на реальные фото (URL из eGov-документа) — только эта функция.
+    const AVATAR_PALETTE = ['#4E7CF6', '#7C5CE0', '#0FA3A3', '#D9575E', '#C97B1D', '#3B9E56', '#B14FA0', '#2E8BC0'];
+    function avatarUrl(name) {
+        const clean = String(name || '').trim() || '?';
+        const initials = clean.split(/\s+/).map(w => w[0] || '').join('').substring(0, 2).toUpperCase();
+        let hash = 0;
+        for (let i = 0; i < clean.length; i++) hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
+        const bg = AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">`
+            + `<circle cx="50" cy="50" r="50" fill="${bg}"/>`
+            + `<text x="50" y="50" dy="0.36em" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="40" font-weight="600" fill="#FFFFFF">${esc(initials)}</text>`
+            + `</svg>`;
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+
     // Defence-in-depth for hrefs (audit L-1): only allow http(s) links, so a stored
     // `javascript:`/`data:` URL can never execute when rendered into an anchor.
     function safeUrl(value) {
@@ -593,13 +612,12 @@
         const bar = document.getElementById('appbar');
         bar.hidden = false;
         const chip = document.getElementById('user-chip');
-        const initials = ((currentUser.firstName || '')[0] || '') + ((currentUser.lastName || '')[0] || '');
         chip.innerHTML = `
             <div class="uc-meta">
                 <div class="uc-name">${esc(currentUser.firstName)} ${esc(currentUser.lastName)}</div>
                 <div class="uc-role">${esc(currentUser.professionLabel)}</div>
             </div>
-            <div class="uc-avatar">${esc(initials.toUpperCase())}</div>
+            <div class="uc-avatar avatar-photo"><img src="${avatarUrl(`${currentUser.firstName || ''} ${currentUser.lastName || ''}`)}" alt="Аватар"></div>
             ${currentUser.guest ? '' : '<button class="btn btn-ghost btn-sm" id="change-pw-btn" type="button">Сменить пароль</button>'}
             <button class="btn btn-danger btn-sm" id="logout-btn" type="button">Выйти</button>`;
         document.getElementById('logout-btn').addEventListener('click', doLogout);
@@ -818,13 +836,12 @@
 
         function egovPlate(data) {
             const p = data.person;
-            const initials = ((p.firstName || '')[0] || '') + ((p.lastName || '')[0] || '');
             const already = data.alreadyRegistered;
             return `
             <div class="egov-plate fade-in">
                 <div class="ep-badge">✓ Найдено в базе eGov <span class="demo-tag">DEMO</span></div>
                 <div class="ep-person">
-                    <div class="ep-avatar">${esc(initials.toUpperCase())}</div>
+                    <div class="ep-avatar avatar-photo"><img src="${avatarUrl(p.fullName)}" alt="Аватар"></div>
                     <div class="ep-info">
                         <div class="ep-name">${esc(p.fullName)}</div>
                         <div class="ep-kv"><span>ИИН</span><code>${esc(p.iin)}</code></div>
@@ -1898,7 +1915,6 @@
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Собираем ваш цифровой профиль…')}</section>`;
         loadDossier().then(d => {
             const name = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim();
-            const initials = ((currentUser.firstName || '')[0] || '') + ((currentUser.lastName || '')[0] || '');
             const egov = (d && d.egov) || {};
             const rxActive = d ? Number(d.prescriptionsActive || 0) : 0;
             body.innerHTML = `
@@ -1906,7 +1922,7 @@
                 <section class="dash-hero panel">
                     <div class="dh-glow" aria-hidden="true"></div>
                     <div class="dh-id">
-                        <div class="dh-avatar">${esc(initials.toUpperCase())}</div>
+                        <div class="dh-avatar avatar-photo"><img src="${avatarUrl(name)}" alt="Аватар"></div>
                         <div class="dh-meta">
                             <div class="dh-name">${esc(name)}</div>
                             <div class="dh-sub">${esc(currentUser.professionLabel || 'Гражданин')} · подтверждено eGov <span class="demo-tag">DEMO</span></div>
@@ -2965,12 +2981,11 @@
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка QR…')}</section>`;
         apiJson('/api/v2/my-qr').then(({ ok, data }) => {
             if (!ok || !data) { body.innerHTML = `<section class="panel panel-pad"><div class="obj-empty">Не удалось загрузить QR.</div></section>`; return; }
-            const initials = (((currentUser.firstName || '')[0] || '') + ((currentUser.lastName || '')[0] || '')).toUpperCase();
             body.innerHTML = `
             <section class="panel panel-pad myqr-card">
                 <div class="section-title">Мой QR</div>
                 <div class="myqr-body">
-                    <div class="myqr-avatar">${esc(initials)}</div>
+                    <div class="myqr-avatar avatar-photo"><img src="${avatarUrl(data.fullName)}" alt="Аватар"></div>
                     <div class="myqr-name">${esc(data.fullName)}</div>
                     <div class="myqr-sub">Постоянный идентификатор личности</div>
                     <img class="myqr-img" src="${esc(data.qrImageDataUri)}" alt="Мой QR-код">
@@ -3452,7 +3467,6 @@
     /** Цифровая визитка (единый QR, скан гражданином). fullProfile ⇒ раскрыта закрытая часть. */
     function businessCard(d) {
         const name = d.fullName || d.title || 'Пользователь';
-        const initials = name.split(/\s+/).map(w => w[0] || '').join('').substring(0, 2).toUpperCase();
         const chips = [
             d.phone ? { ico: '📞', v: d.phone } : null,
             d.telegram ? { ico: '✈️', v: d.telegram } : null,
@@ -3476,7 +3490,7 @@
         return `
         <div class="card data-card vcard fade-in">
             <div class="vc-top">
-                <div class="vc-avatar">${esc(initials)}</div>
+                <div class="vc-avatar avatar-photo"><img src="${avatarUrl(name)}" alt="Аватар"></div>
                 <div class="vc-id">
                     <div class="vc-name">${esc(name)}</div>
                     <div class="vc-sub">${esc(d.profession ? professionRu(d.profession) : (d.about || 'Цифровая визитка'))}</div>
@@ -3506,7 +3520,7 @@
             </tr>`).join('');
         return `
         <div class="card data-card legal-card fade-in">
-            ${cardHead(d.fullName || 'Гражданин', 'ИИН: ' + (d.iin || '—'), 'LEGAL')}
+            ${cardHead(d.fullName || 'Гражданин', 'ИИН: ' + (d.iin || '—'), 'LEGAL', d.fullName || 'Гражданин')}
             <div class="legal-status">
                 <div class="ls-main ok">
                     <span class="ls-ico">✓</span>
@@ -3536,20 +3550,27 @@
     function rxOnlyCard(d, objectUid) {
         return `
         <div class="card data-card rx-only fade-in">
-            ${cardHead(d.patientName || 'Пациент', 'ID: ' + (d.patientId || objectUid), 'MEDICAL')}
+            ${cardHead(d.patientName || 'Пациент', 'ID: ' + (d.patientId || objectUid), 'MEDICAL', d.patientName || 'Пациент')}
             ${d.scope ? `<div class="rx-scope"><span>🔒</span>${esc(d.scope)}</div>` : ''}
             ${prescriptionsSection(d.prescriptions, objectUid)}
         </div>`;
     }
 
-    function cardHead(title, sub, category) {
+    // personName задаётся только для карточек ЛЮДЕЙ (пациент, гражданин) — тогда в шапке
+    // появляется аватар. Карточки вещей аватара не получают: гостевая проекция не должна
+    // обрастать даже намёком на персону.
+    function cardHead(title, sub, category, personName) {
         const labels = { MEDICAL: 'Медицина', RETAIL: 'Товар', ECO: 'Экология', INFRASTRUCTURE: 'Инфраструктура', LEGAL: 'Правовой статус', GENERAL: 'Объект' };
         const cls = (category || 'general').toLowerCase();
+        const avatar = personName ? `<div class="dc-avatar avatar-photo"><img src="${avatarUrl(personName)}" alt="Аватар"></div>` : '';
         return `
             <div class="dc-head">
-                <div>
-                    <div class="dc-title">${esc(title)}</div>
-                    <div class="dc-sub">${esc(sub)}</div>
+                <div class="dc-head-id">
+                    ${avatar}
+                    <div>
+                        <div class="dc-title">${esc(title)}</div>
+                        <div class="dc-sub">${esc(sub)}</div>
+                    </div>
                 </div>
                 <span class="dc-cat ${cls}">${esc(labels[category] || 'Объект')}</span>
             </div>`;
@@ -3578,7 +3599,7 @@
 
         return `
         <div class="card data-card fade-in">
-            ${cardHead(d.patientName || 'Пациент', 'ID: ' + (d.patientId || objectUid), 'MEDICAL')}
+            ${cardHead(d.patientName || 'Пациент', 'ID: ' + (d.patientId || objectUid), 'MEDICAL', d.patientName || 'Пациент')}
             ${allergyBanner}
             <div class="dc-section">
                 <div class="kv-grid">
