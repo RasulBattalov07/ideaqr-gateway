@@ -40,13 +40,18 @@ public class MyObjectsController {
      * Objects this identity currently OWNS — including ones transferred to them by an admin
      * (Point 3). After a transfer the recipient sees the object here with its scannable QR, so
      * the hand-off is no longer a dead-end ("и что дальше?").
+     *
+     * <p>Uses the native any-tenant lookup (prod bug №1): personal property lives in the
+     * PUBLIC tenant, so an org-tenant user (e.g. seller) who received an item via transfer
+     * must still see it here — the selection is strictly by the caller's own identity uid,
+     * so nothing cross-tenant can leak.</p>
      */
     @GetMapping("/my-objects")
     public ResponseEntity<List<Map<String, Object>>> myObjects(Authentication authentication) {
         Identity identity = authSupport.requireIdentity(authentication);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (RegistryObject obj : registryObjectRepository
-                .findByOwnerIdentityUidOrderByCreatedAtDesc(identity.getIdentityUid())) {
+                .findOwnedAnyTenant(identity.getIdentityUid())) {
             // Объекты-досье (медкарта / правовой статус / визитка) — документы гражданина:
             // они живут в модулях дашборда, а не среди передаваемого имущества.
             if (com.ideaqr.gateway.service.CitizenDossierService.isDossierObject(obj.getObjectUid())) {

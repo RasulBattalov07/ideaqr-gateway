@@ -30,11 +30,8 @@ public interface RegistryObjectRepository extends JpaRepository<RegistryObject, 
 
     List<RegistryObject> findByCreatedByIdentityUidOrderByCreatedAtDesc(UUID createdByIdentityUid);
 
-    /** Objects an identity currently OWNS (post-transfer) — feeds the "Мои объекты" view. */
-    List<RegistryObject> findByOwnerIdentityUidOrderByCreatedAtDesc(UUID ownerIdentityUid);
-
     /**
-     * The same "objects I own" view across ALL tenants (native, filter-bypassing — same
+     * The "objects I own" view across ALL tenants (native, filter-bypassing — same
      * discipline as {@link #findByObjectUidAnyTenant}): personal property lives in the public
      * tenant, so a specialist scanning from an org tenant must still see their own wardrobe.
      * Only ever called with the CALLER's own identity uid, so this is not a cross-tenant leak.

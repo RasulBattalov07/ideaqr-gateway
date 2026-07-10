@@ -242,11 +242,15 @@ public class GatewayService {
         // видит её в своей истории), плюс машинное событие и уведомление. Полицейский след
         // невозможно оставить «незаметно»: его собственный скан уже записан выше.
         if (authorityView) {
+            // Запись адресована ВЛАДЕЛЬЦУ — стемпим её его тенантом (bug №2 прод-аудита):
+            // иначе строка получала тенант полицейского и tenant-фильтр прятал её из
+            // личного журнала владельца, хотя она существовала в глобальной цепочке.
             auditService.record(routing.ownerUid(), objectUid, HistoryEventType.ACCESS_GRANTED,
                     "СЛУЖЕБНЫЙ ДОСТУП: " + displayName(identity.getIdentityUid())
                             + " (полиция, при исполнении) получил данные владельца объекта «"
                             + resolved.displayName() + "» без согласия — в объёме, установленном законом.",
-                    req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+                    req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid(),
+                    tenantOf(routing.ownerUid()));
             eventService.record(EventType.PROFILE_OPENED, identity.getIdentityUid(), objectUid,
                     interaction.getInteractionUid(),
                     "Служебное раскрытие данных владельца объекта (уполномоченный орган)");
@@ -533,7 +537,9 @@ public class GatewayService {
     @Transactional
     public GatewayResponse sos(Identity identity, String objectUid, String message) {
         String obj = objectUid != null && !objectUid.isBlank() ? objectUid.trim() : null;
-        String reason = "SOS-запрос принят. Приоритет повышен, администраторы оповещены.";
+        // Честная формулировка (инвест-аудит 2.6): пуш админам не уходит — сигнал попадает
+        // в кросс-тенантную очередь «Тревоги (SOS)» админ-панели, где его видит администратор.
+        String reason = "SOS-сигнал зафиксирован в неизменяемом журнале и передан в панель «Тревоги» администратора.";
 
         Organization actingOrg = organizationService.resolveActingOrganization(identity.getIdentityUid());
         UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
@@ -886,9 +892,13 @@ public class GatewayService {
             requestRepository.save(r);
         });
 
+        // Запись адресована СКАНЕРУ (запросившему доступ) — стемпим её его тенантом, а не
+        // тенантом владельца, в чьей транзакции она пишется: иначе врач из org-тенанта не
+        // видит исход согласия в своём журнале (тот же класс бага, что и служебный доступ).
         History history = auditService.record(interaction.getIdentityUid(), interaction.getObjectUid(),
                 HistoryEventType.PROFILE_ACCESS_CONFIRMED, reason,
-                interaction.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+                interaction.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid(),
+                tenantOf(interaction.getIdentityUid()));
 
         eventService.record(EventType.ACCESS_CONFIRMED, owner.getIdentityUid(), interaction.getObjectUid(),
                 interaction.getInteractionUid(), medical ? "Согласие пациента на доступ к медкарте" : "Доступ к профилю подтверждён");
@@ -940,7 +950,8 @@ public class GatewayService {
 
         History history = auditService.record(interaction.getIdentityUid(), interaction.getObjectUid(),
                 HistoryEventType.PROFILE_ACCESS_REJECTED, reason,
-                interaction.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+                interaction.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid(),
+                tenantOf(interaction.getIdentityUid()));
 
         eventService.record(EventType.DECISION_REJECTED, owner.getIdentityUid(), interaction.getObjectUid(),
                 interaction.getInteractionUid(), medical ? "Пациент отклонил доступ к медкарте" : "Доступ к профилю отклонён");
@@ -1128,6 +1139,19 @@ public class GatewayService {
         return userRepository.findDisplayNameByIdentityUid(identityUid)
                 .filter(s -> !s.isBlank())
                 .orElse("Пользователь");
+    }
+
+    /**
+     * Тенант личности-адресата для записей журнала, которые пишутся «на чужое имя»
+     * (служебный доступ, исход согласия): запись обязана нести тенант читателя, иначе
+     * tenant-фильтр спрячет её из его личного журнала. {@code findById} — это
+     * {@code em.find}, Hibernate-@Filter на него не действует, поэтому личность
+     * разрешается через границу тенантов.
+     */
+    private UUID tenantOf(UUID identityUid) {
+        return identityRepository.findById(identityUid)
+                .map(Identity::getTenantId)
+                .orElse(TenantContext.PUBLIC_TENANT);
     }
 
     /**

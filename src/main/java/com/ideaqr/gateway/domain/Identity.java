@@ -79,16 +79,9 @@ public class Identity implements TenantScoped {
     @Builder.Default
     private String riskScore = "NORMAL";
 
-    /**
-     * Legacy column retained for schema compatibility (Flyway {@code validate}). The platform
-     * unified on a SINGLE trust metric — {@link #trustLevel}, the value the policy engine gates
-     * on — so the old gamified "trust score" is no longer computed or surfaced anywhere
-     * (audit-fix: it looked decisive but never influenced a decision). Do not reintroduce a
-     * second number; gate and display {@code trustLevel}.
-     */
-    @Column(name = "trust_score")
-    @Builder.Default
-    private Integer trustScore = 50;
+    // Единственная метрика доверия — trustLevel (правило платформы). Геймифицированный
+    // trust_score удалён и из маппинга: колонка в БД nullable и просто не используется
+    // (Hibernate validate лишние колонки не проверяет). Второе число не возвращать.
 
     /** UUID of this identity's permanent primary QR (a {@code Qr} of type PRIMARY). */
     @Column(name = "primary_qr_uid")

@@ -31,12 +31,29 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Seeds demo organizations, the demo accounts + memberships, the showcase Toyota Camry
- * (as a real, transferable DB object) and a fixed-UUID "digital business card" identity
- * for the P2P / Trust Score demo. Idempotent. Most quick-access reference objects are
- * served from {@link com.ideaqr.gateway.service.RegistryClient}; only the car needs a
- * DB row so the ownership-transfer demo works. Credentials are throwaway demo values
- * documented in the README.
+ * Seeds the full demo stand for the v2 architecture. Idempotent on every boot — on an
+ * existing database it also REPAIRS drifted state (memberships are re-promoted to ACTIVE,
+ * missing dossiers are provisioned), so a stale deployment self-heals to demo-ready.
+ *
+ * <ul>
+ *   <li><b>Accounts:</b> nine demo users; every specialist (doctor, pharmacist, inspector,
+ *       police, operator, seller, admin) gets an ACTIVE {@code OrganizationMembership} —
+ *       without one a specialist role is inert (working mode, and thus every professional
+ *       gate, requires ACTIVE membership).</li>
+ *   <li><b>Citizen dossiers (Phase 2):</b> MED-/LEGAL-/VCARD- registry objects for each
+ *       account, public tenant, plus a starter prescription so the pharmacist demo works
+ *       out of the box.</li>
+ *   <li><b>Universal object governance:</b> OWNED demo items — Toyota Camry (owner: admin)
+ *       and the citizen's personal jacket + fridge (P2P owner-consent, AI card, police
+ *       disclosure demos) — as real DB rows in the public tenant. UNOWNED showcase items
+ *       (Nike sneakers, AITU lock, студбилет…) stay in {@link
+ *       com.ideaqr.gateway.service.RegistryClient} as pre-ownership catalog cards, claimable
+ *       via {@code /api/v2/objects/{uid}/claim} — the QR never changes on claim/transfer.</li>
+ *   <li><b>Business card:</b> the fixed-UUID «Айдос» identity for the P2P Owner-Approval
+ *       demo (also the {@code MED_RX_5521} patient of record).</li>
+ * </ul>
+ *
+ * Credentials are throwaway demo values documented in the README.
  */
 @Slf4j
 @Component
@@ -95,7 +112,7 @@ public class DataSeeder implements CommandLineRunner {
                 UserService.PROFESSION_CITIZEN, null, null);
 
         // Showcase objects: the Toyota Camry as a real DB object (for the transfer demo),
-        // and the digital business card identity (for the P2P / Trust Score demo).
+        // and the digital business card identity (for the P2P Owner-Approval demo).
         if (admin != null) {
             seedCarObject(admin.getIdentityUid());
         }
@@ -174,7 +191,10 @@ public class DataSeeder implements CommandLineRunner {
             log.info("DataSeeder: provisioned demo account '{}' in tenant {}.", username, tenant);
         }
         if (user != null && org != null && workRole != null) {
-            organizationService.ensureMembership(user.getIdentityUid(), org.getOrganizationUid(), workRole);
+            // ensureActiveMembership (не ensureMembership): на существующей базе членство,
+            // застрявшее в PENDING/REJECTED, принудительно чинится до ACTIVE — иначе у
+            // специалиста серый «Рабочий режим» и закрыты все профессиональные гейты.
+            organizationService.ensureActiveMembership(user.getIdentityUid(), org.getOrganizationUid(), workRole);
         }
         return user;
     }
@@ -185,10 +205,11 @@ public class DataSeeder implements CommandLineRunner {
      * every scanner; the same card is also in the demo registry as a universal fallback.
      */
     private void seedCarObject(UUID ownerIdentityUid) {
-        if (registryObjectRepository.findByObjectUid("CAR_TOYOTA_CAMRY").isPresent()) {
+        // Any-tenant lookup для идемпотентности (как в seedItem): tenant-фильтрованный поиск
+        // на существующей базе мог не увидеть строку и попытаться вставить дубликат.
+        if (registryObjectRepository.findByObjectUidAnyTenant("CAR_TOYOTA_CAMRY").isPresent()) {
             return;
         }
-        // Empty context → stamped with the public tenant.
         registryObjectRepository.save(RegistryObject.builder()
                 .objectUid("CAR_TOYOTA_CAMRY")
                 .category(ObjectCategory.RETAIL)
@@ -196,6 +217,7 @@ public class DataSeeder implements CommandLineRunner {
                 .dataJson(com.ideaqr.gateway.service.RegistryClient.CAR_TOYOTA_CAMRY)
                 .createdByIdentityUid(ownerIdentityUid)
                 .ownerIdentityUid(ownerIdentityUid)
+                .tenantId(TenantContext.PUBLIC_TENANT)
                 .build());
         log.info("DataSeeder: seeded transferable object CAR_TOYOTA_CAMRY.");
     }
@@ -267,8 +289,9 @@ public class DataSeeder implements CommandLineRunner {
 
     /**
      * Seed the demo "digital business card" identity with a STABLE UUID (documented in the
-     * README) so scanning {@code IDENTITY:<uuid>} demonstrates the P2P Owner Approval Flow
-     * and Trust Score. Public tenant, so it resolves for citizen / guest scanners.
+     * README) so scanning {@code IDENTITY:<uuid>} demonstrates the P2P Owner Approval Flow.
+     * Public tenant, so it resolves for citizen / guest scanners. Trust is the SINGLE
+     * {@code trustLevel} metric — the retired gamified trustScore is not seeded.
      */
     private void seedBusinessCard() {
         if (userRepository.existsByUsername("aidos")) {
@@ -281,7 +304,6 @@ public class DataSeeder implements CommandLineRunner {
                 .roles(new LinkedHashSet<>(Set.of(RoleType.CITIZEN, RoleType.SELLER)))
                 .trustLevel(IdentityService.TRUST_VERIFIED)
                 .riskScore("NORMAL")
-                .trustScore(78)
                 .build());
         Qr qr = qrService.createPrimaryQr(identity);
         identity.setPrimaryQrUid(qr.getQrUid());

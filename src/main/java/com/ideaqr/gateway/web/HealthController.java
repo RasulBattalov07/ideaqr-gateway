@@ -13,8 +13,10 @@ public class HealthController {
 
     @GetMapping
     public ResponseEntity<ApiResponse> health() {
+        // Stage 4 задеплоен (сессии, организации, SOS, гостевые личности) — health обязан
+        // совпадать с территорией (инвест-аудит 2.5: «карта не сходится с территорией»).
         return ResponseEntity.ok(ApiResponse.ok("IDEAQR Digital Gateway работает")
                 .with("status", "UP")
-                .with("stage", 3));
+                .with("stage", 4));
     }
 }

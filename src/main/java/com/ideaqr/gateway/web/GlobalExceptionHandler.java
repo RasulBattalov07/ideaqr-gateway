@@ -12,6 +12,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -76,6 +77,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(ApiResponse.error("Метод не поддерживается для этого запроса."));
+    }
+
+    /**
+     * An unmapped path (e.g. {@code /api/v2/zzz}) must be an honest 404, not a generic 500.
+     * Spring 6.1 raises {@link NoResourceFoundException} for these; without this handler it
+     * fell through to {@link #handleGeneric} — the "пять эндпоинтов отдают 500" finding of
+     * the investor audit was exactly this.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse> handleNotFound(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("Ресурс не найден."));
     }
 
     @ExceptionHandler(Exception.class)

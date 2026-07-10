@@ -208,6 +208,17 @@ class ObjectGovernanceTest {
         assertThat(authorityDisclosureEntriesFor(owner)).isGreaterThan(disclosuresBefore);
         AuditService.ChainVerification chain = auditService.verifyChain();
         assertThat(chain.valid()).as("audit hash-chain must stay intact").isTrue();
+
+        // Прод-баг №2: запись обязана быть видна владельцу через ЕГО tenant-фильтрованный
+        // HTTP-путь (/audit/me), а не только админу в глобальном журнале — раньше строка
+        // стемпилась тенантом полицейского и прятались от самого субъекта данных.
+        MvcResult ownerJournal = mvc.perform(get("/api/v2/audit/me")
+                        .with(user("citizen").roles("USER")))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(ownerJournal.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .as("owner must see the authority-access entry in their own journal")
+                .contains("СЛУЖЕБНЫЙ ДОСТУП");
     }
 
     private long authorityDisclosureEntriesFor(UUID ownerUid) {
@@ -274,6 +285,17 @@ class ObjectGovernanceTest {
                 .andExpect(jsonPath("$.outcome").value("APPROVED"))
                 .andExpect(jsonPath("$.data.fullName").value("Дамир Оспанов"))
                 .andExpect(jsonPath("$.data.fullProfile").value(true));
+
+        // Исход согласия виден ЗАПРОСИВШЕМУ в его собственном журнале: запись пишется в
+        // транзакции владельца, но стемпится тенантом сканера (org-тенант seller) — иначе
+        // tenant-фильтр прятал её от адресата (тот же класс бага, что и служебный доступ).
+        MvcResult sellerJournal = mvc.perform(get("/api/v2/audit/me")
+                        .with(user("seller").roles("USER")))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(sellerJournal.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .as("requester must see the consent outcome in their own journal")
+                .contains("PROFILE_ACCESS_CONFIRMED");
     }
 
     @Test
@@ -351,6 +373,13 @@ class ObjectGovernanceTest {
                         .contentType(MediaType.APPLICATION_JSON).content(scanBody(CATALOG_DOC)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contextView").value("OBJECT_OWNER"));
+
+        // Прод-баг №1: вещь живёт в ПУБЛИЧНОМ тенанте, а новый владелец (seller) — в
+        // org-тенанте. «Мои объекты» обязаны показывать её и ему: выборка идёт нативным
+        // any-tenant-запросом строго по owner_identity_uid самого вызывающего.
+        mvc.perform(get("/api/v2/my-objects").with(user("seller").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].objectUid", hasItem(CATALOG_DOC)));
 
         // Не-владелец передать вещь не может.
         mvc.perform(post("/api/v2/objects/" + CATALOG_DOC + "/transfer")

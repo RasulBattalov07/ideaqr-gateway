@@ -64,4 +64,22 @@ class SecurityIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk());
     }
+
+    /**
+     * Инвест-аудит («пять эндпоинтов отдают 500»): несуществующий путь — это честный 404,
+     * а не generic-500 из общего обработчика. NoResourceFoundException теперь маппится
+     * на 404 в {@code GlobalExceptionHandler}.
+     */
+    @Test
+    @WithMockUser(username = "citizen", roles = "USER")
+    void unknownApiPathIsCleanNotFoundNot500() throws Exception {
+        mvc.perform(get("/api/v2/definitely-missing")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v2/policies")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void unknownAdminPathIsCleanNotFoundNot500() throws Exception {
+        mvc.perform(get("/api/admin/zzz")).andExpect(status().isNotFound());
+    }
 }

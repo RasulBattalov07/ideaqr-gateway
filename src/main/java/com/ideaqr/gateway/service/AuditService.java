@@ -62,6 +62,23 @@ public class AuditService {
     @Transactional
     public History record(UUID identityUid, String objectUid, HistoryEventType eventType,
                           String description, UUID requestUid, UUID decisionUid, UUID interactionUid) {
+        return record(identityUid, objectUid, eventType, description,
+                requestUid, decisionUid, interactionUid, null);
+    }
+
+    /**
+     * Append an event <b>addressed to another identity</b> (prod bug №2): a journal row written
+     * on the data-subject's behalf (e.g. «СЛУЖЕБНЫЙ ДОСТУП…» on the owner's journal during a
+     * police scan) must carry the SUBJECT's tenant, not the acting officer's — otherwise the
+     * tenant read-filter hides the row from the very person it is meant to inform. Pass the
+     * subject identity's tenant as {@code tenantOverride} ({@code null} keeps the default
+     * context stamping). The hash chain is tenant-agnostic, so the override never affects
+     * integrity.
+     */
+    @Transactional
+    public History record(UUID identityUid, String objectUid, HistoryEventType eventType,
+                          String description, UUID requestUid, UUID decisionUid, UUID interactionUid,
+                          UUID tenantOverride) {
         AuditChainTip tip = lockChainTip();
         long seq = tip.getLastSeq() + 1;
         String prevHash = tip.getLastHash();
@@ -80,6 +97,7 @@ public class AuditService {
                 .requestUid(requestUid)
                 .decisionUid(decisionUid)
                 .interactionUid(interactionUid)
+                .tenantId(tenantOverride)
                 .prevHash(prevHash)
                 .entryHash(entryHash)
                 .createdAt(createdAt)
