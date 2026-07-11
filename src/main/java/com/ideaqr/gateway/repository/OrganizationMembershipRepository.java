@@ -15,4 +15,7 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
 
     /** Employment requests awaiting an admin decision — feeds the admin "Трудоустройство" queue. */
     List<OrganizationMembership> findByStatusOrderByCreatedAtDesc(String status);
+
+    /** Штат организации — питает выбор исполнителя в диспетчерской оператора. */
+    List<OrganizationMembership> findByOrganizationUid(UUID organizationUid);
 }

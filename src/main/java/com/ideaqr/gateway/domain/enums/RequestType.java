@@ -15,5 +15,7 @@ public enum RequestType {
     /** A lifecycle transition of an object (modify / archive / activate). */
     OBJECT_LIFECYCLE,
     /** A household-services order (ЖКХ: вывоз мусора, сантехник …) tied to the profile. */
-    SERVICE_ORDER
+    SERVICE_ORDER,
+    /** Линия розничного чека: товар в корзине → оплачен → выдан кассиром (V10). */
+    PURCHASE
 }

@@ -28,6 +28,7 @@ public class ValidationService {
     private static final int TRUST_MEDICAL = 70;
     private static final int TRUST_INFRA = 60;
     private static final int TRUST_LEGAL = 80; // government tier — police accounts are seeded at 90
+    private static final int TRUST_RETAIL = 50; // кассир — гражданский уровень доверия
 
     /**
      * Server clock used for the working-hours gate. Injected (not {@code LocalTime.now()})
@@ -122,6 +123,37 @@ public class ValidationService {
         }
         return new Verdict(APPROVED, "AUTHORITY_DISCLOSURE",
                 "Служебный доступ: роль (полиция), доверие, рабочий режим и время подтверждены.", "HIGH");
+    }
+
+    /**
+     * СЦЕНАРИЙ «БИЗНЕС И МАГАЗИНЫ» — кассовый доступ: кассир при исполнении сканирует
+     * личный QR покупателя и видит ТОЛЬКО его открытые покупки (корзина + «оплачен, не
+     * выдан») — ни профиля, ни истории. Те же четыре классических ворот, что и у других
+     * профессиональных представлений: роль + доверие + рабочий режим + рабочее время;
+     * кассир вне смены — просто гражданин (скан уйдёт в обычную визитку).
+     */
+    public Verdict retailCheckout(Identity identity, boolean workingMode, Integer overrideHour) {
+        Set<RoleType> roles = identity.getRoles();
+        int hour = overrideHour != null ? overrideHour : LocalTime.now(clock).getHour();
+        boolean workingHours = hour >= WORK_START && hour < WORK_END;
+        if (!roles.contains(RoleType.CASHIER)) {
+            return new Verdict(REJECTED, "ROLE_REQUIRED_CASHIER",
+                    "Кассовый доступ к покупкам клиента разрешён только кассирам.", "MEDIUM");
+        }
+        if (identity.getTrustLevel() < TRUST_RETAIL) {
+            return new Verdict(REJECTED, "TRUST_TOO_LOW",
+                    "Недостаточный уровень доверия для кассовых операций.", "MEDIUM");
+        }
+        if (!workingMode) {
+            return new Verdict(REJECTED, "WORKING_MODE_REQUIRED",
+                    "Касса доступна только в рабочем режиме. Перейдите в рабочий режим.", "MEDIUM");
+        }
+        if (!workingHours) {
+            return new Verdict(REJECTED, "OUTSIDE_WORKING_HOURS",
+                    "Кассовые операции возможны только в рабочее время (08:00–18:00).", "MEDIUM");
+        }
+        return new Verdict(APPROVED, "RETAIL_CHECKOUT",
+                "Касса: роль (кассир), доверие, рабочий режим и время подтверждены.", "LOW");
     }
 
     private Verdict coreDecide(Identity identity, ObjectCategory category, boolean known,

@@ -48,6 +48,8 @@ public class UserService {
     public static final String PROFESSION_SELLER = "SELLER";
     public static final String PROFESSION_SERVICE_OPERATOR = "SERVICE_OPERATOR";
     public static final String PROFESSION_POLICE = "POLICE";
+    public static final String PROFESSION_EXECUTOR = "EXECUTOR";
+    public static final String PROFESSION_CASHIER = "CASHIER";
 
     /**
      * Public self-service registration. <b>Security (audit 4.1 / 4.2):</b> a public
@@ -250,6 +252,12 @@ public class UserService {
             case PROFESSION_POLICE -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.POLICE, RoleType.CITIZEN)),
                     IdentityService.TRUST_GOV, false);
+            case PROFESSION_EXECUTOR -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.EXECUTOR, RoleType.CITIZEN)),
+                    IdentityService.TRUST_CITIZEN, false);
+            case PROFESSION_CASHIER -> new ProfessionProfile(
+                    new LinkedHashSet<>(Set.of(RoleType.CASHIER, RoleType.CITIZEN)),
+                    IdentityService.TRUST_CITIZEN, false);
             default -> new ProfessionProfile(
                     new LinkedHashSet<>(Set.of(RoleType.CITIZEN)),
                     IdentityService.TRUST_CITIZEN, false);
@@ -265,6 +273,8 @@ public class UserService {
             case PROFESSION_SELLER -> "Продавец";
             case PROFESSION_SERVICE_OPERATOR -> "Оператор услуг";
             case PROFESSION_POLICE -> "Сотрудник полиции";
+            case PROFESSION_EXECUTOR -> "Универсальный исполнитель";
+            case PROFESSION_CASHIER -> "Кассир";
             case PROFESSION_CITIZEN -> "Гражданин";
             default -> "Гражданин";
         };
@@ -278,7 +288,8 @@ public class UserService {
         return switch (key) {
             case PROFESSION_DOCTOR, PROFESSION_RETAIL_ADMIN, PROFESSION_INSPECTOR,
                  PROFESSION_PHARMACIST, PROFESSION_SELLER, PROFESSION_SERVICE_OPERATOR,
-                 PROFESSION_POLICE, PROFESSION_CITIZEN -> key;
+                 PROFESSION_POLICE, PROFESSION_EXECUTOR, PROFESSION_CASHIER,
+                 PROFESSION_CITIZEN -> key;
             default -> PROFESSION_CITIZEN;
         };
     }

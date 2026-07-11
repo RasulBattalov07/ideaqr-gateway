@@ -1648,3 +1648,35 @@ body.no-scroll { overflow: hidden; }
 .avatar-photo img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 50%; }
 .dc-head-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .dc-avatar { flex: none; width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.45); }
+
+/* ---------- Трёхсторонние сценарии: услуги (диспетчер/исполнитель) и касса ---------- */
+/* Карточка назначенного исполнителя внутри строки заявки заказчика. */
+.or-executor {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-top: 8px; padding: 9px 11px;
+    border: 1px solid var(--line-soft); border-radius: var(--r-md);
+    background: var(--surface-1);
+}
+.oe-avatar { flex: none; width: 38px; height: 38px; border-radius: 50%; }
+.oe-info { min-width: 0; }
+.oe-name { color: var(--ink); font-weight: 700; font-size: 13px; }
+.oe-meta { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+.oe-hint { color: var(--muted); font-size: 11.5px; margin-top: 5px; }
+
+/* Диспетчерская: выбор исполнителя + кнопка назначения в правой части строки. */
+.assign-box { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 210px; }
+.assign-box .assign-select {
+    width: 100%; padding: 7px 10px; font-size: 12.5px;
+    color: var(--ink); background: var(--surface-1);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+}
+
+/* Группы «Корзина / Оплачено / Получено» в модуле покупок. */
+.rt-group { margin-bottom: 14px; }
+.rt-group h4 { color: var(--ink); font-size: 13px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+    .assign-box { min-width: 0; width: 100%; }
+    .order-row { flex-wrap: wrap; }
+    .order-row .or-right { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}

@@ -31,9 +31,15 @@
     let accessPollTimer = null;    // auto-refreshes incoming owner/patient approvals (audit FB-1)
     let accessPollTick = 0;
     let lastAccessSig = null;      // fingerprint of the rendered access-request list (skip no-op repaints)
-    let servicesPollTimer = null;  // live two-way service-order flow: repaints «Мои заявки» / очередь исполнителя
+    let servicesPollTimer = null;  // live three-party service flow: «Мои заявки» / диспетчерская / наряды
     let servicesOrdersSig = '';    // fingerprints, same anti-repaint trick as the access poll
     let servicesQueueSig = '';
+    let servicesAssignedSig = '';  // борд исполнителя «Мои наряды»
+    let executorsCache = [];       // штат исполнителей для выпадающего списка диспетчера
+    let retailPollTimer = null;    // «Бизнес и магазины»: живой статус корзины и покупок
+    let retailMineSig = '';
+    let checkoutPollTimer = null;  // касса: чек клиента обновляется, пока открыт результат скана
+    let checkoutSig = '';
 
     // Demo tooling. Manual UID entry + quick-scenario chips are exposed to EVERY logged-in user
     // for the live presentation (DEMO_MODE = true). The "time machine" is the deliberate exception:
@@ -363,6 +369,7 @@
         DOCTOR: 'Врач', PHARMACIST: 'Фармацевт', POLICE: 'Сотрудник полиции',
         INSPECTOR: 'Инспектор инфраструктуры', SELLER: 'Продавец',
         SERVICE_OPERATOR: 'Оператор услуг', RETAIL_ADMIN: 'Администратор торговли',
+        EXECUTOR: 'Универсальный исполнитель', CASHIER: 'Кассир',
         CITIZEN: 'Гражданин'
     };
     function professionRu(key) { return PROF_RU[key] || 'Гражданин'; }
@@ -684,6 +691,141 @@
     }
 
     // =============================================================
+    //  eGov-флоу «по номеру телефона» — общий компонент (Phase 2).
+    //  Телефон → плашка «Это вы?»: новый номер создаёт профиль CITIZEN с полным
+    //  цифровым пакетом, уже знакомый входит по SMS-коду (демо-код 1234, шлюз не
+    //  подключён). Публичный путь НИКОГДА не выдаёт привилегированную роль.
+    //  Используется на экране входа И в модалке регистрации гостя: после успеха
+    //  переносит гостевую историю (maybeMergeGuest) и отдаёт управление onAuthed.
+    // =============================================================
+    function egovAuthHtml() {
+        return `
+            <div class="egov-head">
+                <span class="egov-logo" aria-hidden="true">eGov</span>
+                <div class="egov-head-txt">
+                    <strong>Вход и регистрация по телефону</strong>
+                    <span>Только номер: новый — создаст цифровой профиль из госбазы, уже знакомый — войдёт по SMS-коду (демо-имитация)</span>
+                </div>
+            </div>
+            <div class="field">
+                <label>Номер телефона</label>
+                <input class="eg-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 777 777 77 77">
+                <div class="field-hint">Демо-подсказка: номер, оканчивающийся на <b>7</b>, найдёт «Расула Батталова».</div>
+            </div>
+            <div class="field-error eg-error"></div>
+            <button class="btn btn-primary btn-block eg-lookup" type="submit">Найти меня в eGov</button>
+            <div class="eg-result"></div>`;
+    }
+
+    function mountEgovAuth(root, onAuthed) {
+        let egPhone = null;
+        const egErr = root.querySelector('.eg-error');
+        const egResult = root.querySelector('.eg-result');
+        const phoneInput = root.querySelector('.eg-phone');
+        const lookupBtn = root.querySelector('.eg-lookup');
+
+        function egovPlate(data) {
+            const p = data.person;
+            const already = data.alreadyRegistered;
+            return `
+            <div class="egov-plate fade-in">
+                <div class="ep-badge">✓ Найдено в базе eGov <span class="demo-tag">DEMO</span></div>
+                <div class="ep-person">
+                    <div class="ep-avatar avatar-photo"><img src="${avatarUrl(p.fullName)}" alt="Аватар"></div>
+                    <div class="ep-info">
+                        <div class="ep-name">${esc(p.fullName)}</div>
+                        <div class="ep-kv"><span>ИИН</span><code>${esc(p.iin)}</code></div>
+                        <div class="ep-kv"><span>Дата рождения</span><b>${esc(p.birthDate)}</b></div>
+                        <div class="ep-kv"><span>Адрес</span><b>${esc(p.address)}</b></div>
+                        <div class="ep-kv"><span>Телефон</span><b>${esc(data.phoneDisplay)}</b></div>
+                    </div>
+                </div>
+                ${already ? `
+                <div class="ep-q">Этот номер уже зарегистрирован — войдите по SMS-коду</div>
+                <div class="otp-row">
+                    <input class="eg-otp" type="text" inputmode="numeric" maxlength="4" placeholder="Код из SMS" autocomplete="one-time-code">
+                    <button class="btn btn-primary eg-otp-login" type="button">Войти</button>
+                </div>
+                <div class="field-hint">Демо-код: <b>1234</b> (SMS-шлюз в демо не подключён — код никуда не отправляется).</div>` : `
+                <div class="ep-q">Это вы?</div>
+                <div class="ep-actions">
+                    <button class="btn btn-gold btn-block eg-confirm" type="button">✓ Да, это я — создать цифровой профиль</button>
+                    <button class="btn btn-ghost btn-block eg-not-me" type="button">Это не я</button>
+                </div>
+                <p class="ep-note">Будут созданы автоматически: цифровая личность, единый QR, медкарта,
+                правовой статус и визитка. Вход в дальнейшем — по SMS-коду.</p>`}
+            </div>`;
+        }
+
+        async function lookup() {
+            egErr.textContent = '';
+            const raw = phoneInput.value.trim();
+            if (!raw) { egErr.textContent = 'Введите номер телефона.'; return; }
+            lookupBtn.disabled = true; lookupBtn.textContent = 'Запрашиваем eGov…';
+            try {
+                const { ok, data } = await apiJson('/api/auth/egov/lookup', { method: 'POST', body: { phone: raw } });
+                if (!ok || !data || !data.person) throw new Error((data && data.message) || 'Гражданин не найден.');
+                egPhone = data.phone;
+                egResult.innerHTML = egovPlate(data);
+                wirePlate();
+            } catch (err) {
+                egErr.textContent = err.message;
+            } finally {
+                lookupBtn.disabled = false; lookupBtn.textContent = 'Найти меня в eGov';
+            }
+        }
+
+        function wirePlate() {
+            const confirm = egResult.querySelector('.eg-confirm');
+            if (confirm) confirm.addEventListener('click', async () => {
+                confirm.disabled = true; confirm.textContent = 'Создаём цифровой профиль…';
+                try {
+                    const { ok, data: res } = await apiJson('/api/auth/egov/register',
+                        { method: 'POST', body: { phone: egPhone } });
+                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Не удалось создать профиль.');
+                    currentUser = res.user;
+                    dossierInfo = null;
+                    await maybeMergeGuest();
+                    onAuthed('registered');
+                } catch (err) {
+                    egErr.textContent = err.message;
+                    confirm.disabled = false; confirm.textContent = '✓ Да, это я — создать цифровой профиль';
+                }
+            });
+            const notMe = egResult.querySelector('.eg-not-me');
+            if (notMe) notMe.addEventListener('click', () => {
+                egResult.innerHTML = '';
+                phoneInput.value = ''; phoneInput.focus();
+            });
+            const otpLogin = egResult.querySelector('.eg-otp-login');
+            if (otpLogin) otpLogin.addEventListener('click', async () => {
+                const code = (egResult.querySelector('.eg-otp').value || '').trim();
+                if (!code) { egErr.textContent = 'Введите SMS-код (демо: 1234).'; return; }
+                otpLogin.disabled = true; otpLogin.textContent = 'Проверяем…';
+                try {
+                    const { ok, data: res } = await apiJson('/api/auth/egov/login',
+                        { method: 'POST', body: { phone: egPhone, code } });
+                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Код неверен.');
+                    currentUser = res.user;
+                    dossierInfo = null;
+                    // Гость, вошедший в свой существующий аккаунт, тоже забирает гостевую историю.
+                    await maybeMergeGuest();
+                    onAuthed('login');
+                } catch (err) {
+                    egErr.textContent = err.message;
+                    otpLogin.disabled = false; otpLogin.textContent = 'Войти';
+                }
+            });
+        }
+
+        lookupBtn.addEventListener('click', (e) => { e.preventDefault(); lookup(); });
+        phoneInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); lookup(); }
+        });
+        return { lookup, focus: () => phoneInput.focus() };
+    }
+
+    // =============================================================
     //  AUTH VIEW
     // =============================================================
     function renderAuth(initialTab) {
@@ -729,13 +871,13 @@
             <section class="panel auth-card">
                 <div class="tabs">
                     <button class="tab active" id="tab-login" type="button">Вход</button>
-                    <button class="tab" id="tab-register" type="button">eGov · по телефону</button>
+                    <button class="tab" id="tab-register" type="button">По телефону · eGov</button>
                 </div>
 
                 <form id="login-form" class="form-grid">
                     <div class="field">
-                        <label for="li-username">Имя пользователя</label>
-                        <input id="li-username" name="username" type="text" autocomplete="username" placeholder="например, doctor">
+                        <label for="li-username">Имя пользователя или телефон</label>
+                        <input id="li-username" name="username" type="text" autocomplete="username" placeholder="doctor или +7 777 777 77 77">
                     </div>
                     <div class="field">
                         <label for="li-password">Пароль</label>
@@ -743,6 +885,7 @@
                     </div>
                     <div class="field-error" id="login-error"></div>
                     <button class="btn btn-primary btn-block" id="login-submit" type="submit">Войти</button>
+                    <button class="btn btn-ghost btn-block" id="login-by-phone" type="button">📱 Нет пароля — войти по SMS-коду</button>
 
                     <div class="demo-creds">
                         <div class="dc-label">Демо-доступы — нажмите, чтобы подставить</div>
@@ -751,21 +894,7 @@
                 </form>
 
                 <form id="register-form" class="form-grid hidden" autocomplete="off">
-                    <div class="egov-head">
-                        <span class="egov-logo" aria-hidden="true">eGov</span>
-                        <div class="egov-head-txt">
-                            <strong>Умная регистрация</strong>
-                            <span>Только номер телефона — ФИО, ИИН и адрес подтянутся из госбазы (демо-имитация)</span>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label for="eg-phone">Номер телефона</label>
-                        <input id="eg-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 777 777 77 77">
-                        <div class="field-hint">Демо-подсказка: номер, оканчивающийся на <b>7</b>, найдёт «Расула Батталова».</div>
-                    </div>
-                    <div class="field-error" id="eg-error"></div>
-                    <button class="btn btn-primary btn-block" id="eg-lookup" type="submit">Найти меня в eGov</button>
-                    <div id="eg-result"></div>
+                    ${egovAuthHtml()}
                 </form>
 
                 <div class="guest-divider"><span>или</span></div>
@@ -827,113 +956,20 @@
             });
         }
 
-        // ---- eGov smart onboarding (Phase 2): телефон → плашка «Это вы?» → профиль ----
-        // Публичный путь по-прежнему НИКОГДА не выдаёт привилегированную роль: сервер
-        // создаёт CITIZEN + полный цифровой пакет (медкарта, правовой статус, визитка).
-        let egPhone = null;
-        const egResult = document.getElementById('eg-result');
-        const egErr = document.getElementById('eg-error');
+        // ---- eGov: вход и регистрация по номеру телефона (общий компонент) ----
+        const egov = mountEgovAuth(registerForm, (kind) => {
+            toast(kind === 'registered'
+                ? 'Личность подтверждена через eGov. Профиль создан!'
+                : 'Вход выполнен. Добро пожаловать!', 'ok');
+            route();
+            if (kind === 'login') enforcePasswordChange();
+            consumePendingScan();
+        });
+        registerForm.addEventListener('submit', (e) => { e.preventDefault(); egov.lookup(); });
 
-        function egovPlate(data) {
-            const p = data.person;
-            const already = data.alreadyRegistered;
-            return `
-            <div class="egov-plate fade-in">
-                <div class="ep-badge">✓ Найдено в базе eGov <span class="demo-tag">DEMO</span></div>
-                <div class="ep-person">
-                    <div class="ep-avatar avatar-photo"><img src="${avatarUrl(p.fullName)}" alt="Аватар"></div>
-                    <div class="ep-info">
-                        <div class="ep-name">${esc(p.fullName)}</div>
-                        <div class="ep-kv"><span>ИИН</span><code>${esc(p.iin)}</code></div>
-                        <div class="ep-kv"><span>Дата рождения</span><b>${esc(p.birthDate)}</b></div>
-                        <div class="ep-kv"><span>Адрес</span><b>${esc(p.address)}</b></div>
-                        <div class="ep-kv"><span>Телефон</span><b>${esc(data.phoneDisplay)}</b></div>
-                    </div>
-                </div>
-                ${already ? `
-                <div class="ep-q">Этот номер уже зарегистрирован — войдите по SMS-коду</div>
-                <div class="otp-row">
-                    <input id="eg-otp" type="text" inputmode="numeric" maxlength="4" placeholder="Код из SMS" autocomplete="one-time-code">
-                    <button class="btn btn-primary" id="eg-otp-login" type="button">Войти</button>
-                </div>
-                <div class="field-hint">Демо-код: <b>1234</b> (SMS-шлюз в демо не подключён).</div>` : `
-                <div class="ep-q">Это вы?</div>
-                <div class="ep-actions">
-                    <button class="btn btn-gold btn-block" id="eg-confirm" type="button">✓ Да, это я — создать цифровой профиль</button>
-                    <button class="btn btn-ghost btn-block" id="eg-not-me" type="button">Это не я</button>
-                </div>
-                <p class="ep-note">Будут созданы автоматически: цифровая личность, единый QR, медкарта,
-                правовой статус и визитка. Вход в дальнейшем — по SMS-коду.</p>`}
-            </div>`;
-        }
-
-        async function egovLookup() {
-            egErr.textContent = '';
-            const raw = document.getElementById('eg-phone').value.trim();
-            if (!raw) { egErr.textContent = 'Введите номер телефона.'; return; }
-            const btn = document.getElementById('eg-lookup');
-            btn.disabled = true; btn.textContent = 'Запрашиваем eGov…';
-            try {
-                const { ok, data } = await apiJson('/api/auth/egov/lookup', { method: 'POST', body: { phone: raw } });
-                if (!ok || !data || !data.person) throw new Error((data && data.message) || 'Гражданин не найден.');
-                egPhone = data.phone;
-                egResult.innerHTML = egovPlate(data);
-                wireEgovPlate(data);
-            } catch (err) {
-                egErr.textContent = err.message;
-            } finally {
-                btn.disabled = false; btn.textContent = 'Найти меня в eGov';
-            }
-        }
-
-        function wireEgovPlate(data) {
-            const confirm = document.getElementById('eg-confirm');
-            if (confirm) confirm.addEventListener('click', async () => {
-                confirm.disabled = true; confirm.textContent = 'Создаём цифровой профиль…';
-                try {
-                    const { ok, data: res } = await apiJson('/api/auth/egov/register',
-                        { method: 'POST', body: { phone: egPhone } });
-                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Не удалось создать профиль.');
-                    currentUser = res.user;
-                    dossierInfo = null;
-                    toast('Личность подтверждена через eGov. Профиль создан!', 'ok');
-                    await maybeMergeGuest();
-                    route();
-                    consumePendingScan();
-                } catch (err) {
-                    egErr.textContent = err.message;
-                    confirm.disabled = false; confirm.textContent = '✓ Да, это я — создать цифровой профиль';
-                }
-            });
-            const notMe = document.getElementById('eg-not-me');
-            if (notMe) notMe.addEventListener('click', () => {
-                egResult.innerHTML = '';
-                const ph = document.getElementById('eg-phone');
-                ph.value = ''; ph.focus();
-            });
-            const otpLogin = document.getElementById('eg-otp-login');
-            if (otpLogin) otpLogin.addEventListener('click', async () => {
-                const code = (document.getElementById('eg-otp').value || '').trim();
-                if (!code) { egErr.textContent = 'Введите SMS-код (демо: 1234).'; return; }
-                otpLogin.disabled = true; otpLogin.textContent = 'Проверяем…';
-                try {
-                    const { ok, data: res } = await apiJson('/api/auth/egov/login',
-                        { method: 'POST', body: { phone: egPhone, code } });
-                    if (!ok || !res || !res.user) throw new Error((res && res.message) || 'Код неверен.');
-                    currentUser = res.user;
-                    dossierInfo = null;
-                    toast('Вход выполнен. Добро пожаловать!', 'ok');
-                    route();
-                    enforcePasswordChange();
-                    consumePendingScan();
-                } catch (err) {
-                    egErr.textContent = err.message;
-                    otpLogin.disabled = false; otpLogin.textContent = 'Войти';
-                }
-            });
-        }
-
-        registerForm.addEventListener('submit', (e) => { e.preventDefault(); egovLookup(); });
+        // «Нет пароля» на табе входа: телефонные аккаунты (eGov) входят по SMS-коду.
+        const byPhone = document.getElementById('login-by-phone');
+        if (byPhone) byPhone.addEventListener('click', () => { activate('register'); egov.focus(); });
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1476,6 +1512,7 @@
     function modalChangeRole(username, currentProfession) {
         const professions = [
             ['CITIZEN', 'Гражданин'], ['SELLER', 'Продавец'], ['SERVICE_OPERATOR', 'Оператор услуг'],
+            ['EXECUTOR', 'Универсальный исполнитель'], ['CASHIER', 'Кассир'],
             ['PHARMACIST', 'Фармацевт'], ['DOCTOR', 'Врач'],
             ['INSPECTOR', 'Инспектор инфраструктуры'], ['POLICE', 'Сотрудник полиции'],
             ['RETAIL_ADMIN', 'Администратор торговли']
@@ -2040,39 +2077,71 @@
         });
     }
 
-    // ---- Модуль 2: УСЛУГИ И БЫТ ----
+    // ---- Модуль 2: УСЛУГИ И БЫТ (трёхсторонний флоу: заказчик × оператор × исполнитель) ----
     function isServiceOperator() {
         return !!(currentUser && (currentUser.roles || []).includes('SERVICE_OPERATOR'));
+    }
+    function isExecutor() {
+        return !!(currentUser && (currentUser.roles || []).includes('EXECUTOR'));
+    }
+    function isCashier() {
+        return !!(currentUser && (currentUser.roles || []).includes('CASHIER'));
+    }
+    function workingModeOn() {
+        return !!(sessionInfo && sessionInfo.mode === 'WORKING');
     }
 
     function renderCitizenServices() {
         const body = document.getElementById('citizen-body');
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка каталога услуг…')}</section>`;
         const operator = isServiceOperator();
+        const executor = isExecutor();
         Promise.all([
             apiJson('/api/v2/services/catalog'),
             apiJson('/api/v2/services/mine'),
             loadDossier(),
-            operator ? apiJson('/api/v2/services/queue') : Promise.resolve({ ok: false })
-        ]).then(([cat, mine, d, q]) => {
+            apiJson('/api/v2/session'),
+            operator ? apiJson('/api/v2/services/queue') : Promise.resolve({ ok: false }),
+            executor ? apiJson('/api/v2/services/assigned') : Promise.resolve({ ok: false }),
+            operator ? apiJson('/api/v2/services/executors') : Promise.resolve({ ok: false })
+        ]).then(([cat, mine, d, sess, q, asg, execs]) => {
+                if (sess.ok && sess.data) sessionInfo = sess.data;
                 const catalog = (cat.ok && Array.isArray(cat.data)) ? cat.data : [];
                 const orders = (mine.ok && Array.isArray(mine.data)) ? mine.data : [];
                 const queue = (q.ok && Array.isArray(q.data)) ? q.data : [];
+                const assigned = (asg.ok && Array.isArray(asg.data)) ? asg.data : [];
+                executorsCache = (execs.ok && Array.isArray(execs.data)) ? execs.data : [];
                 const address = d && d.egov && d.egov.address ? d.egov.address : null;
+                const working = workingModeOn();
                 servicesOrdersSig = ordersSig(orders);
                 servicesQueueSig = ordersSig(queue);
+                servicesAssignedSig = ordersSig(assigned);
                 body.innerHTML = `
                 <div class="module-view fade-in">
                     <div class="module-head mod-serv-head">
                         ${moduleBack()}
                         <div class="mh-title"><span class="mh-ico">🏠</span> Услуги и быт</div>
                     </div>
-                    ${operator ? `
+                    ${operator ? (working ? `
                     <section class="panel panel-pad">
-                        <div class="section-title">🛠 Очередь исполнителя</div>
-                        <p class="muted" style="margin-bottom:10px">Заявки граждан со всей платформы. Примите заявку, выполните работу и отметьте завершение — заказчик подтвердит выполнение со своей стороны.</p>
-                        <div id="svc-queue">${queueHtml(queue)}</div>
-                    </section>` : ''}
+                        <div class="section-title">🗂 Диспетчерская — заявки жильцов</div>
+                        <p class="muted" style="margin-bottom:10px">Назначьте исполнителя на новую заявку: заказчик мгновенно получит его карточку, а статусы у всех трёх сторон обновляются в реальном времени.</p>
+                        <div id="svc-queue">${dispatchHtml(queue)}</div>
+                    </section>` : `
+                    <section class="panel panel-pad">
+                        <div class="section-title">🗂 Диспетчерская</div>
+                        <div class="obj-empty">Заявки жильцов доступны только при исполнении. Включите «Рабочий режим» вверху — и здесь появится плашка с заявками.</div>
+                    </section>`) : ''}
+                    ${executor ? (working ? `
+                    <section class="panel panel-pad">
+                        <div class="section-title">🧰 Мои наряды</div>
+                        <p class="muted" style="margin-bottom:10px">Заявки, назначенные на вас оператором. У двери покажите заказчику свой личный QR («Мой QR») — он сверит личность и подтвердит приход, а после работы — выполнение и оплату.</p>
+                        <div id="svc-assigned">${assignedHtml(assigned)}</div>
+                    </section>` : `
+                    <section class="panel panel-pad">
+                        <div class="section-title">🧰 Мои наряды</div>
+                        <div class="obj-empty">Наряды видны при исполнении. Включите «Рабочий режим», чтобы видеть назначенные на вас заявки.</div>
+                    </section>`) : ''}
                     ${address ? `<div class="serv-addr">📍 Заявки привязываются к вашему адресу из eGov: <b>${esc(address)}</b></div>` : ''}
                     <div class="serv-grid">
                         ${catalog.map(c => `
@@ -2096,7 +2165,7 @@
                         const { ok, data } = await apiJson('/api/v2/services/order',
                             { method: 'POST', body: { service: btn.dataset.key } });
                         if (!ok) throw new Error((data && data.message) || 'Не удалось оформить заявку.');
-                        toast(`Заявка принята: ${data.label}. Ожидает исполнителя.`, 'ok');
+                        toast(`Заявка принята: ${data.label}. Оператор назначит исполнителя.`, 'ok');
                         refreshNotifications();
                         refreshServicesLists();
                     } catch (e) {
@@ -2105,18 +2174,21 @@
                     }
                 }));
                 wireServiceOrderActions(body);
-                wireQueueActions(body);
+                wireDispatchActions(body);
                 startServicesPolling();
             });
     }
 
     const SERVICE_STATUS_RU = {
-        NEW: 'Ожидает исполнителя', ACCEPTED: 'В работе', DONE: 'Выполнена исполнителем',
-        COMPLETED: 'Завершена', DECLINED: 'Отклонена'
+        NEW: 'Новая · ждёт оператора', ASSIGNED: 'Исполнитель назначен', IN_PROGRESS: 'В работе',
+        COMPLETED: 'Оплачено · завершена', DECLINED: 'Отклонена',
+        // легаси-статусы старого двустороннего флоу (для строк, созданных до диспетчерской модели)
+        ACCEPTED: 'В работе', DONE: 'Выполнена исполнителем'
     };
 
     function serviceStatusTag(o) {
-        const cls = { NEW: 'review', ACCEPTED: 'info', DONE: 'review', COMPLETED: 'ok', DECLINED: 'bad' }[o.status] || 'info';
+        const cls = { NEW: 'review', ASSIGNED: 'info', IN_PROGRESS: 'info', COMPLETED: 'ok',
+            DECLINED: 'bad', ACCEPTED: 'info', DONE: 'review' }[o.status] || 'info';
         const label = SERVICE_STATUS_RU[o.status] || o.status;
         return `<span class="atag ${cls}">${esc(label)}</span>`;
     }
@@ -2125,28 +2197,44 @@
         return rows.map(o => `${o.orderUid}:${o.status}:${o.assigneeName || ''}`).join('|');
     }
 
-    // Заказчик: живой статус заявки + «Подтвердить выполнение», когда исполнитель завершил работу.
+    // Заказчик: живой статус + карточка назначенного исполнителя и подсказки про сканы.
     function serviceOrdersHtml(orders) {
         if (!orders.length) return '<div class="obj-empty">Заявок пока нет. Закажите услугу выше — она привяжется к вашему профилю.</div>';
-        return orders.map(o => `
+        return orders.map(o => {
+            const executorCard = (o.assigneeName && (o.status === 'ASSIGNED' || o.status === 'IN_PROGRESS'))
+                ? `<div class="or-executor">
+                        <div class="oe-avatar avatar-photo"><img src="${avatarUrl(o.assigneeName)}" alt="Исполнитель"></div>
+                        <div class="oe-info">
+                            <div class="oe-name">${esc(o.assigneeName)}</div>
+                            <div class="oe-meta">${esc([o.assigneeOrg || 'УК «Comfort Service»', o.assigneePhone].filter(Boolean).join(' · '))}</div>
+                            <div class="oe-hint">${o.status === 'ASSIGNED'
+                                ? '🔍 Когда исполнитель придёт — отсканируйте его QR: сверите личность и подтвердите приход.'
+                                : '💳 Работа выполнена? Отсканируйте его QR ещё раз — «Подтвердить и оплатить».'}</div>
+                        </div>
+                   </div>` : '';
+            return `
             <div class="order-row">
                 <span class="or-ico">${esc(o.icon || '🧾')}</span>
                 <div class="or-main">
                     <div class="or-name">${esc(o.label || o.service)}</div>
-                    <div class="or-meta">${esc([o.address, o.assigneeName ? 'Исполнитель: ' + o.assigneeName : o.operator, o.orderedAt].filter(Boolean).join(' · '))}</div>
+                    <div class="or-meta">${esc([o.address, o.price, o.orderedAt].filter(Boolean).join(' · '))}</div>
+                    ${executorCard}
                 </div>
                 <div class="or-right">
                     ${serviceStatusTag(o)}
                     ${o.status === 'DONE'
-                        ? `<button class="btn btn-primary btn-sm or-complete" type="button" data-id="${esc(o.orderUid)}">Подтвердить выполнение</button>`
+                        ? `<button class="btn btn-primary btn-sm or-complete" type="button" data-id="${esc(o.orderUid)}">Подтвердить и оплатить</button>`
                         : ''}
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
     }
 
-    // Исполнитель: очередь заявок с кнопками «Принять в работу» / «Завершить».
-    function queueHtml(queue) {
-        if (!queue.length) return '<div class="obj-empty">Новых заявок нет. Как только гражданин закажет услугу — она появится здесь.</div>';
+    // Оператор-диспетчер: назначение исполнителя на новые заявки, живые статусы остальных.
+    function dispatchHtml(queue) {
+        if (!queue.length) return '<div class="obj-empty">Заявок нет. Как только житель закажет услугу — она появится здесь.</div>';
+        const options = executorsCache.map(e =>
+            `<option value="${esc(e.identityUid)}">${esc(e.name)}</option>`).join('');
         return queue.map(o => `
             <div class="order-row">
                 <span class="or-ico">${esc(o.icon || '🧾')}</span>
@@ -2154,56 +2242,82 @@
                     <div class="or-name">${esc(o.label || o.service)}</div>
                     <div class="or-meta">${esc([o.customerName, o.address, o.orderedAt].filter(Boolean).join(' · '))}</div>
                     ${o.note ? `<div class="or-meta">💬 ${esc(o.note)}</div>` : ''}
+                    ${o.assigneeName ? `<div class="or-meta">🧰 Исполнитель: ${esc(o.assigneeName)}</div>` : ''}
                 </div>
                 <div class="or-right">
                     ${o.status === 'NEW'
-                        ? `<button class="btn btn-primary btn-sm svc-accept" type="button" data-id="${esc(o.orderUid)}">Принять в работу</button>`
-                        : o.status === 'ACCEPTED' && o.assigneeMe
-                            ? `<span class="atag info">В работе у вас</span>
-                               <button class="btn btn-gold btn-sm svc-finish" type="button" data-id="${esc(o.orderUid)}">Завершить</button>`
-                            : o.status === 'DONE'
-                                ? '<span class="atag review">Ждёт подтверждения заказчика</span>'
-                                : serviceStatusTag(o)}
+                        ? (executorsCache.length
+                            ? `<div class="assign-box" data-id="${esc(o.orderUid)}">
+                                   <select class="assign-select">${options}</select>
+                                   <button class="btn btn-primary btn-sm svc-assign" type="button">Назначить исполнителя</button>
+                               </div>`
+                            : '<span class="atag review">Нет исполнителей в штате</span>')
+                        : o.status === 'ASSIGNED'
+                            ? '<span class="atag info">Назначен · ждёт подтверждения прихода</span>'
+                            : serviceStatusTag(o)}
                 </div>
             </div>`).join('');
     }
 
+    // Исполнитель: наряды без кнопок — приход и оплату подтверждает заказчик сканом ЕГО QR.
+    function assignedHtml(rows) {
+        if (!rows.length) return '<div class="obj-empty">Нарядов пока нет. Оператор назначит вас на заявку — она появится здесь.</div>';
+        return rows.map(o => `
+            <div class="order-row">
+                <span class="or-ico">${esc(o.icon || '🧾')}</span>
+                <div class="or-main">
+                    <div class="or-name">${esc(o.label || o.service)}</div>
+                    <div class="or-meta">${esc([o.customerName ? 'Заказчик: ' + o.customerName : '', o.address, o.price].filter(Boolean).join(' · '))}</div>
+                    ${o.status === 'ASSIGNED'
+                        ? '<div class="or-meta">▦ У двери покажите заказчику свой QR («Мой QR») — он подтвердит ваш приход.</div>'
+                        : o.status === 'IN_PROGRESS'
+                            ? '<div class="or-meta">▦ После работы заказчик отсканирует ваш QR ещё раз — подтвердит и оплатит.</div>'
+                            : ''}
+                </div>
+                <div class="or-right">${serviceStatusTag(o)}</div>
+            </div>`).join('');
+    }
+
     function wireServiceOrderActions(scope) {
+        // Легаси-кнопка для строк старого флоу (DONE): подтверждение без скана.
         scope.querySelectorAll('.or-complete').forEach(btn => btn.addEventListener('click', async () => {
             btn.disabled = true;
             try {
                 const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/complete`, { method: 'POST', body: {} });
                 if (!ok) throw new Error((data && data.message) || 'Не удалось обновить заявку.');
-                toast('Выполнение подтверждено. Спасибо!', 'ok');
+                toast('Выполнение подтверждено и оплачено. Спасибо!', 'ok');
                 refreshNotifications();
                 refreshServicesLists();
             } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
         }));
     }
 
-    function wireQueueActions(scope) {
-        scope.querySelectorAll('.svc-accept').forEach(btn => btn.addEventListener('click', async () => {
-            btn.disabled = true; btn.textContent = 'Принимаем…';
-            try {
-                const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/accept`, { method: 'POST', body: {} });
-                if (!ok) throw new Error((data && data.message) || 'Не удалось принять заявку.');
-                toast('Заявка принята в работу.', 'ok');
-                refreshServicesLists();
-            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Принять в работу'; }
-        }));
-        scope.querySelectorAll('.svc-finish').forEach(btn => btn.addEventListener('click', async () => {
-            btn.disabled = true; btn.textContent = 'Завершаем…';
-            try {
-                const { ok, data } = await apiJson(`/api/v2/services/${btn.dataset.id}/finish`, { method: 'POST', body: {} });
-                if (!ok) throw new Error((data && data.message) || 'Не удалось завершить заявку.');
-                toast('Работа завершена. Заказчик получил запрос на подтверждение.', 'ok');
-                refreshServicesLists();
-            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Завершить'; }
-        }));
+    function wireDispatchActions(scope) {
+        scope.querySelectorAll('.assign-box').forEach(box => {
+            const btn = box.querySelector('.svc-assign');
+            if (!btn) return;
+            btn.addEventListener('click', async () => {
+                const sel = box.querySelector('.assign-select');
+                const executor = sel ? sel.value : '';
+                if (!executor) { toast('Выберите исполнителя.', 'err'); return; }
+                btn.disabled = true; btn.textContent = 'Назначаем…';
+                try {
+                    const { ok, data } = await apiJson(`/api/v2/services/${box.dataset.id}/assign`,
+                        { method: 'POST', body: { executor } });
+                    if (!ok) throw new Error((data && data.message) || 'Не удалось назначить исполнителя.');
+                    toast(`Исполнитель назначен: ${data.assigneeName || ''}. Заказчик получил его карточку.`, 'ok');
+                    refreshNotifications();
+                    refreshServicesLists();
+                } catch (e) {
+                    toast(e.message, 'err');
+                    btn.disabled = false; btn.textContent = 'Назначить исполнителя';
+                }
+            });
+        });
     }
 
-    // Тихое обновление обоих списков (после действия — принудительно, из поллинга — по отпечатку,
-    // чтобы фоновая перерисовка не «съедала» клик, как в поллинге согласий).
+    // Тихое обновление всех трёх списков (после действия — принудительно, из поллинга — по
+    // отпечатку, чтобы фоновая перерисовка не «съедала» клик, как в поллинге согласий).
     async function refreshServicesLists(fromPoll) {
         const ordersBox = document.getElementById('serv-orders');
         if (!ordersBox) return;
@@ -2224,8 +2338,19 @@
                     const sig = ordersSig(q.data);
                     if (!fromPoll || sig !== servicesQueueSig) {
                         servicesQueueSig = sig;
-                        qBox.innerHTML = queueHtml(q.data);
-                        wireQueueActions(qBox);
+                        qBox.innerHTML = dispatchHtml(q.data);
+                        wireDispatchActions(qBox);
+                    }
+                }
+            }
+            const aBox = document.getElementById('svc-assigned');
+            if (aBox && isExecutor()) {
+                const a = await apiJson('/api/v2/services/assigned');
+                if (a.ok && Array.isArray(a.data)) {
+                    const sig = ordersSig(a.data);
+                    if (!fromPoll || sig !== servicesAssignedSig) {
+                        servicesAssignedSig = sig;
+                        aBox.innerHTML = assignedHtml(a.data);
                     }
                 }
             }
@@ -2246,19 +2371,35 @@
         }, 5000);
     }
 
-    // ---- Модуль 3: БИЗНЕС И МАГАЗИНЫ ----
+    // ---- Модуль 3: БИЗНЕС И МАГАЗИНЫ (покупатель × кассир) ----
     function renderCitizenBusiness() {
         const body = document.getElementById('citizen-body');
         body.innerHTML = `<section class="panel panel-pad">${inlineLoad('Загрузка модуля…')}</section>`;
-        Promise.all([apiJson('/api/v2/my-qr'), apiJson('/api/v2/my-objects')]).then(([qr, obj]) => {
+        Promise.all([
+            apiJson('/api/v2/my-qr'),
+            apiJson('/api/v2/my-objects'),
+            apiJson('/api/v2/retail/mine'),
+            apiJson('/api/v2/session')
+        ]).then(([qr, obj, ret, sess]) => {
+            if (sess.ok && sess.data) sessionInfo = sess.data;
             const qrData = qr.ok ? qr.data : null;
             const objects = (obj.ok && Array.isArray(obj.data)) ? obj.data : [];
+            const purchases = (ret.ok && ret.data) ? ret.data : { cart: [], paid: [], issued: [], cartTotal: 0, paidTotal: 0 };
+            retailMineSig = purchasesSig(purchases);
             body.innerHTML = `
             <div class="module-view fade-in">
                 <div class="module-head mod-biz-head">
                     ${moduleBack()}
                     <div class="mh-title"><span class="mh-ico">🛍</span> Бизнес и магазины</div>
                 </div>
+                ${isCashier() ? `
+                <section class="panel panel-pad">
+                    <div class="section-title">🧾 Касса (режим кассира)</div>
+                    <p class="muted" style="margin-bottom:10px">${workingModeOn()
+                        ? 'Отсканируйте личный QR покупателя в «Терминале» — откроется его чек: корзина и «оплачен, но не выдан».'
+                        : 'Включите «Рабочий режим», затем отсканируйте личный QR покупателя в «Терминале» — откроется его чек.'}</p>
+                    <button class="btn btn-primary btn-sm" id="biz-open-terminal" type="button">Открыть терминал сканирования</button>
+                </section>` : ''}
                 <div class="biz-grid">
                     <section class="loyalty-card">
                         <div class="lc-glow" aria-hidden="true"></div>
@@ -2266,20 +2407,30 @@
                         <div class="lc-name">${esc(qrData ? qrData.fullName : '')}</div>
                         ${qrData ? `<img class="lc-qr" src="${esc(qrData.qrImageDataUri)}" alt="QR карты лояльности">` : ''}
                         <div class="lc-num mono">${esc(shortId(currentUser.identityUid))} · скидка 10%</div>
-                        <div class="lc-note">Единый QR — это и карта лояльности: продавец увидит только скидку, не личные данные.</div>
+                        <div class="lc-note">Единый QR — это и карта покупателя: у кассы кассир увидит по нему вашу корзину и оплаченные товары, а не личные данные.</div>
                     </section>
                     <section class="panel panel-pad biz-side">
-                        <div class="section-title">Демо-сценарии покупки</div>
+                        <div class="section-title">Демо-магазин: отсканируйте товар</div>
                         <div class="quick-chips">
-                            <button class="quick-chip" type="button" data-scan="RETAIL_NIKE_AF1">
-                                <span class="qc-name">Nike Air Force 1</span><span class="qc-code">RETAIL_NIKE_AF1</span>
-                                <span class="qc-tag">товар · цены и наличие</span></button>
+                            <button class="quick-chip" type="button" data-scan="SHOP_TSHIRT_UNIQLO">
+                                <span class="qc-name">Футболка Uniqlo</span><span class="qc-code">SHOP_TSHIRT_UNIQLO</span>
+                                <span class="qc-tag">4 990 ₸ · оплата на месте / корзина</span></button>
+                            <button class="quick-chip" type="button" data-scan="SHOP_JEANS_LEVIS">
+                                <span class="qc-name">Джинсы Levi's 501</span><span class="qc-code">SHOP_JEANS_LEVIS</span>
+                                <span class="qc-tag">24 990 ₸ · оплата на месте / корзина</span></button>
+                            <button class="quick-chip" type="button" data-scan="SHOP_SNEAKERS_NB">
+                                <span class="qc-name">New Balance 574</span><span class="qc-code">SHOP_SNEAKERS_NB</span>
+                                <span class="qc-tag">39 990 ₸ · оплата на месте / корзина</span></button>
                             <button class="quick-chip" type="button" data-scan="CAR_TOYOTA_CAMRY">
                                 <span class="qc-name">Toyota Camry 2024</span><span class="qc-code">CAR_TOYOTA_CAMRY</span>
                                 <span class="qc-tag">авто · владение и передача</span></button>
                         </div>
                     </section>
                 </div>
+                <section class="panel panel-pad">
+                    <div class="section-title">🛒 Корзина и покупки</div>
+                    <div id="biz-purchases">${purchasesHtml(purchases)}</div>
+                </section>
                 <section class="panel panel-pad">
                     <div class="section-title">Мои вещи (${objects.length})</div>
                     ${objects.length ? `<div class="myobj-grid">
@@ -2290,13 +2441,90 @@
                             <div class="myobj-uid mono">${esc(o.objectUid)}</div>
                             <button class="btn btn-ghost btn-sm myobj-open" type="button" data-uid="${esc(o.objectUid)}">Открыть карточку</button>
                         </div>`).join('')}
-                    </div>` : '<div class="obj-empty">Пока пусто. Когда вам передадут объект (например, автомобиль) — он появится здесь с QR-кодом.</div>'}
+                    </div>` : '<div class="obj-empty">Пока пусто. Купленный и выданный кассиром товар появится здесь с QR-кодом.</div>'}
                 </section>
             </div>`;
             wireModuleBack();
             body.querySelectorAll('[data-scan]').forEach(b => b.addEventListener('click', () => doScan(b.dataset.scan)));
             body.querySelectorAll('.myobj-open').forEach(b => b.addEventListener('click', () => doScan(b.dataset.uid)));
+            const term = document.getElementById('biz-open-terminal');
+            if (term) term.addEventListener('click', () => { citizenTab = 'terminal'; renderCitizen(); });
+            wirePurchaseActions(body);
+            startRetailPolling();
         });
+    }
+
+    function purchasesSig(p) {
+        const f = rows => (rows || []).map(r => `${r.lineUid}:${r.stage}`).join(',');
+        return `${f(p.cart)}|${f(p.paid)}|${f(p.issued)}`;
+    }
+
+    // Покупатель: корзина (можно убрать позицию — даже стоя у кассы), «оплачен, ждёт выдачи»,
+    // недавно полученное. Статусы меняются в реальном времени (поллинг + действия кассира).
+    function purchasesHtml(p) {
+        const cart = p.cart || [], paid = p.paid || [], issued = p.issued || [];
+        if (!cart.length && !paid.length && !issued.length) {
+            return '<div class="obj-empty">Покупок пока нет. Отсканируйте товар в магазине — появятся кнопки «Оплатить на месте» и «В корзину».</div>';
+        }
+        const line = (r, right) => `
+            <div class="order-row">
+                <span class="or-ico">🛍</span>
+                <div class="or-main">
+                    <div class="or-name">${esc(r.name || r.objectUid)}</div>
+                    <div class="or-meta">${esc([fmtPrice(r.price, r.currency || '₸'), r.store].filter(Boolean).join(' · '))}</div>
+                </div>
+                <div class="or-right">${right}</div>
+            </div>`;
+        const cartRows = cart.map(r => line(r, `<span class="atag review">В корзине</span>
+            <button class="btn btn-ghost btn-sm rt-remove" type="button" data-id="${esc(r.lineUid)}">Убрать</button>`)).join('');
+        const paidRows = paid.map(r => line(r, '<span class="atag info">Оплачен · ждёт выдачи</span>')).join('');
+        const issuedRows = issued.map(r => line(r, '<span class="atag ok">Получен ✓</span>')).join('');
+        return `
+            ${cart.length ? `<div class="rt-group"><h4>Корзина (${cart.length}) · ${esc(fmtPrice(p.cartTotal, '₸'))}</h4>${cartRows}
+                <p class="muted" style="margin-top:6px">Оплата корзины — на кассе: покажите кассиру свой QR («Мой QR»). Если средств не хватает — уберите лишнее прямо здесь, чек кассира обновится сам.</p></div>` : ''}
+            ${paid.length ? `<div class="rt-group"><h4>Оплачено, ждёт выдачи (${paid.length}) · ${esc(fmtPrice(p.paidTotal, '₸'))}</h4>${paidRows}
+                <p class="muted" style="margin-top:6px">Покажите кассиру свой QR — он увидит «оплачен, но не выдан» и выдаст товар. После выдачи вещь появится в «Мои вещи».</p></div>` : ''}
+            ${issued.length ? `<div class="rt-group"><h4>Недавно получено</h4>${issuedRows}</div>` : ''}`;
+    }
+
+    function wirePurchaseActions(scope) {
+        scope.querySelectorAll('.rt-remove').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+                const { ok, data } = await apiJson(`/api/v2/retail/${btn.dataset.id}/remove`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось убрать позицию.');
+                toast('Позиция удалена из корзины.', 'ok');
+                refreshPurchases();
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+        }));
+    }
+
+    async function refreshPurchases(fromPoll) {
+        const box = document.getElementById('biz-purchases');
+        if (!box) return;
+        try {
+            const { ok, data } = await apiJson('/api/v2/retail/mine');
+            if (!ok || !data) return;
+            const sig = purchasesSig(data);
+            if (fromPoll && sig === retailMineSig) return;
+            retailMineSig = sig;
+            box.innerHTML = purchasesHtml(data);
+            wirePurchaseActions(box);
+        } catch (_) { /* transient */ }
+    }
+
+    // Пока открыт модуль «Бизнес и магазины», покупки обновляются сами: клиент видит
+    // «оплачен → выдан» в момент действий кассира, без F5. Таймер сворачивается при уходе.
+    function startRetailPolling() {
+        if (retailPollTimer) return;
+        retailPollTimer = setInterval(() => {
+            if (!document.getElementById('biz-purchases')) {
+                clearInterval(retailPollTimer); retailPollTimer = null;
+                return;
+            }
+            if (document.hidden) return;
+            refreshPurchases(true);
+        }, 5000);
     }
 
     // -------------------------------------------------------------
@@ -2564,6 +2792,7 @@
 
     function closeResultPage() {
         stopProfilePoll();
+        stopCheckoutPoll();
         const overlay = document.getElementById('result-overlay');
         if (overlay) overlay.hidden = true;
         document.body.classList.remove('no-scroll');
@@ -2589,6 +2818,9 @@
         wireReportButtons();
         wirePrescriptions(data.objectUid, result);
         wireObjectActions(data, result);
+        wireCommerceActions(data, result);
+        wireServiceVisitActions(data, result);
+        wireCheckoutActions(data, result);
         const ctaBtn = document.getElementById('guest-cta-btn');
         if (ctaBtn) ctaBtn.addEventListener('click', () => startGuestRegistration(data.objectUid));
 
@@ -2753,8 +2985,11 @@
 
     function openGuestRegisterModal(resumeObjectUid) {
         const body = `
-            <p class="modal-text">Создайте аккаунт, чтобы сохранить историю и открыть полную карточку. Мы вернём вас к результату сканирования.</p>
-            <div class="form-grid">
+            <p class="modal-text">Подтвердите личность через eGov — история гостя сохранится, и мы вернём вас к результату сканирования.</p>
+            <div class="form-grid" id="gr-egov">${egovAuthHtml()}</div>
+            <div class="guest-divider"><span>или</span></div>
+            <button class="btn btn-ghost btn-block" id="gr-classic-toggle" type="button">Классическая регистрация — логин и пароль</button>
+            <div class="form-grid hidden" id="gr-classic">
                 <div class="form-row">
                     <div class="field"><label for="gr-firstName">Имя</label>
                         <input id="gr-firstName" type="text" placeholder="Имя"></div>
@@ -2787,6 +3022,31 @@
             dismissValue: null,
             actions: [{ label: 'Позже', cls: 'btn-ghost', value: null }],
             onBody: (card, { close }) => {
+                // Завершение любого пути: сессия уже переключена с гостя на аккаунт,
+                // история гостя перенесена — закрываем модалку и повторяем скан.
+                const finish = (message) => {
+                    close(null);
+                    toast(message, 'ok');
+                    if (resumeObjectUid) pendingScanTarget = resumeObjectUid;
+                    route();
+                    consumePendingScan();
+                };
+
+                // Основной путь — тот же eGov-флоу, что и на экране входа (никакой
+                // «старой регистрации»): телефон → «Это вы?» → профиль или SMS-код.
+                mountEgovAuth(card.querySelector('#gr-egov'), (kind) => {
+                    finish(kind === 'registered'
+                        ? 'Профиль создан через eGov. История гостя сохранена.'
+                        : 'Вход выполнен. История гостя перенесена в ваш аккаунт.');
+                });
+
+                // Запасной путь — классическая форма, спрятана за тумблером.
+                const classicToggle = card.querySelector('#gr-classic-toggle');
+                const classicBox = card.querySelector('#gr-classic');
+                classicToggle.addEventListener('click', () => {
+                    classicBox.classList.toggle('hidden');
+                });
+
                 const errEl = card.querySelector('#gr-error');
                 const submit = card.querySelector('#gr-submit');
                 // Parity with the main registration form (audit FB-3): choosing «Трудоустроен(а)»
@@ -2829,13 +3089,7 @@
                         // Switch the session from guest to the new citizen IN PLACE — no visible logout.
                         await doLogin(payload.username, payload.password);
                         await maybeMergeGuest();
-                        close(null);
-                        toast('Аккаунт создан. История гостя сохранена.', 'ok');
-                        // Re-render as the now-registered citizen and replay the scan so they land
-                        // back on the FULL card instead of an empty profile.
-                        if (resumeObjectUid) pendingScanTarget = resumeObjectUid;
-                        route();
-                        consumePendingScan();
+                        finish('Аккаунт создан. История гостя сохранена.');
                     } catch (err) {
                         errEl.textContent = err.message;
                         submit.disabled = false; submit.textContent = 'Создать аккаунт';
@@ -3291,13 +3545,19 @@
     // -------------------------------------------------------------
     function renderContextCard(res) {
         const d = res.data || {};
+        // Трёхсторонние сценарии: сверка исполнителя (услуги) и чек клиента (касса) —
+        // категория у них IDENTITY, поэтому ветки идут ДО общей визитки.
+        if (res.contextView === 'SERVICE_VISIT') return serviceVisitCard(res);
+        if (res.contextView === 'RETAIL_CHECKOUT') return checkoutCard(d, res);
         if (res.contextView === 'BUSINESS_CARD' || res.category === 'IDENTITY') return businessCard(d);
         if (res.contextView === 'PRESCRIPTIONS') return rxOnlyCard(d, res.objectUid);
         // УНИВЕРСАЛЬНОЕ ПРАВИЛО ОБЪЕКТОВ: одна и та же вещь, один и тот же QR — но карточка
         // складывается из базовой (по категории) + контекстных блоков по роли сканирующего:
-        // служебное раскрытие владельца (полиция), панель владения, AI-рекомендации.
+        // покупка (товар магазина), служебное раскрытие владельца (полиция), панель
+        // владения, AI-рекомендации.
         if ((res.contextView || '').startsWith('OBJECT_')) {
             return renderCardByCategory(res.category, d, res.objectUid)
+                + commerceSection(res)
                 + authoritySection(res)
                 + ownershipSection(res)
                 + aiSection(res.aiCard);
@@ -3443,6 +3703,253 @@
         });
     }
 
+    // -------------------------------------------------------------
+    //  Услуги и быт: сверка исполнителя (SERVICE_VISIT) — два скана заказчика
+    // -------------------------------------------------------------
+
+    /** Карточка пришедшего исполнителя: личность сверена + подтверждение прихода/оплаты. */
+    function serviceVisitCard(res) {
+        const d = res.data || {};
+        const ex = d.executor || {};
+        const o = d.order || {};
+        const arrival = o.action === 'CONFIRM_ARRIVAL';
+        const name = ex.fullName || res.subjectName || 'Исполнитель';
+        const btn = arrival
+            ? `<button class="btn btn-primary sv-confirm" type="button" data-order="${esc(o.orderUid)}" data-exec="${esc(d.executorUid || '')}" data-action="arrival">✅ Подтвердить приход</button>`
+            : `<button class="btn btn-gold sv-confirm" type="button" data-order="${esc(o.orderUid)}" data-exec="${esc(d.executorUid || '')}" data-action="complete">💳 Подтвердить и оплатить${o.price ? ' · ' + esc(o.price) : ''}</button>`;
+        return `
+        <div class="card data-card vcard fade-in">
+            <div class="vc-top">
+                <div class="vc-avatar avatar-photo"><img src="${avatarUrl(name)}" alt="Аватар"></div>
+                <div class="vc-id">
+                    <div class="vc-name">${esc(name)}</div>
+                    <div class="vc-sub">${esc([ex.profession ? professionRu(ex.profession) : 'Универсальный исполнитель', ex.organization].filter(Boolean).join(' · '))}</div>
+                </div>
+                <span class="vc-mark" aria-hidden="true">✔</span>
+            </div>
+            <div class="vc-chips">
+                ${ex.phone ? `<span class="vc-chip"><span>📞</span>${esc(ex.phone)}</span>` : ''}
+                ${ex.city ? `<span class="vc-chip"><span>📍</span>${esc(ex.city)}</span>` : ''}
+                ${ex.trustLevel != null ? `<span class="vc-chip"><span>🛡</span>Доверие ${esc(ex.trustLevel)} / 100</span>` : ''}
+            </div>
+            <div class="dc-section">
+                <h4>Ваша заявка</h4>
+                <div class="kv-grid">
+                    ${kv('Услуга', o.label || '—')}
+                    ${kv('Адрес', o.address || '—')}
+                    ${kv('Стоимость', o.price || 'по тарифу')}
+                    ${kv('Статус', SERVICE_STATUS_RU[o.status] || o.status || '—')}
+                </div>
+            </div>
+            <div class="dc-section sv-action-slot">
+                <p class="muted" style="margin-bottom:10px">${arrival
+                    ? 'Данные сверены: перед вами назначенный исполнитель. Подтвердите приход — заявка перейдёт «В работу» у всех трёх сторон.'
+                    : 'Подтверждение завершит заявку и спишет демо-оплату. Статусы мгновенно обновятся у оператора и исполнителя.'}</p>
+                ${btn}
+            </div>
+        </div>`;
+    }
+
+    function wireServiceVisitActions(data, container) {
+        if (!container || !data || data.contextView !== 'SERVICE_VISIT') return;
+        container.querySelectorAll('.sv-confirm').forEach(btn => btn.addEventListener('click', async () => {
+            const action = btn.dataset.action === 'arrival' ? 'arrival' : 'complete';
+            const original = btn.textContent;
+            btn.disabled = true; btn.textContent = action === 'arrival' ? 'Подтверждаем…' : 'Оплачиваем…';
+            try {
+                const { ok, data: res } = await apiJson(`/api/v2/services/${btn.dataset.order}/${action}`,
+                    { method: 'POST', body: { executorUid: btn.dataset.exec } });
+                if (!ok) throw new Error((res && res.message) || 'Не удалось обновить заявку.');
+                const slot = btn.closest('.sv-action-slot');
+                if (slot) slot.innerHTML = action === 'arrival'
+                    ? '<div class="atag info">Приход подтверждён — заявка в работе. После выполнения отсканируйте QR исполнителя ещё раз и оплатите.</div>'
+                    : '<div class="atag ok">Оплачено · завершено. Статусы обновились у оператора и исполнителя. Спасибо!</div>';
+                toast(action === 'arrival'
+                    ? 'Приход исполнителя подтверждён. Заявка в работе.'
+                    : 'Работа подтверждена и оплачена (демо-платёж).', 'ok');
+                refreshNotifications();
+                refreshServicesLists();
+            } catch (e) {
+                toast(e.message, 'err');
+                btn.disabled = false; btn.textContent = original;
+            }
+        }));
+    }
+
+    // -------------------------------------------------------------
+    //  Бизнес и магазины: чек клиента для кассира (RETAIL_CHECKOUT)
+    // -------------------------------------------------------------
+
+    /** Чек клиента по его личному QR: корзина + «оплачен, не выдан», живое обновление. */
+    function checkoutCard(d, res) {
+        const name = d.customerName || res.subjectName || 'Покупатель';
+        return `
+        <div class="card data-card fade-in" id="checkout-card" data-buyer="${esc(d.customerUid || '')}">
+            ${cardHead(name, 'Открытые покупки клиента', 'RETAIL', name)}
+            ${d.scope ? `<div class="rx-scope"><span>🔒</span>${esc(d.scope)}</div>` : ''}
+            <div id="checkout-body">${checkoutBodyHtml(d)}</div>
+        </div>`;
+    }
+
+    function checkoutBodyHtml(d) {
+        const cart = d.cart || [], paid = d.paid || [];
+        const row = (r, right) => `
+            <div class="order-row">
+                <span class="or-ico">🛍</span>
+                <div class="or-main">
+                    <div class="or-name">${esc(r.name || r.objectUid)}</div>
+                    <div class="or-meta">${esc(fmtPrice(r.price, r.currency || '₸'))}</div>
+                </div>
+                <div class="or-right">${right}</div>
+            </div>`;
+        const cartRows = cart.map(r => row(r, '<span class="atag review">Не оплачен</span>')).join('');
+        const paidRows = paid.map(r => row(r, `<span class="atag info">Оплачен · не выдан</span>
+            <button class="btn btn-primary btn-sm co-issue" type="button" data-id="${esc(r.lineUid)}">Выдать</button>`)).join('');
+        return `
+            ${cart.length ? `<div class="dc-section"><h4>Корзина (${cart.length}) · ${esc(fmtPrice(d.cartTotal, '₸'))}</h4>${cartRows}
+                <button class="btn btn-gold co-collect" type="button" style="margin-top:10px">💳 Принять оплату · ${esc(fmtPrice(d.cartTotal, '₸'))}</button>
+                <p class="muted" style="margin-top:6px">Не хватает средств? Клиент сам уберёт позицию со своего телефона — чек обновится автоматически.</p></div>` : ''}
+            ${paid.length ? `<div class="dc-section"><h4>Оплачено, не выдано (${paid.length}) · ${esc(fmtPrice(d.paidTotal, '₸'))}</h4>${paidRows}
+                <p class="muted" style="margin-top:6px">«Выдать» передаст право владения покупателю — QR товара при этом не изменится.</p></div>` : ''}
+            ${!cart.length && !paid.length ? '<div class="obj-empty">У клиента нет открытых покупок: корзина пуста, к выдаче ничего нет.</div>' : ''}`;
+    }
+
+    function wireCheckoutActions(data, container) {
+        if (!container || !data || data.contextView !== 'RETAIL_CHECKOUT' || !data.success) return;
+        const card = container.querySelector('#checkout-card');
+        if (!card || !card.dataset.buyer) return;
+        const buyer = card.dataset.buyer;
+        checkoutSig = checkoutSigOf(data.data || {});
+        wireCheckoutBody(container, buyer);
+        startCheckoutPoll(container, buyer);
+    }
+
+    function wireCheckoutBody(container, buyer) {
+        container.querySelectorAll('.co-collect').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Принимаем оплату…';
+            try {
+                const { ok, data } = await apiJson(`/api/v2/retail/checkout/${buyer}/collect`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось принять оплату.');
+                toast('Оплата принята (демо-платёж). Позиции готовы к выдаче.', 'ok');
+                renderCheckoutBody(container, data, buyer);
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '💳 Принять оплату'; }
+        }));
+        container.querySelectorAll('.co-issue').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Выдаём…';
+            try {
+                const { ok, data } = await apiJson(`/api/v2/retail/${btn.dataset.id}/issue`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((data && data.message) || 'Не удалось выдать товар.');
+                toast('Товар выдан: владение передано покупателю, QR не изменился.', 'ok');
+                await refreshCheckout(container, buyer);
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Выдать'; }
+        }));
+    }
+
+    function renderCheckoutBody(container, view, buyer) {
+        const bodyEl = container.querySelector('#checkout-body');
+        if (!bodyEl || !view) return;
+        checkoutSig = checkoutSigOf(view);
+        bodyEl.innerHTML = checkoutBodyHtml(view);
+        wireCheckoutBody(container, buyer);
+    }
+
+    async function refreshCheckout(container, buyer, fromPoll) {
+        try {
+            const { ok, data } = await apiJson(`/api/v2/retail/checkout/${buyer}`);
+            if (!ok || !data) return;
+            const sig = checkoutSigOf(data);
+            if (fromPoll && sig === checkoutSig) return;
+            renderCheckoutBody(container, data, buyer);
+        } catch (_) { /* transient */ }
+    }
+
+    function checkoutSigOf(d) {
+        const f = rows => (rows || []).map(r => `${r.lineUid}:${r.stage}`).join(',');
+        return `${f(d.cart)}|${f(d.paid)}`;
+    }
+
+    // Пока открыт чек клиента, кассир видит правки корзины в реальном времени (клиент
+    // удаляет позицию у кассы → чек пересчитывается сам). Останавливается с закрытием окна.
+    function startCheckoutPoll(container, buyer) {
+        stopCheckoutPoll();
+        checkoutPollTimer = setInterval(() => {
+            if (!document.getElementById('checkout-card')) { stopCheckoutPoll(); return; }
+            if (document.hidden) return;
+            refreshCheckout(container, buyer, true);
+        }, 4000);
+    }
+
+    function stopCheckoutPoll() {
+        if (checkoutPollTimer) { clearInterval(checkoutPollTimer); checkoutPollTimer = null; }
+    }
+
+    // -------------------------------------------------------------
+    //  Бизнес и магазины: покупка со скана товара (commerce-блок)
+    // -------------------------------------------------------------
+
+    /** Кассовые действия на карточке товара магазина: оплатить на месте / в корзину / статус. */
+    function commerceSection(res) {
+        const c = res.commerce;
+        if (!c) return '';
+        const price = fmtPrice(c.price, c.currency || '₸');
+        let inner;
+        if (c.state === 'IN_CART') {
+            inner = `<span class="atag review">Уже в корзине</span>
+                <button class="btn btn-ghost btn-sm cm-remove" type="button" data-id="${esc(c.lineUid || '')}">Убрать из корзины</button>
+                <p class="muted own-note">Оплата корзины — на кассе: покажите кассиру свой QR («Мой QR»).</p>`;
+        } else if (c.state === 'PAID') {
+            inner = `<span class="atag info">Оплачен · ждёт выдачи</span>
+                <p class="muted own-note">Покажите кассиру свой QR — он увидит «оплачен, но не выдан» и выдаст товар.</p>`;
+        } else {
+            inner = `
+                <button class="btn btn-gold cm-buy" type="button" data-for="${esc(res.objectUid)}">💳 Оплатить на месте · ${esc(price)}</button>
+                <button class="btn btn-primary cm-cart" type="button" data-for="${esc(res.objectUid)}">🛒 В корзину</button>
+                <p class="muted own-note">Оплата на месте — демо-платёж: товар станет «оплачен, но не выдан»; выдаст его кассир по вашему QR.</p>`;
+        }
+        return `<div class="card data-card own-panel fade-in">
+            <div class="own-head">🛒 Покупка · ${esc(price)}${c.store ? ' · ' + esc(c.store) : ''}</div>
+            <div class="owner-req-slot">${inner}</div>
+        </div>`;
+    }
+
+    function wireCommerceActions(data, container) {
+        if (!container || !data || !data.commerce) return;
+        const swap = (btn, html) => {
+            const slot = btn.closest('.owner-req-slot');
+            if (slot) slot.innerHTML = html;
+        };
+        container.querySelectorAll('.cm-buy').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Оплачиваем…';
+            try {
+                const { ok, data: res } = await apiJson('/api/v2/retail/buy',
+                    { method: 'POST', body: { objectUid: btn.dataset.for } });
+                if (!ok) throw new Error((res && res.message) || 'Не удалось оплатить товар.');
+                toast('Оплачено (демо). Товар ждёт выдачи — покажите кассиру свой QR.', 'ok');
+                swap(btn, '<span class="atag info">Оплачен · ждёт выдачи</span><p class="muted own-note">Покажите кассиру свой QR («Мой QR») — он выдаст товар.</p>');
+                refreshNotifications();
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '💳 Оплатить на месте'; }
+        }));
+        container.querySelectorAll('.cm-cart').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Добавляем…';
+            try {
+                const { ok, data: res } = await apiJson('/api/v2/retail/cart',
+                    { method: 'POST', body: { objectUid: btn.dataset.for } });
+                if (!ok) throw new Error((res && res.message) || 'Не удалось добавить в корзину.');
+                toast('Товар в корзине. Оплата — на кассе по вашему QR.', 'ok');
+                swap(btn, '<span class="atag review">В корзине</span><p class="muted own-note">Оплатить можно на кассе: покажите кассиру свой QR.</p>');
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '🛒 В корзину'; }
+        }));
+        container.querySelectorAll('.cm-remove').forEach(btn => btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+                const { ok, data: res } = await apiJson(`/api/v2/retail/${btn.dataset.id}/remove`, { method: 'POST', body: {} });
+                if (!ok) throw new Error((res && res.message) || 'Не удалось убрать позицию.');
+                toast('Позиция удалена из корзины.', 'ok');
+                swap(btn, '<span class="atag">Убрано из корзины</span>');
+            } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+        }));
+    }
+
     /** Полоска контекста: кто сканирует — то и открывается (ключевой месседж демо). */
     function contextRibbon(res) {
         const map = {
@@ -3453,7 +3960,9 @@
             OBJECT_PUBLIC: { ico: '🌐', txt: 'Контекст: гость → публичная карточка объекта (данные владельца скрыты)' },
             OBJECT_EXTENDED: { ico: '📦', txt: 'Контекст: пользователь → расширенная карточка + AI-подбор' },
             OBJECT_OWNER: { ico: '🔑', txt: 'Контекст: владелец → полное управление объектом без запросов' },
-            OBJECT_AUTHORITY: { ico: '👮', txt: 'Контекст: уполномоченный орган → данные владельца (фиксация в журнале)' }
+            OBJECT_AUTHORITY: { ico: '👮', txt: 'Контекст: уполномоченный орган → данные владельца (фиксация в журнале)' },
+            SERVICE_VISIT: { ico: '🧰', txt: 'Контекст: исполнитель по вашей заявке — личность сверена платформой' },
+            RETAIL_CHECKOUT: { ico: '🧾', txt: 'Контекст: кассир → открытые покупки клиента (минимальный доступ)' }
         };
         const v = map[res.contextView];
         if (!v) return '';

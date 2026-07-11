@@ -85,6 +85,8 @@ public class GatewayService {
     private final MedicalService medicalService;
     private final CitizenDossierService citizenDossierService;
     private final AiCardService aiCardService;
+    private final ServiceOrderService serviceOrderService;
+    private final RetailCheckoutService retailCheckoutService;
 
     @Transactional
     public GatewayResponse scan(Identity identity, ScanRequest request) {
@@ -283,6 +285,7 @@ public class GatewayService {
                 .ownership(routing != null ? routing.ownership() : null)
                 .ownerDisclosure(routing != null ? routing.ownerDisclosure() : null)
                 .aiCard(routing != null ? routing.aiCard() : null)
+                .commerce(routing != null ? routing.commerce() : null)
                 .build();
     }
 
@@ -298,7 +301,7 @@ public class GatewayService {
      */
     private record ObjectRouting(String view, Map<String, Object> ownership,
                                  Map<String, Object> ownerDisclosure, Map<String, Object> aiCard,
-                                 UUID ownerUid) {
+                                 Map<String, Object> commerce, UUID ownerUid) {
         boolean authority() {
             return "OBJECT_AUTHORITY".equals(view);
         }
@@ -310,7 +313,7 @@ public class GatewayService {
         // 1. ГОСТЬ: публичная карточка. КАТЕГОРИЧЕСКИ никакой информации о владельце —
         //    ни имени, ни идентификаторов, ни даже факта, что владелец существует.
         if (guest) {
-            return new ObjectRouting("OBJECT_PUBLIC", null, null, null, null);
+            return new ObjectRouting("OBJECT_PUBLIC", null, null, null, null, null);
         }
 
         RegistryObject db = resolved.dbObject();
@@ -327,7 +330,7 @@ public class GatewayService {
             ownership.put("note", "Вы — владелец. QR объекта постоянен: при передаче прав меняется только владелец.");
             return new ObjectRouting("OBJECT_OWNER", ownership, null,
                     aiCardService.generate(scanner, objectUid, resolved.category(), resolved.data(), true),
-                    ownerUid);
+                    null, ownerUid);
         }
 
         // 4. УПОЛНОМОЧЕННЫЙ ОРГАН (полиция при исполнении): установленный законом объём
@@ -339,7 +342,7 @@ public class GatewayService {
             ownership.put("state", "OWNED");
             ownership.put("isOwner", false);
             ownership.put("note", "Служебный доступ: данные владельца раскрыты по полномочию, действие зафиксировано.");
-            return new ObjectRouting("OBJECT_AUTHORITY", ownership, buildOwnerDisclosure(ownerUid), null, ownerUid);
+            return new ObjectRouting("OBJECT_AUTHORITY", ownership, buildOwnerDisclosure(ownerUid), null, null, ownerUid);
         }
 
         // 2. ЗАРЕГИСТРИРОВАННЫЙ ПОЛЬЗОВАТЕЛЬ: расширенная карточка + AI. Владелец скрыт;
@@ -357,8 +360,12 @@ public class GatewayService {
         ownership.put("note", ownerUid != null
                 ? "Профиль владельца откроется только с его согласия (Request → Decision → History)."
                 : "Объект пока никому не принадлежит (pre-ownership): открыта стандартная карточка.");
+        // СЦЕНАРИЙ «БИЗНЕС И МАГАЗИНЫ»: товару магазина (forSale + цена, владелец — магазин)
+        // добавляются кассовые действия «Оплатить на месте / В корзину» либо состояние
+        // открытой линии чека сканирующего. Для всего остального commerce = null.
         return new ObjectRouting("OBJECT_EXTENDED", ownership, null,
                 aiCardService.generate(scanner, objectUid, resolved.category(), resolved.data(), false),
+                retailCheckoutService.commerceFor(scanner, resolved, ownerUid),
                 ownerUid);
     }
 
@@ -628,7 +635,13 @@ public class GatewayService {
         // the resolved identity's tenant by hand. A non-admin caller (tenant in context) may
         // only resolve identities in their own tenant or the shared PUBLIC tenant; anything
         // else is reported as "not found" so cross-tenant identities can't be enumerated.
-        if (owner != null && isCrossTenant(owner)) {
+        // ИСКЛЮЧЕНИЕ («Услуги и быт», три личности): активная заявка сканирующего, назначенная
+        // на отсканированную личность, легитимирует резолв через границу тенантов — заказчика
+        // и исполнителя из тенанта УК связывает управляемая заявка, а не общий тенант.
+        Interaction visitOrder = owner != null
+                ? serviceOrderService.activeVisitOrder(scanner.getIdentityUid(), owner.getIdentityUid())
+                : null;
+        if (owner != null && visitOrder == null && isCrossTenant(owner)) {
             owner = null;
         }
         if (owner == null) {
@@ -658,6 +671,14 @@ public class GatewayService {
         //     + Owner-Approval-запрос на полный профиль.
         // Контекст = роль × рабочий режим: тот же врач вне смены — просто гражданин.
         // ==============================================================
+        // СЦЕНАРИЙ «УСЛУГИ И БЫТ» (три личности): заказчик сканирует QR пришедшего исполнителя —
+        // это сверка личности (чужой QR контекста не даст) + кнопка подтверждения (приход или
+        // «выполнено и оплачено»). Приоритет над ролевой маршрутизацией: заказчик со спецролью
+        // всё равно видит СВОЮ заявку, а не проф-представление.
+        if (visitOrder != null) {
+            return scanServiceVisit(scanner, owner, visitOrder);
+        }
+
         boolean scannerWorking = sessionService.current(scanner.getIdentityUid()).getMode() == SessionMode.WORKING;
         java.util.Set<com.ideaqr.gateway.domain.enums.RoleType> scannerRoles = scanner.getRoles();
         if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.DOCTOR)) {
@@ -670,6 +691,12 @@ public class GatewayService {
         if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.POLICE)) {
             return scanRoutedToDossier(scanner, owner,
                     CitizenDossierService.legalUidFor(owner.getIdentityUid()), "LEGAL");
+        }
+        // СЦЕНАРИЙ «БИЗНЕС И МАГАЗИНЫ»: кассир при исполнении сканирует QR покупателя и видит
+        // ТОЛЬКО его открытые покупки (корзина + «оплачен, не выдан») — минимальный доступ по
+        // роли. Кассир вне смены — просто гражданин: скан уходит в обычную визитку ниже.
+        if (scannerWorking && scannerRoles.contains(com.ideaqr.gateway.domain.enums.RoleType.CASHIER)) {
+            return scanRetailCheckout(scanner, owner);
         }
 
         String reason = "Визитка открыта. Запрос на полный профиль отправлен владельцу.";
@@ -837,6 +864,166 @@ public class GatewayService {
                 .contextView("PRESCRIPTIONS")
                 .subjectName(displayName(owner.getIdentityUid()))
                 .identityUid(scanner.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
+                .requestUid(req.getRequestUid().toString())
+                .decisionUid(decision.getDecisionUid().toString())
+                .interactionUid(interaction.getInteractionUid().toString())
+                .historyUid(history.getHistoryUid().toString())
+                .build();
+    }
+
+    /**
+     * СЦЕНАРИЙ «УСЛУГИ И БЫТ» (три личности) — заказчик отсканировал личный QR исполнителя,
+     * назначенного на его активную заявку. Скан = сверка личности: платформа подтверждает,
+     * что человек у двери — именно назначенный исполнитель, и отдаёт его карточку (ФИО,
+     * организация, телефон, доверие) + доступное действие: «подтвердить приход» (стадия
+     * ASSIGNED) или «подтвердить и оплатить» (стадия IN_PROGRESS). Само подтверждение —
+     * отдельный явный вызов ({@code /api/v2/services/{id}/arrival|complete}), где сервер
+     * повторно сверяет отсканированный uid; чужой QR этого контекста не даёт вовсе.
+     */
+    @Transactional
+    public GatewayResponse scanServiceVisit(Identity customer, Identity executor, Interaction order) {
+        ensureDossier(executor);
+        Map<String, Object> orderRow = serviceOrderService.visitPayload(order);
+        boolean arrival = "CONFIRM_ARRIVAL".equals(orderRow.get("action"));
+        String reason = arrival
+                ? "Личность подтверждена: это назначенный исполнитель по вашей заявке. Подтвердите приход."
+                : "Личность подтверждена. Работа завершена? Подтвердите выполнение и оплатите.";
+
+        Organization actingOrg = organizationService.resolveActingOrganization(customer.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(customer.getIdentityUid())
+                .organizationUid(organizationUid)
+                .objectUid(order.getObjectUid())
+                .requestType(RequestType.ACCESS)
+                .status(RequestStatus.PENDING)
+                .build());
+        Decision decision = decisionRepository.save(Decision.builder()
+                .requestUid(req.getRequestUid())
+                .identityUid(customer.getIdentityUid())
+                .outcome(DecisionOutcome.APPROVED)
+                .reasonCode("SERVICE_VISIT_VERIFIED")
+                .reason(reason)
+                .riskLevel("LOW")
+                .build());
+        Interaction interaction = interactionRepository.save(Interaction.builder()
+                .identityUid(customer.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .objectUid(order.getObjectUid())
+                .targetIdentityUid(executor.getIdentityUid())
+                .interactionType("SERVICE_VISIT")
+                .detail("Сверка личности исполнителя " + displayName(executor.getIdentityUid())
+                        + " по заявке «" + orderRow.getOrDefault("label", order.getObjectUid()) + "»")
+                .build());
+        req.setStatus(RequestStatus.PROCESSED);
+        requestRepository.save(req);
+        History history = auditService.record(customer.getIdentityUid(), order.getObjectUid(),
+                HistoryEventType.ACCESS_GRANTED, reason,
+                req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+        eventService.record(EventType.QR_VIEWED, customer.getIdentityUid(), order.getObjectUid(),
+                interaction.getInteractionUid(), "Сверка исполнителя по QR", EventSource.QR_SCAN);
+
+        // Карточка исполнителя для заказчика: публичная визитка + организация + профессия.
+        Map<String, Object> executorCard = publicBusinessCard(executor);
+        userRepository.findByIdentityUid(executor.getIdentityUid())
+                .ifPresent(u -> executorCard.put("profession", u.getProfession()));
+        Organization executorOrg = organizationService.resolveActingOrganization(executor.getIdentityUid());
+        if (executorOrg != null) {
+            executorCard.put("organization", executorOrg.getName());
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("executor", executorCard);
+        data.put("executorUid", executor.getIdentityUid().toString());
+        data.put("order", orderRow);
+
+        return GatewayResponse.builder()
+                .success(true)
+                .outcome(DecisionOutcome.APPROVED.name())
+                .reason(reason)
+                .riskLevel("LOW")
+                .category("IDENTITY")
+                .objectUid(order.getObjectUid())
+                .data(data)
+                .contextView("SERVICE_VISIT")
+                .subjectName(displayName(executor.getIdentityUid()))
+                .identityUid(customer.getIdentityUid().toString())
+                .organizationUid(organizationUid != null ? organizationUid.toString() : null)
+                .organizationName(actingOrg != null ? actingOrg.getName() : null)
+                .requestUid(req.getRequestUid().toString())
+                .decisionUid(decision.getDecisionUid().toString())
+                .interactionUid(interaction.getInteractionUid().toString())
+                .historyUid(history.getHistoryUid().toString())
+                .build();
+    }
+
+    /**
+     * СЦЕНАРИЙ «БИЗНЕС И МАГАЗИНЫ» — кассир при исполнении отсканировал личный QR покупателя.
+     * Ворота {@link ValidationService#retailCheckout} (роль + доверие + рабочий режим + время);
+     * при успехе кассиру открывается ТОЛЬКО чек клиента: корзина и «оплачен, но не выдан» с
+     * итогами — ни профиля, ни истории (минимальный доступ по роли). Скан фиксируется в
+     * журнале, покупатель видит его в «кто сканировал меня» (target = покупатель).
+     */
+    @Transactional
+    public GatewayResponse scanRetailCheckout(Identity cashier, Identity customer) {
+        String qrValue = IDENTITY_PREFIX + customer.getIdentityUid();
+        Organization actingOrg = organizationService.resolveActingOrganization(cashier.getIdentityUid());
+        UUID organizationUid = actingOrg != null ? actingOrg.getOrganizationUid() : null;
+        ValidationService.Verdict verdict = validationService.retailCheckout(
+                cashier, true, devTimeService.currentMockHour());
+        boolean approved = verdict.outcome() == DecisionOutcome.APPROVED;
+
+        RequestRecord req = requestRepository.save(RequestRecord.builder()
+                .identityUid(cashier.getIdentityUid())
+                .organizationUid(organizationUid)
+                .objectUid(qrValue)
+                .requestType(RequestType.ACCESS)
+                .status(RequestStatus.PENDING)
+                .build());
+        Decision decision = decisionRepository.save(Decision.builder()
+                .requestUid(req.getRequestUid())
+                .identityUid(cashier.getIdentityUid())
+                .outcome(verdict.outcome())
+                .reasonCode(verdict.reasonCode())
+                .reason(verdict.reason())
+                .riskLevel(verdict.riskLevel())
+                .build());
+        Interaction interaction = interactionRepository.save(Interaction.builder()
+                .identityUid(cashier.getIdentityUid())
+                .requestUid(req.getRequestUid())
+                .objectUid(qrValue)
+                .targetIdentityUid(customer.getIdentityUid())
+                .interactionType("RETAIL_CHECKOUT")
+                .detail("Касса: просмотр открытых покупок клиента "
+                        + displayName(customer.getIdentityUid()) + " → " + verdict.outcome().name())
+                .build());
+        req.setStatus(approved ? RequestStatus.PROCESSED : RequestStatus.FAILED);
+        requestRepository.save(req);
+        History history = auditService.record(cashier.getIdentityUid(), qrValue,
+                approved ? HistoryEventType.ACCESS_GRANTED : HistoryEventType.ACCESS_DENIED,
+                verdict.reason(), req.getRequestUid(), decision.getDecisionUid(), interaction.getInteractionUid());
+        eventService.record(approved ? EventType.DECISION_APPROVED : EventType.DECISION_REJECTED,
+                cashier.getIdentityUid(), qrValue, interaction.getInteractionUid(),
+                "Кассовый скан QR покупателя → " + verdict.outcome().name(), EventSource.QR_SCAN);
+
+        Map<String, Object> data = null;
+        if (approved) {
+            data = retailCheckoutService.checkoutView(cashier, customer.getIdentityUid());
+            data.put("scope", "Минимальный доступ по роли: только открытые покупки (корзина и «оплачен, не выдан»).");
+        }
+
+        return GatewayResponse.builder()
+                .success(approved)
+                .outcome(verdict.outcome().name())
+                .reason(verdict.reason())
+                .riskLevel(verdict.riskLevel())
+                .category("IDENTITY")
+                .objectUid(qrValue)
+                .data(data)
+                .contextView("RETAIL_CHECKOUT")
+                .subjectName(displayName(customer.getIdentityUid()))
+                .identityUid(cashier.getIdentityUid().toString())
                 .organizationUid(organizationUid != null ? organizationUid.toString() : null)
                 .organizationName(actingOrg != null ? actingOrg.getName() : null)
                 .requestUid(req.getRequestUid().toString())

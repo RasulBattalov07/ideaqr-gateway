@@ -36,10 +36,12 @@ import java.util.UUID;
  * missing dossiers are provisioned), so a stale deployment self-heals to demo-ready.
  *
  * <ul>
- *   <li><b>Accounts:</b> nine demo users; every specialist (doctor, pharmacist, inspector,
- *       police, operator, seller, admin) gets an ACTIVE {@code OrganizationMembership} —
- *       without one a specialist role is inert (working mode, and thus every professional
- *       gate, requires ACTIVE membership).</li>
+ *   <li><b>Accounts:</b> eleven demo users; every specialist (doctor, pharmacist, inspector,
+ *       police, operator, executor, cashier, seller, admin) gets an ACTIVE
+ *       {@code OrganizationMembership} — without one a specialist role is inert (working
+ *       mode, and thus every professional gate, requires ACTIVE membership). Executor
+ *       (универсальный исполнитель) and cashier drive the three-party household-services
+ *       and retail-checkout demos.</li>
  *   <li><b>Citizen dossiers (Phase 2):</b> MED-/LEGAL-/VCARD- registry objects for each
  *       account, public tenant, plus a starter prescription so the pharmacist demo works
  *       out of the box.</li>
@@ -105,9 +107,17 @@ public class DataSeeder implements CommandLineRunner {
         // Phase 2 (контекстный QR): полицейский видит по личному QR правовое досье.
         seed("police", "Police123!", "Нурлан", "Тлеубаев", "EMPLOYED",
                 UserService.PROFESSION_POLICE, police, "POLICE");
-        // Двусторонний флоу «Услуги и быт» (P0): исполнитель, разбирающий очередь бытовых заявок.
+        // Трёхсторонний флоу «Услуги и быт»: оператор-диспетчер назначает исполнителя,
+        // универсальный исполнитель (сантехник/электрик/уборка — одна роль) выезжает,
+        // заказчик сверяет его личность сканом QR и подтверждает приход/оплату.
         seed("operator", "Operator123!", "Багдат", "Жумабаев", "EMPLOYED",
                 UserService.PROFESSION_SERVICE_OPERATOR, comfort, "SERVICE_OPERATOR");
+        seed("executor", "Executor123!", "Арман", "Бекетов", "EMPLOYED",
+                UserService.PROFESSION_EXECUTOR, comfort, "EXECUTOR");
+        // Розничный чек-аут «Бизнес и магазины»: кассир сканирует QR покупателя, видит
+        // корзину и «оплачен, но не выдан», принимает оплату и выдаёт (передача владения).
+        User cashier = seed("cashier", "Cashier123!", "Динара", "Ким", "EMPLOYED",
+                UserService.PROFESSION_CASHIER, retail, "CASHIER");
         User citizen = seed("citizen", "Citizen123!", "Дамир", "Оспанов", "UNEMPLOYED",
                 UserService.PROFESSION_CITIZEN, null, null);
 
@@ -125,6 +135,13 @@ public class DataSeeder implements CommandLineRunner {
             seedPersonalItems(citizen.getIdentityUid());
         }
 
+        // СЦЕНАРИЙ «БИЗНЕС И МАГАЗИНЫ»: витрина демо-магазина — товары с ценой и forSale,
+        // владелец — кассир (склад магазина), публичный тенант. Покупатель сканирует товар
+        // («Оплатить на месте» / «В корзину»), кассир сканирует покупателя и выдаёт.
+        if (cashier != null) {
+            seedShopItems(cashier.getIdentityUid());
+        }
+
         // Phase 2 (единый QR): каждому демо-гражданину — полный цифровой пакет (медкарта,
         // правовое досье, визитка). Выполняется вне тенант-контекста, объекты — публичные.
         seedDossiers();
@@ -138,7 +155,7 @@ public class DataSeeder implements CommandLineRunner {
     /** Идемпотентно доукомплектовывает досье всем демо-аккаунтам (включая «Айдоса»). */
     private void seedDossiers() {
         for (String username : new String[]{"admin", "seller", "doctor", "pharmacist",
-                "inspector", "police", "operator", "citizen", "aidos"}) {
+                "inspector", "police", "operator", "executor", "cashier", "citizen", "aidos"}) {
             userRepository.findByUsername(username).ifPresent(u ->
                     identityRepository.findById(u.getIdentityUid()).ifPresent(identity ->
                             citizenDossierService.ensureFor(u, identity, null)));
@@ -233,6 +250,13 @@ public class DataSeeder implements CommandLineRunner {
         seedItem("ITEM_FRIDGE_SAMSUNG", "Холодильник Samsung RB37 No Frost", FRIDGE_JSON, citizenIdentityUid);
     }
 
+    /** Витрина демо-магазина: продаваемые через кассу товары (forSale + цена), владелец — кассир. */
+    private void seedShopItems(UUID cashierIdentityUid) {
+        seedItem("SHOP_TSHIRT_UNIQLO", "Футболка Uniqlo U Crew (белая)", SHOP_TSHIRT_JSON, cashierIdentityUid);
+        seedItem("SHOP_JEANS_LEVIS", "Джинсы Levi's 501 Original", SHOP_JEANS_JSON, cashierIdentityUid);
+        seedItem("SHOP_SNEAKERS_NB", "Кроссовки New Balance 574", SHOP_SNEAKERS_JSON, cashierIdentityUid);
+    }
+
     private void seedItem(String objectUid, String displayName, String json, UUID ownerIdentityUid) {
         if (registryObjectRepository.findByObjectUidAnyTenant(objectUid).isPresent()) {
             return;
@@ -283,6 +307,60 @@ public class DataSeeder implements CommandLineRunner {
                 "Класс энергии": "A+",
                 "Гарантия": "до 01.11.2027",
                 "Серийный №": "0D2G4-77H1"
+              }
+            }
+            """;
+
+    private static final String SHOP_TSHIRT_JSON = """
+            {
+              "productName": "Футболка Uniqlo U Crew (белая)",
+              "brand": "Uniqlo", "sku": "U-CREW-2026-M",
+              "itemType": "CLOTHING",
+              "price": 4990, "currency": "₸",
+              "forSale": true,
+              "store": "IDEAQR Store · ТРЦ Керуен",
+              "rating": 4.6, "reviews": 214,
+              "description": "Базовая футболка из плотного хлопка, белая, унисекс.",
+              "details": {
+                "Размер": "M",
+                "Материал": "100% хлопок",
+                "Уход": "Стирка 30°"
+              }
+            }
+            """;
+
+    private static final String SHOP_JEANS_JSON = """
+            {
+              "productName": "Джинсы Levi's 501 Original",
+              "brand": "Levi's", "sku": "501-0193-W32",
+              "itemType": "CLOTHING",
+              "price": 24990, "currency": "₸",
+              "forSale": true,
+              "store": "IDEAQR Store · ТРЦ Керуен",
+              "rating": 4.8, "reviews": 689,
+              "description": "Классические прямые джинсы, тёмно-синие, посадка Original Fit.",
+              "details": {
+                "Размер": "W32 L32",
+                "Материал": "99% хлопок · 1% эластан",
+                "Цвет": "Тёмно-синий"
+              }
+            }
+            """;
+
+    private static final String SHOP_SNEAKERS_JSON = """
+            {
+              "productName": "Кроссовки New Balance 574",
+              "brand": "New Balance", "sku": "ML574EVG-42",
+              "itemType": "FOOTWEAR",
+              "price": 39990, "currency": "₸",
+              "forSale": true,
+              "store": "IDEAQR Store · ТРЦ Керуен",
+              "rating": 4.7, "reviews": 502,
+              "description": "Классические кроссовки, замша и сетка, цвет серый.",
+              "details": {
+                "Размер": "42",
+                "Материал": "Замша · текстиль",
+                "Цвет": "Серый"
               }
             }
             """;

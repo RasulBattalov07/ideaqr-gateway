@@ -134,6 +134,38 @@ class EgovOnboardingTest {
     }
 
     @Test
+    void formLoginAcceptsPhoneShapedIdentifier() throws Exception {
+        // Аккаунт с username = нормализованный номер (как у eGov-аккаунтов), но с ИЗВЕСТНЫМ
+        // паролем: проверяем, что formLogin резолвит «+7 703 111-22-33» в этот username.
+        mvc.perform(post("/api/auth/register").with(csrf())
+                        .header("X-Forwarded-For", "10.77.0.5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"77031112233\",\"password\":\"PhonePass123456\","
+                                + "\"firstName\":\"Тест\",\"lastName\":\"Телефонов\","
+                                + "\"employmentStatus\":\"UNEMPLOYED\",\"profession\":\"CITIZEN\"}"))
+                .andExpect(status().isCreated());
+
+        var loggedIn = mvc.perform(post("/login").with(csrf())
+                        .header("X-Forwarded-For", "10.77.0.5")
+                        .param("username", "+7 703 111-22-33")
+                        .param("password", "PhonePass123456"))
+                .andExpect(status().isOk())
+                .andReturn();
+        var sessionCookie = loggedIn.getResponse().getCookie("JSESSIONID");
+        assertThat(sessionCookie).as("phone-form login must open a session").isNotNull();
+        mvc.perform(get("/api/auth/me").cookie(sessionCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("77031112233"));
+
+        // Буквенно-цифровой идентификатор НЕ переинтерпретируется по содержащимся цифрам.
+        mvc.perform(post("/login").with(csrf())
+                        .header("X-Forwarded-For", "10.77.0.6")
+                        .param("username", "user77031112233")
+                        .param("password", "PhonePass123456"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void invalidPhoneIsRejectedWithLocalizedError() throws Exception {
         mvc.perform(post("/api/auth/egov/lookup").with(csrf())
                         .header("X-Forwarded-For", "10.77.0.4")

@@ -32,6 +32,9 @@ public interface InteractionRepository extends JpaRepository<Interaction, UUID> 
     /** Typed interactions of one identity (e.g. household SERVICE_ORDER rows), newest first. */
     List<Interaction> findByIdentityUidAndInteractionTypeOrderByCreatedAtDesc(UUID identityUid, String interactionType);
 
+    /** «Мои наряды» исполнителя: типизированные interaction'ы, адресованные ему как второй стороне. */
+    List<Interaction> findByTargetIdentityUidAndInteractionTypeOrderByCreatedAtDesc(UUID targetIdentityUid, String interactionType);
+
     /**
      * Executor queue: every interaction of a given type platform-wide, newest first.
      * Interaction carries no tenant column, so an operator from a service-company tenant

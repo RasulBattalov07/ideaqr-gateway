@@ -23,6 +23,12 @@ public enum RoleType {
     // function needs once the data owner has granted access.
     PHARMACIST,       // prescriptions and appointments only — not the full medical card
     SELLER,           // order / delivery data only
-    SERVICE_OPERATOR, // client service requests only
-    POLICE            // legal dossier (criminal record, fines) only — on duty, working hours
+    SERVICE_OPERATOR, // dispatcher of household service orders (assigns executors)
+    POLICE,           // legal dossier (criminal record, fines) only — on duty, working hours
+
+    // Трёхсторонние сценарии (V10): универсальный исполнитель бытовых заявок
+    // (сантехник/электрик/уборка — одна роль без разделения) и кассир магазина
+    // (видит корзину/оплаченные товары клиента по его личному QR).
+    EXECUTOR,
+    CASHIER
 }
