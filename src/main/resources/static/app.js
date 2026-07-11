@@ -935,6 +935,9 @@
             { role: 'Фармацевт', user: 'pharmacist', pass: 'Pharma123!', badge: 'user' },
             { role: 'Полицейский', user: 'police', pass: 'Police123!', badge: 'user' },
             { role: 'Инспектор', user: 'inspector', pass: 'Inspect123!', badge: 'user' },
+            { role: 'Оператор (диспетчер)', user: 'operator', pass: 'Operator123!', badge: 'user' },
+            { role: 'Исполнитель', user: 'executor', pass: 'Executor123!', badge: 'user' },
+            { role: 'Кассир', user: 'cashier', pass: 'Cashier123!', badge: 'user' },
             { role: 'Гражданин', user: 'citizen', pass: 'Citizen123!', badge: 'user' }
         ];
         const credBox = document.getElementById('demo-creds');
