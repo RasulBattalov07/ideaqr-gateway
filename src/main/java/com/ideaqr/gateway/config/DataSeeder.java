@@ -15,7 +15,6 @@ import com.ideaqr.gateway.repository.IdentityRepository;
 import com.ideaqr.gateway.repository.RegistryObjectRepository;
 import com.ideaqr.gateway.repository.UserRepository;
 import com.ideaqr.gateway.service.IdentityService;
-import com.ideaqr.gateway.service.ModuleService;
 import com.ideaqr.gateway.service.OrganizationService;
 import com.ideaqr.gateway.service.QrService;
 import com.ideaqr.gateway.service.UserService;
@@ -45,6 +44,8 @@ import java.util.UUID;
  *   <li><b>Citizen dossiers (Phase 2):</b> MED-/LEGAL-/VCARD- registry objects for each
  *       account, public tenant, plus a starter prescription so the pharmacist demo works
  *       out of the box.</li>
+ *   <li><b>Starter service order:</b> one open PLUMBER заявка from the citizen so the
+ *       operator's dispatch queue is populated on first login (assign → arrival → pay).</li>
  *   <li><b>Universal object governance:</b> OWNED demo items — Toyota Camry (owner: admin)
  *       and the citizen's personal jacket + fridge (P2P owner-consent, AI card, police
  *       disclosure demos) — as real DB rows in the public tenant. UNOWNED showcase items
@@ -71,21 +72,13 @@ public class DataSeeder implements CommandLineRunner {
     private final UserService userService;
     private final QrService qrService;
     private final OrganizationService organizationService;
-    private final ModuleService moduleService;
     private final PasswordEncoder passwordEncoder;
     private final com.ideaqr.gateway.service.CitizenDossierService citizenDossierService;
     private final com.ideaqr.gateway.service.MedicalService medicalService;
+    private final com.ideaqr.gateway.service.ServiceOrderService serviceOrderService;
 
     @Override
     public void run(String... args) {
-        // Base MVP modules (spheres of interaction shown in the admin panel).
-        moduleService.ensureModule("USERS", "Пользователи", "Цифровые личности и их основные QR.");
-        moduleService.ensureModule("SERVICES", "Услуги и быт", "Бытовые услуги по заявке (Request → Decision → Interaction).");
-        moduleService.ensureModule("GOODS", "Товары", "Карточки товаров, происхождение, цены и отзывы.");
-        moduleService.ensureModule("MEDICINE", "Медицина", "Медицинские услуги и доступ к карте по разрешению.");
-        moduleService.ensureModule("INFRASTRUCTURE", "Инфраструктура", "Объекты инфраструктуры и доступ по политикам.");
-        moduleService.ensureModule("EDUCATION", "Образование", "Документы и студенческие билеты (интеграция с вузами).");
-
         Organization hospital = organizationService.ensureOrganization("Городская больница", "MEDICAL");
         Organization grid = organizationService.ensureOrganization("АО «Астана-РЭК»", "INFRASTRUCTURE");
         Organization retail = organizationService.ensureOrganization("IDEAQR Retail", "RETAIL");
@@ -150,6 +143,11 @@ public class DataSeeder implements CommandLineRunner {
         if (citizen != null) {
             seedDemoPrescription(citizen);
         }
+        // Стартовая заявка «Услуги и быт»: диспетчерская оператора не пуста на первом
+        // показе — оператор сразу назначает исполнителя, без ручного шага заказчика.
+        if (citizen != null) {
+            seedDemoServiceOrder(citizen);
+        }
     }
 
     /** Идемпотентно доукомплектовывает досье всем демо-аккаунтам (включая «Айдоса»). */
@@ -177,6 +175,35 @@ public class DataSeeder implements CommandLineRunner {
             log.info("DataSeeder: seeded demo prescription on {}.", medUid);
         } catch (Exception e) {
             log.warn("DataSeeder: demo prescription skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Первая заявка гражданина на услугу (сантехник) — штатным конвейером
+     * {@link com.ideaqr.gateway.service.ServiceOrderService#order}, как если бы её оформил
+     * сам заказчик: Request(SERVICE_ORDER) → Decision → Interaction(stage NEW) → History →
+     * уведомление. Идемпотентно: если у гражданина уже есть хоть одна заявка (в т.ч. с
+     * прошлого показа), новая не создаётся. Тенант-контекст — публичный, как в живой сессии
+     * гражданина, чтобы журнальные записи легли в его тенант.
+     */
+    private void seedDemoServiceOrder(User citizen) {
+        try {
+            Identity identity = identityRepository.findById(citizen.getIdentityUid()).orElse(null);
+            if (identity == null) {
+                return;
+            }
+            TenantContext.setTenantId(TenantContext.PUBLIC_TENANT);
+            try {
+                if (!serviceOrderService.mine(identity).isEmpty()) {
+                    return;
+                }
+                serviceOrderService.order(identity, "PLUMBER", "Течёт смеситель на кухне");
+                log.info("DataSeeder: seeded demo service order (PLUMBER) for the operator queue.");
+            } finally {
+                TenantContext.clear();
+            }
+        } catch (Exception e) {
+            log.warn("DataSeeder: demo service order skipped: {}", e.getMessage());
         }
     }
 
